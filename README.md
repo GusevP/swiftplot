@@ -2,12 +2,12 @@
 
 Small, fast charts on Canvas 2D and WebGL2. MIT, TypeScript, ESM only, no dependencies.
 
-**Status: prototype.** It draws step lines, step bands, tick marks and scatter dots, with a hover tooltip and dim-the-others on hover. There is no zoom, pan, legend, animation, time axis or data update yet.
+**Status: prototype.** It draws step lines, step areas, tick marks and scatter dots, with a hover tooltip and dim-the-others on hover. A chart can be updated and follows its container when no size is given. There is no zoom, pan, legend, animation or time axis yet.
 
 ## Use
 
 ```ts
-import { plot } from 'swiftplot';
+import { dots, plot, tooltip } from 'swiftplot';
 
 const chart = plot(document.getElementById('chart')!, {
   width: 900,
@@ -15,15 +15,20 @@ const chart = plot(document.getElementById('chart')!, {
   margin: { top: 20, right: 20, bottom: 44, left: 56 },
   x: { domain: 'nice', label: 'X' },
   y: { domain: 'nice', label: 'Y' },
-  marks: [{ type: 'dots', x, y, r, color: '#2563eb', alpha: 0.7, label: 'Group 1' }],
-  tooltip: { mode: 'nearest', text: (label, x, y) => `${label}: (${x.toFixed(1)}, ${y.toFixed(1)})` },
+  marks: [dots({ x, y, r, color: '#2563eb', alpha: 0.7, label: 'Group 1' })],
+  use: [tooltip({ mode: 'nearest', text: (label, x, y) => `${label}: (${x.toFixed(1)}, ${y.toFixed(1)})` })],
   dim: 0.3,
 });
 
+chart.update({ marks: [dots({ x, y: y2, r, color: '#2563eb', label: 'Group 1' })] });
 chart.destroy();
 ```
 
-Columns (`x`, `y`, `r`) are typed arrays or plain number arrays, one set per mark.
+- **Marks** are imported functions: `line`, `area`, `ticks`, `dots`. Only the ones you import are bundled.
+- **Columns** (`x`, `y`, `r`) are typed arrays or plain number arrays, one set per mark.
+- **Size**: leave out `width` or `height` and the chart follows its container, which must then have a size of its own (a container with no height gives an empty chart).
+- **Updates**: a mark whose options are unchanged keeps its geometry, so passing a fresh `marks` array is cheap. Columns are compared by identity: after writing new values into the same array, pass a new array or view of it (`x.subarray(0)`).
+- **Your own mark** is an object with the `Mark` shape from the package's types.
 
 ## Why it is fast
 
@@ -51,11 +56,16 @@ Mount time in chart-bench, median ms over nine loads, 2026-11-20, Apple M3 Pro t
 
 - The 100k scatter runs on WebGL, where the draw call returns before the GPU finishes. Forcing the GPU to finish gave 31.3 ms native and 81.4 ms at 4×.
 - uPlot has no built-in scatter, so its scatter numbers include circle-drawing code written for the benchmark.
-- uPlot ships far more features in its 23.9 KB gzip; this prototype is about 4 KB because it does much less.
+- uPlot ships far more features in its 23.9 KB gzip; this prototype is about 5 KB because it does much less.
 
 ## Develop
 
 ```sh
 pnpm install
+pnpm exec playwright install chromium   # once, for the tests
 pnpm build
+pnpm test        # Vitest in a real browser
+pnpm typecheck
+pnpm lint        # oxlint, type-aware
+pnpm format      # oxfmt
 ```

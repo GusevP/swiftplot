@@ -16,12 +16,20 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsc",
+    "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
-    "format": "prettier --write ."
+    "lint": "oxlint --type-aware --deny-warnings",
+    "format": "oxfmt",
+    "format:check": "oxfmt --check",
+    "test": "vitest run"
   },
   "devDependencies": {
-    "prettier": "^3.9.10",
-    "typescript": "^5.9.3"
+    "@vitest/browser-playwright": "^5.1.1",
+    "oxfmt": "0.79.0",
+    "oxlint": "^1.94.0",
+    "oxlint-tsgolint": "^7.0.2007",
+    "playwright": "^1.65.1",
+    "typescript": "^7.0.2",
+    "vitest": "^5.1.1"
   }
 }
