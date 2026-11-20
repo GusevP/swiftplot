@@ -1,5 +1,5 @@
-import { extent, niceStep } from '../scale.js';
-import type { Axis, Col, Resolved } from '../types.js';
+import { niceStep, thin } from '../scale.js';
+import type { Axis, Resolved, Room } from '../types.js';
 
 export type TimeAxis = Axis & { utc: boolean };
 export type TimeOptions = {
@@ -17,7 +17,7 @@ const H = 36e5;
 const D = 864e5;
 const Y = 365 * D;
 // [field, count, approximate ms], field indexing [year, month, day, hour, minute, second].
-// ponytail: nothing finer than a second, and about ten ticks whatever the axis length.
+// ponytail: nothing finer than a second.
 const STEPS = [
   [5, 1, S],
   [5, 5, 5 * S],
@@ -76,11 +76,18 @@ function label([y, mo, d, h, mi, s]: number[], field: number) {
   return h || mi ? `${pad(h!)}:${pad(mi!)}` : day;
 }
 
-function resolve(axis: TimeAxis, cols: Col[]): Resolved {
-  let [lo, hi] = typeof axis.domain === 'string' ? extent(cols) : axis.domain;
+function resolve(axis: TimeAxis, extent: () => [number, number], room?: Room): Resolved {
+  const { lo, hi, ticks } = stepped(axis, typeof axis.domain === 'string' ? extent() : axis.domain, room);
+  const widest = ticks.reduce((w, t) => Math.max(w, t.label.length), 0);
+  return { lo, hi, ticks: thin(ticks, widest, room) };
+}
+
+function stepped(axis: TimeAxis, [lo, hi]: [number, number], room?: Room): Resolved {
   if (lo === hi) [lo, hi] = [lo - S, hi + S];
   const span = hi - lo;
-  const [field, count] = STEPS.find(s => span / s[2] <= 10) ?? [0, Math.max(1, niceStep(span / Y))];
+  // A time label is about seven characters, so one fits every 64 px along x.
+  const max = room ? Math.max(1, Math.min(10, Math.floor(room.length / (room.horizontal ? 64 : 22)))) : 10;
+  const [field, count] = STEPS.find(s => span / s[2] <= max) ?? [0, Math.max(1, niceStep(span / Y, max))];
 
   const { utc } = axis;
   const ticks = [];

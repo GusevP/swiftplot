@@ -3,7 +3,8 @@ import type { Feature } from '../types.js';
 export type TooltipOptions =
   /** One row per labelled mark that can be sampled at the pointer's x, with a crosshair. */
   | { mode: 'x'; title: (x: number) => string; value: (y: number) => string }
-  | { mode: 'nearest'; text: (label: string, x: number, y: number) => string };
+  /** x and y are where the mark says it was hit; row is its row there, to look up anything else. */
+  | { mode: 'nearest'; text: (label: string, x: number, y: number, row?: number) => string };
 
 type Row = { text: string; color?: string };
 
@@ -53,7 +54,7 @@ export function tooltip(t: TooltipOptions): Feature {
           hit.row === undefined ? undefined : { mark: hit.mark, row: hit.row },
         );
         show(chart.xPx(hit.x), chart.yPx(hit.y), [
-          { text: t.text(hit.mark.label ?? '', hit.x, hit.y), color: hit.mark.color },
+          { text: t.text(hit.mark.label ?? '', hit.x, hit.y, hit.row), color: hit.mark.color },
         ]);
         return;
       }

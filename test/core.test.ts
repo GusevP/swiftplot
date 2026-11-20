@@ -57,6 +57,7 @@ const pile = (n: number, color = RED) =>
   });
 
 afterEach(() => {
+  vi.restoreAllMocks();
   vi.useRealTimers();
   document.body.replaceChildren();
 });
@@ -74,12 +75,12 @@ test('columns keeps the min, max and last y of each pixel column', () => {
 });
 
 test('a nice domain widens to whole steps and an explicit one is kept', () => {
-  expect(scale('nice', [[3, 97]])).toEqual({
+  expect(scale('nice', [3, 97])).toEqual({
     lo: 0,
     hi: 100,
     ticks: [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100],
   });
-  expect(scale([0, 1], [[5, 50]])).toEqual({
+  expect(scale([0, 1], [5, 50])).toEqual({
     lo: 0,
     hi: 1,
     ticks: [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1],
@@ -194,7 +195,7 @@ test('dots on WebGL land on the same pixels as on canvas, also after a resize', 
 });
 
 test('a flat series gets a domain with room around it', () => {
-  expect(scale('nice', [[5, 5]])).toEqual({
+  expect(scale('nice', [5, 5])).toEqual({
     lo: 2.5,
     hi: 7.5,
     ticks: [2.5, 3, 3.5, 4, 4.5, 5, 5.5, 6, 6.5, 7, 7.5],
@@ -231,7 +232,7 @@ test('every mark a chart has held is released once, also those replaced while it
 
 test('axis labels move with the domain even when the ticks stay the same', () => {
   const el = host();
-  const chart = plot(el, { ...frame, x: { domain: [0.1, 9.9], label: '' }, marks: [] });
+  const chart = plot(el, { ...frame, width: 700, x: { domain: [0.1, 9.9], label: '' }, marks: [] });
   const left = () => [...el.querySelectorAll('div')].find(e => e.textContent === '2')!.style.left;
   const before = left();
   chart.update({ x: { domain: [0.2, 9.8], label: '' } });
@@ -487,12 +488,12 @@ test('the nearest tooltip finds a bar under the pointer, and a dot on the bar wi
 });
 
 test("a 'data' domain keeps the exact extent and ticks inside it", () => {
-  expect(scale('data', [[3, 97]])).toEqual({ lo: 3, hi: 97, ticks: [10, 20, 30, 40, 50, 60, 70, 80, 90] });
+  expect(scale('data', [3, 97])).toEqual({ lo: 3, hi: 97, ticks: [10, 20, 30, 40, 50, 60, 70, 80, 90] });
 });
 
 test('time ticks fall on calendar boundaries and name the day at midnight', () => {
   const axis = time({ label: '' });
-  const hours = axis.scale!(axis, [[Date.UTC(2026, 0, 1), Date.UTC(2026, 0, 2)]]);
+  const hours = axis.scale!(axis, () => [Date.UTC(2026, 0, 1), Date.UTC(2026, 0, 2)]);
   expect(hours.ticks.map(t => t.label)).toEqual([
     'Jan 1',
     '03:00',
@@ -505,17 +506,17 @@ test('time ticks fall on calendar boundaries and name the day at midnight', () =
     'Jan 2',
   ]);
 
-  const months = axis.scale!(axis, [[Date.UTC(2025, 10, 15), Date.UTC(2026, 3, 15)]]);
+  const months = axis.scale!(axis, () => [Date.UTC(2025, 10, 15), Date.UTC(2026, 3, 15)]);
   expect(months.ticks.map(t => t.label)).toEqual(['Dec', '2026', 'Feb', 'Mar', 'Apr']);
   expect(months.ticks.map(t => t.value)).toEqual([11, 12, 13, 14, 15].map(m => Date.UTC(2025, m, 1)));
 
-  const years = axis.scale!(axis, [[Date.UTC(2023, 5, 1), Date.UTC(2029, 5, 1)]]);
+  const years = axis.scale!(axis, () => [Date.UTC(2023, 5, 1), Date.UTC(2029, 5, 1)]);
   expect(years.ticks.map(t => t.label)).toEqual(['2024', '2025', '2026', '2027', '2028', '2029']);
   expect(years.ticks.map(t => t.value)).toEqual(
     [2024, 2025, 2026, 2027, 2028, 2029].map(y => Date.UTC(y, 0, 1)),
   );
 
-  const leap = axis.scale!(axis, [[Date.UTC(2024, 1, 20), Date.UTC(2024, 2, 5)]]);
+  const leap = axis.scale!(axis, () => [Date.UTC(2024, 1, 20), Date.UTC(2024, 2, 5)]);
   expect(leap.ticks.map(t => t.label)).toEqual([
     'Feb 21',
     'Feb 23',
@@ -530,24 +531,24 @@ test('time ticks fall on calendar boundaries and name the day at midnight', () =
   const early = new Date(0);
   early.setUTCFullYear(50, 0, 1);
   early.setUTCDate(15);
-  const year50 = axis.scale!(axis, [[early.getTime(), early.getTime() + 90 * 864e5]]);
+  const year50 = axis.scale!(axis, () => [early.getTime(), early.getTime() + 90 * 864e5]);
   expect(year50.ticks.map(t => t.label)).toEqual(['Feb', 'Mar', 'Apr']);
   expect(new Date(year50.ticks[0]!.value).getUTCFullYear()).toBe(50);
 
-  const weeks = axis.scale!(axis, [[Date.UTC(2026, 0, 20), Date.UTC(2026, 1, 20)]]);
+  const weeks = axis.scale!(axis, () => [Date.UTC(2026, 0, 20), Date.UTC(2026, 1, 20)]);
   expect(weeks.ticks.map(t => t.label)).toEqual(['Jan 22', 'Jan 29', 'Feb 1', 'Feb 8', 'Feb 15']);
 });
 
 // The test browser runs in America/New_York (vitest.config.ts), where clocks went back on 2024-11-03 at 06:00 UTC.
 test('local time ticks keep both occurrences of the hour a clock change repeats', () => {
   const axis = time({ label: '', utc: false });
-  const { ticks } = axis.scale!(axis, [[Date.UTC(2024, 10, 3, 5, 10), Date.UTC(2024, 10, 3, 6, 40)]]);
+  const { ticks } = axis.scale!(axis, () => [Date.UTC(2024, 10, 3, 5, 10), Date.UTC(2024, 10, 3, 6, 40)]);
   expect(ticks.map(t => t.label)).toEqual(['01:15', '01:30', '01:45', '01:00', '01:15', '01:30']);
 });
 
 test('local time ticks sit on local clock hours', () => {
   const axis = time({ label: '', utc: false });
-  const { ticks } = axis.scale!(axis, [[Date.UTC(2026, 0, 1, 1, 20), Date.UTC(2026, 0, 2, 1, 20)]]);
+  const { ticks } = axis.scale!(axis, () => [Date.UTC(2026, 0, 1, 1, 20), Date.UTC(2026, 0, 2, 1, 20)]);
   expect(ticks.length).toBeGreaterThan(6);
   for (const t of ticks) {
     const d = new Date(t.value);
@@ -1304,7 +1305,7 @@ test('an automatic margin survives an undefined side and makes room for a long f
     return chart.margin();
   };
   const auto = margin({ margin: undefined });
-  expect(margin({ margin: { left: undefined, top: 0 } })).toEqual({ ...auto, top: 0 });
+  expect(margin({ margin: { left: undefined } })).toEqual(auto);
 
   const long = 'a tick label of 26 letters';
   const el = host();
@@ -1435,4 +1436,170 @@ test('two long labels close together on the axis are both kept inside the chart'
   expect(chart.xPx(0.4) - half).toBeGreaterThanOrEqual(-0.01);
   expect(chart.xPx(0.45) + half).toBeLessThanOrEqual(1000.01);
   expect((el.firstElementChild as HTMLElement).style.visibility).toBe('');
+});
+
+test('ticks thin out to fit the axis while the rounded bounds hold still', () => {
+  const wide = scale('nice', [3, 97], { length: 800, horizontal: true });
+  const narrow = scale('nice', [3, 97], { length: 120, horizontal: true });
+  const short = scale('nice', [3, 97], { length: 70, horizontal: false });
+  expect(wide.ticks).toEqual([0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100]);
+  expect(narrow).toEqual({ lo: 0, hi: 100, ticks: [0, 50, 100] });
+  expect(short.ticks).toEqual([0, 50, 100]);
+  expect(scale('nice', [0, 5_000_000], { length: 300, horizontal: true }).ticks).toEqual([
+    0, 2_000_000, 4_000_000,
+  ]);
+
+  const days = time({ label: '' });
+  const span: [number, number] = [Date.UTC(2026, 0, 1), Date.UTC(2026, 0, 11)];
+  expect(days.scale!(days, () => span, { length: 900, horizontal: true }).ticks).toHaveLength(11);
+  expect(days.scale!(days, () => span, { length: 200, horizontal: true }).ticks.map(t => t.label)).toEqual([
+    'Jan 1',
+    'Jan 8',
+  ]);
+
+  const names = band({ label: '', categories: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'] });
+  expect(names.scale!(names, () => [0, 1], { length: 600, horizontal: true }).ticks).toHaveLength(5);
+  expect(
+    names.scale!(names, () => [0, 1], { length: 200, horizontal: true }).ticks.map(t => t.label),
+  ).toEqual(['Monday', 'Thursday']);
+});
+
+test('a chart ticks its axes again when it is resized', () => {
+  const el = host();
+  const chart = plot(el, { ...frame, width: 600, x: { domain: [0, 100], label: '' }, marks: [] });
+  const labels = () =>
+    [...el.querySelectorAll('div')].filter(d => !d.children.length && d.textContent).length;
+  const many = labels();
+  chart.update({ width: 120 });
+  expect(labels()).toBeLessThan(many);
+  chart.update({ width: 600 });
+  expect(labels()).toBe(many);
+});
+
+test('a chart redraws at the new density when the screen density changes', () => {
+  const was = devicePixelRatio;
+  let changed!: () => void;
+  vi.spyOn(window, 'matchMedia').mockImplementation(
+    () =>
+      ({
+        addEventListener: (_: string, f: () => void) => void (changed = f),
+        removeEventListener() {},
+      }) as never,
+  );
+  const el = host();
+  plot(el, { ...frame, marks: [flat(0.55)] });
+  const canvas = el.querySelector('canvas')!;
+  expect(canvas.width).toBe(100 * was);
+  try {
+    Object.defineProperty(window, 'devicePixelRatio', { value: was * 2, configurable: true });
+    changed();
+    expect(canvas.width).toBe(200 * was);
+    expect(canvas.style.width).toBe('100px');
+    expect(pixel(el, 50, 45)).toEqual([255, 0, 0, 255]);
+  } finally {
+    Object.defineProperty(window, 'devicePixelRatio', { value: was, configurable: true });
+  }
+});
+
+test('a horizontal bar reports its value end, and the tooltip is told the row', () => {
+  const el = host();
+  plot(el, {
+    ...frame,
+    marks: [bar({ x: [4, 8], y1: [0.1, 0.6], y2: [0.4, 0.9], color: RED })],
+    use: [tooltip({ mode: 'nearest', text: (_, x, y, row) => `x ${x} y ${y.toFixed(2)} row ${row}` })],
+  });
+  expect(hover(el, 20, 25).innerText).toContain('x 8 y 0.75 row 1');
+  expect(hover(el, 20, 75).innerText).toContain('x 4 y 0.25 row 0');
+});
+
+test('the chart is an image with a label that follows updates, and its tick labels are hidden from readers', () => {
+  const el = host();
+  const named = (label?: string) => line({ x: [0, 10], y: [0.5, 0.5], color: RED, label });
+  const chart = plot(el, { ...frame, marks: [named()] });
+  const canvas = el.querySelector('canvas')!;
+  expect(canvas.getAttribute('role')).toBe('img');
+  expect(canvas.ariaLabel).toBe('Chart');
+  expect(el.querySelector('[aria-hidden="true"]')!.textContent).toContain('0');
+
+  chart.update({
+    x: { domain: [0, 10], label: 'Day' },
+    y: { domain: [0, 1], label: 'Orders' },
+    marks: [named('2025'), named('2026')],
+  });
+  expect(canvas.ariaLabel).toBe('Orders by Day: 2025, 2026');
+  chart.update({ description: 'Orders fell in March' });
+  expect(canvas.ariaLabel).toBe('Orders fell in March');
+});
+
+test('ticks end where numbers run out of precision, and drop to one when two would collide', () => {
+  const huge = scale([1e16, 1e16 + 2], [0, 1]);
+  expect(huge.ticks.length).toBeLessThan(20);
+  expect(new Set(huge.ticks).size).toBe(huge.ticks.length);
+  expect(scale([1_000_000, 1_000_010], [0, 1], { length: 20, horizontal: true }).ticks).toHaveLength(1);
+  expect(scale([1, 4], [1, 4], { length: 10, horizontal: true }).ticks).toHaveLength(1);
+
+  const axis = time({ label: '' });
+  const day: [number, number] = [Date.UTC(2026, 0, 1), Date.UTC(2026, 0, 2)];
+  expect(axis.scale!(axis, () => day, { length: 30, horizontal: true }).ticks).toHaveLength(1);
+});
+
+test('ticks are chosen for the room the margins and the legend really leave', () => {
+  const el = host();
+  const labels = () => [...el.querySelectorAll('[aria-hidden] div')].length;
+  const chart = plot(el, { ...frame, width: 600, x: { domain: [0, 100], label: '' }, marks: [] });
+  const many = labels();
+  chart.update({ margin: { ...frame.margin, right: 500 } });
+  expect(labels()).toBeLessThan(many);
+
+  const tall = host();
+  const named = (i: number) =>
+    line({ x: [0, 10], y: [0.5, 0.5], color: RED, label: `a series with a long name ${i}` });
+  const count = (use: Options['use']) => {
+    tall.replaceChildren();
+    plot(tall, { ...frame, width: 200, height: 220, marks: [0, 1, 2, 3, 4].map(named), use });
+    return [...tall.querySelectorAll('[aria-hidden] div')].length;
+  };
+  expect(count([legend()])).toBeLessThan(count([]));
+});
+
+test('columns are scanned for an extent only when an axis needs one', () => {
+  let reads = 0;
+  const counted = new Proxy([0, 10], { get: (a, k) => (k === '0' && reads++, Reflect.get(a, k)) });
+  const mark: Mark = {
+    type: 'counted',
+    color: RED,
+    options: {},
+    points: 2,
+    channels: { x: [counted], y: [counted] },
+    prepare: () => ({ paint() {} }),
+  };
+  const chart = plot(host(), { ...frame, marks: [mark] });
+  chart.update({ x: { domain: [0, 5], label: 'renamed' } });
+  expect(reads).toBe(0);
+  chart.update({ x: { domain: 'nice', label: '' } });
+  chart.update({ x: { domain: 'nice', label: 'renamed' } });
+  expect(reads).toBe(1);
+});
+
+test('a custom scale whose bounds depend on the room is drawn with the bounds it was last asked for', () => {
+  let chart!: Internals;
+  let asked = 0;
+  plot(host(), {
+    ...frame,
+    width: 400,
+    margin: undefined,
+    marks: [],
+    x: {
+      domain: 'data',
+      label: '',
+      scale: (_axis, _extent, room) => ({
+        lo: 0,
+        hi: (asked = room!.length),
+        ticks: [{ value: 0, label: '0' }],
+      }),
+    },
+    use: [c => ((chart = c), { destroy() {} })],
+  });
+  expect(asked).toBe(400 - chart.margin().left - chart.margin().right);
+  expect(chart.xPx(asked)).toBeCloseTo(400 - chart.margin().right);
 });

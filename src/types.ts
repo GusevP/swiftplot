@@ -90,6 +90,9 @@ export type Mark = {
   release?(layer: GlLayer | null): void;
 };
 
+/** The rough length of an axis in CSS pixels, and whether its labels run along it (x) or across it (y). */
+export type Room = { length: number; horizontal: boolean };
+
 export type Tick = { value: number; label: string };
 export type Resolved = { lo: number; hi: number; ticks: Tick[] };
 
@@ -99,9 +102,11 @@ export type Axis = {
   label: string;
   /**
    * Replaces the built-in linear scale. It receives the axis itself, so one function serves every
-   * axis of its kind and two axes with equal fields compare as equal across update().
+   * axis of its kind and two axes with equal fields compare as equal across update(); a function
+   * giving the extent of the marks' columns on this axis, which scans them the first time it is
+   * called; and the room there is for ticks. It runs again whenever that room may have changed.
    */
-  scale?(axis: Axis, cols: Col[]): Resolved;
+  scale?(axis: Axis, extent: () => [number, number], room?: Room): Resolved;
 };
 export type Margin = { top: number; right: number; bottom: number; left: number };
 
@@ -116,6 +121,11 @@ export type Options = {
   marks: Mark[];
   /** Read once, when the chart is created. */
   use?: Feature[];
+  /**
+   * What assistive technology reads for the chart; by default the axis labels and the names of
+   * the labelled marks. The data itself is not exposed.
+   */
+  description?: string;
   /** Opacity multiplier for every other group while one is focused. */
   dim?: number;
 };

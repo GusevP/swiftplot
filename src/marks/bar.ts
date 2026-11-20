@@ -94,8 +94,8 @@ export function bar(o: BarOptions): Mark {
             shown = box.map((v, i) => Math.round(from[i]! + (v - from[i]!) * t));
             path = rects(shown);
           }),
-        // ponytail: linear scan per pointer move; reports the middle of x and y2, which suits
-        // vertical bars only. A bar orientation or a row index in Hit when horizontal bars need it.
+        // ponytail: linear scan per pointer move. The value end is y2, or x2 for a bar given as a
+        // single x; a horizontal bar given all four bounds still reports as a vertical one.
         hit(px, py, max) {
           const x = px * dpr;
           const y = py * dpr;
@@ -103,7 +103,10 @@ export function bar(o: BarOptions): Mark {
           for (let i = n - 1; i >= 0; i--) {
             const j = i * 4;
             if (x >= box[j]! && y >= box[j + 1]! && x < box[j + 2]! && y < box[j + 3]!) {
-              return { x: ((x1 ? x1[i]! : 0) + x2[i]!) / 2, y: y2[i]!, distance: max, row: i };
+              const y1i = own.y1 ? own.y1[i]! : 0;
+              return 'x' in o
+                ? { x: x2[i]!, y: (y1i + y2[i]!) / 2, distance: max, row: i }
+                : { x: ((x1 ? x1[i]! : 0) + x2[i]!) / 2, y: y2[i]!, distance: max, row: i };
             }
           }
           return null;

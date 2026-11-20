@@ -1,8 +1,7 @@
-import { scale } from './scale.js';
+import { extent, scale } from './scale.js';
 import type {
   Axis,
   Chart,
-  Col,
   GlLayer,
   Hit,
   Internals,
@@ -12,6 +11,7 @@ import type {
   Painter,
   Prepared,
   Resolved,
+  Room,
   View,
 } from './types.js';
 
@@ -28,9 +28,9 @@ const same = (a: object, b: object) => {
   );
 };
 
-const resolve = (a: Axis, cols: Col[]): Resolved => {
-  if (a.scale) return a.scale(a, cols);
-  const s = scale(a.domain, cols);
+const resolve = (a: Axis, of: () => [number, number], room: Room): Resolved => {
+  if (a.scale) return a.scale(a, of, room);
+  const s = scale(a.domain, typeof a.domain === 'string' ? of() : a.domain, room);
   return { ...s, ticks: s.ticks.map(value => ({ value, label: String(value) })) };
 };
 const sameAxis = (a: Axis, b: Axis) =>
@@ -38,8 +38,7 @@ const sameAxis = (a: Axis, b: Axis) =>
 
 export function plot(el: HTMLElement, options: Options): Chart {
   let o = options;
-  // ponytail: read once; a window moved to a screen of another density needs a matchMedia listener.
-  const dpr = devicePixelRatio;
+  let dpr = devicePixelRatio;
   const root = document.createElement('div');
   root.style.cssText = 'position:relative;font:12px system-ui,sans-serif;pointer-events:auto';
   const layer = <K extends keyof HTMLElementTagNameMap>(tag: K, css = '') => {
@@ -50,6 +49,8 @@ export function plot(el: HTMLElement, options: Options): Chart {
   const canvas = layer('canvas', 'left:0;top:0');
   const ctx = canvas.getContext('2d')!;
   const axes = layer('div', 'inset:0;color:#444');
+  canvas.setAttribute('role', 'img');
+  axes.ariaHidden = 'true';
   let glCanvas: HTMLCanvasElement | undefined;
   let gl: GlLayer | null | undefined;
   let makeGl: NonNullable<Mark['gl']>['layer'] | undefined;
@@ -110,15 +111,24 @@ export function plot(el: HTMLElement, options: Options): Chart {
     if (opacity !== faded) glCanvas.style.opacity = String((faded = opacity));
   };
 
-  const rescale = () => {
-    xs = resolve(
-      o.x,
-      marks.flatMap(k => k.channels.x),
-    );
-    ys = resolve(
-      o.y,
-      marks.flatMap(k => k.channels.y),
-    );
+  // A column set is scanned at most once per list of marks, and only if its axis asks.
+  let extents: { x?: [number, number]; y?: [number, number] } = {};
+  // Before the first layout the room is judged from the margins as given; after it, from the real
+  // ones, which is what catches a legend or a wide label taking the room away.
+  const rescale = (laidOut: boolean) => {
+    const g = o.margin ?? {};
+    const bottom = g.bottom ?? (o.x.label ? 44 : 26);
+    const [w, h] = laidOut
+      ? [W - m.left - m.right, H - m.top - m.bottom]
+      : [W - (g.left ?? 44) - (g.right ?? 16), H - (g.top ?? 12) - bottom];
+    xs = resolve(o.x, () => (extents.x ??= extent(marks.flatMap(k => k.channels.x))), {
+      length: w,
+      horizontal: true,
+    });
+    ys = resolve(o.y, () => (extents.y ??= extent(marks.flatMap(k => k.channels.y))), {
+      length: h,
+      horizontal: false,
+    });
   };
 
   const xPx = (v: number) => (view.ox + v * view.kx) / dpr;
@@ -195,9 +205,14 @@ export function plot(el: HTMLElement, options: Options): Chart {
       axes.replaceChildren(labels);
     }
 
-    const before = viewKey;
+    const described = () => {
+      const names = [...new Set(marks.flatMap(k => k.label ?? []))].join(', ');
+      const axesNamed = o.y.label && o.x.label ? `${o.y.label} by ${o.x.label}` : o.y.label || o.x.label;
+      return [axesNamed, names].filter(Boolean).join(': ') || 'Chart';
+    };
+    canvas.ariaLabel = o.description ?? described();
+
     viewKey = [kx, view.ox, ky, view.oy, left, top, width, height].join();
-    return viewKey !== before;
   };
 
   const prepare = (viewChanged: boolean) => {
@@ -207,6 +222,7 @@ export function plot(el: HTMLElement, options: Options): Chart {
     if (useGl && gl === undefined) {
       makeGl = make!;
       glCanvas = layer('canvas', 'left:0;top:0');
+      glCanvas.ariaHidden = 'true';
       canvas.after(glCanvas);
       fit(glCanvas);
       clipGl();
@@ -298,8 +314,15 @@ export function plot(el: HTMLElement, options: Options): Chart {
   const paint = (why: Parameters<Painter>[1]) => (painter ? painter(render, why) : render());
 
   const refresh = (data: boolean, also?: 'size' | 'focus') => {
-    if (data) rescale();
-    const viewChanged = layout();
+    const before = viewKey;
+    rescale(false);
+    layout();
+    // The scales were resolved for a guessed room; resolved again for the real one, their ticks or
+    // bounds may differ, and then so may the margins. Once more is enough to be right in all but contrived cases.
+    const guessed = JSON.stringify([xs, ys]);
+    rescale(true);
+    if (JSON.stringify([xs, ys]) !== guessed) layout();
+    const viewChanged = viewKey !== before;
     drawable = W > m.left + m.right && H > m.top + m.bottom;
     root.style.visibility = drawable ? '' : 'hidden';
     // Growing back always changes the view, so marks replaced while hidden are prepared then.
@@ -382,6 +405,20 @@ export function plot(el: HTMLElement, options: Options): Chart {
     else observer.disconnect();
   };
   observe();
+  // A density query matches one value only, so each change is listened for once and asked for again.
+  let density: MediaQueryList;
+  const redensify = () => {
+    dpr = devicePixelRatio;
+    fit(canvas);
+    if (glCanvas) fit(glCanvas);
+    watch();
+    if (refresh(false, 'size')) sync();
+  };
+  const watch = () => {
+    density = matchMedia(`(resolution: ${dpr}dppx)`);
+    density.addEventListener('change', redensify, { once: true });
+  };
+  watch();
 
   return {
     update(partial) {
@@ -401,7 +438,10 @@ export function plot(el: HTMLElement, options: Options): Chart {
           return k;
         });
 
-        data ||= marks.length !== before.length || marks.some((k, i) => k !== before[i]);
+        if (marks.length !== before.length || marks.some((k, i) => k !== before[i])) {
+          data = true;
+          extents = {};
+        }
         const kept = new Set(marks);
         // Every old listing must be matched by exactly one new one, kept or paired: a mark may be
         // listed more than once, so this counts listings, not marks.
@@ -434,6 +474,7 @@ export function plot(el: HTMLElement, options: Options): Chart {
     destroy() {
       for (const f of features) f.destroy();
       observer.disconnect();
+      density.removeEventListener('change', redensify);
       for (const k of new Set(marks)) k.release?.(gl ?? null);
       gl?.destroy();
       root.remove();

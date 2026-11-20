@@ -27,6 +27,8 @@ chart.destroy();
 - **Lines and areas** are straight between points unless `curve: 'step'`. `area({ x, y })` fills from zero; `area({ x, y1, y2 })` is a band.
 - **Bars** have explicit bounds, `bar({ x1, x2, y1, y2 })`, so vertical, horizontal, grouped and stacked bars are the same mark. A single `y` (or `x`) starts at zero. On a category axis `const [x1, x2] = bands(7)` gives the bounds, and `bands(7, { slot: 0, of: 2 })` those of one series of a grouped chart.
 - **Rows** need no helper: `Float64Array.from(rows, r => r.value)` makes a column and `Map.groupBy(rows, r => r.series)` splits rows into series.
+- **Ticks** thin out to fit the axis, so a narrow chart shows fewer labels, not overlapping ones.
+- **Accessibility:** the chart is exposed as an image with a label built from the axis labels and series names; set `description` to say what it shows. The data itself is not exposed yet.
 - **Margins** are sized from the tick labels; pass `margin: { left: 80 }` to set a side yourself.
 - **Legend** is a feature you import: `use: [legend()]` lists each labelled series above the plot and highlights it on hover.
 - **Histograms and stacks** are plain functions feeding the marks: `bar({ ...bin(values, 20), color })`, and `stack([a, b, c])` gives each series the `y1` and `y2` of its layer, for `bar` or `area`.
@@ -51,20 +53,32 @@ Each point comes from profiling uPlot, the fastest of thirteen libraries in [cha
 
 ## Measured
 
-Mount time in chart-bench, median ms over nine loads, 2026-11-20, Apple M3 Pro that was not idle. 4× is Chrome's CPU slowdown. At native speed on the two smaller sizes every arm sits at the empty-page floor (about 27 ms), so only the other columns separate them.
+Mount time in chart-bench, median ms, 2026-11-20, Apple M3 Pro that was not idle. Each cell is the mean of two runs of nine loads, with the two libraries taking turns to go first. 4× is Chrome's CPU slowdown. At native speed every case but uPlot's largest sits at the empty-page floor (about 27 ms), so only the other columns separate them.
 
 | case                     | swiftplot | uPlot | swiftplot, 4× | uPlot, 4× |
 | ------------------------ | --------: | ----: | ------------: | --------: |
-| survival, 3 × 200 points |      27.9 |  29.8 |          36.4 |      57.0 |
-| survival, 6 × 1,000      |      29.6 |  28.2 |          40.1 |      69.8 |
-| survival, 10 × 10,000    |      26.0 |  54.1 |          72.7 |     225.4 |
-| scatter, 500             |      30.0 |  28.9 |          39.7 |      53.2 |
-| scatter, 10,000          |      26.7 |  28.9 |          40.6 |      62.6 |
-| scatter, 100,000         |      27.7 |  35.1 |          59.4 |     158.8 |
+| survival, 3 × 200 points |      29.3 |  25.9 |          33.5 |      53.3 |
+| survival, 6 × 1,000      |      28.3 |  24.7 |          37.9 |      68.8 |
+| survival, 10 × 10,000    |      31.6 |  55.2 |          67.1 |     196.9 |
+| scatter, 500             |      27.8 |  25.2 |          33.7 |      46.0 |
+| scatter, 10,000          |      25.1 |  26.6 |          38.9 |      55.7 |
+| scatter, 100,000         |      30.6 |  34.3 |          56.8 |     129.0 |
 
-- The 100k scatter runs on WebGL, where the draw call returns before the GPU finishes. Forcing the GPU to finish gave 31.3 ms native and 81.4 ms at 4×.
+Time until the chart's own code has finished, which leaves out the wait for the next frame:
+
+| case                     | swiftplot | uPlot | swiftplot, 4× | uPlot, 4× |
+| ------------------------ | --------: | ----: | ------------: | --------: |
+| survival, 3 × 200 points |       4.0 |  10.7 |          14.4 |      41.7 |
+| survival, 6 × 1,000      |       5.7 |  14.2 |          20.6 |      55.8 |
+| survival, 10 × 10,000    |      14.3 |  50.6 |          48.2 |     181.6 |
+| scatter, 500             |       3.1 |   9.3 |          12.2 |      35.4 |
+| scatter, 10,000          |       5.9 |  12.9 |          21.3 |      44.6 |
+| scatter, 100,000         |      14.5 |  28.6 |          39.6 |     111.2 |
+
+- The 100k scatter runs on WebGL, where the draw call returns before the GPU finishes, so its numbers flatter swiftplot.
 - uPlot has no built-in scatter, so its scatter numbers include circle-drawing code written for the benchmark.
-- uPlot ships far more features in its 23.9 KB gzip; this prototype is about 5 KB because it does much less.
+- Only these two chart types are in the benchmark. Bars, areas, the time axis, the legend and animation are not measured against uPlot.
+- uPlot ships far more features in its 23.6 KB gzip (plus a stylesheet); the swiftplot code these two charts pull in is 7.2 KB gzip.
 
 ## Develop
 
