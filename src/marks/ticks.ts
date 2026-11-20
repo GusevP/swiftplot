@@ -8,7 +8,7 @@ export type TicksOptions = Common & { x: Col; y: Col; size: number };
 export function ticks(o: TicksOptions): Mark {
   const { x, y, color, size, alpha = 1 } = o;
   return {
-    ...base('ticks', o, x, [y]),
+    ...base('ticks', o, [x], [y]),
     prepare({ ctx, dpr, ox, kx, oy, ky }) {
       const h = size * dpr;
       const path = new Path2D();

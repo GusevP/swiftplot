@@ -19,7 +19,10 @@ export type Hit = { x: number; y: number; distance: number };
 
 export type Prepared = {
   paint(alpha: number): void;
-  /** px, py and max are CSS pixels relative to the chart. */
+  /**
+   * px, py and max are CSS pixels relative to the chart. A mark hit anywhere on its shape, not
+   * at a point, reports `max` as its distance, so a point within reach wins over it.
+   */
   hit?(px: number, py: number, max: number): Hit | null;
 };
 
@@ -58,13 +61,25 @@ export type Mark = {
     layer: (canvas: HTMLCanvasElement) => GlLayer | null;
     prepare: (view: View, layer: GlLayer) => Prepared;
   };
-  /** y of the sample that applies at x, undefined before the first one. */
+  /** y at x. A step holds its last sample from there on; a straight line has no value outside its samples. */
   sampleAtX?(x: number): number | undefined;
   /** A chart has dropped the mark; `layer` is that chart's, so only what was made for it is freed. */
   release?(layer: GlLayer | null): void;
 };
 
-export type Axis = { domain: [number, number] | 'nice'; label: string };
+export type Tick = { value: number; label: string };
+export type Resolved = { lo: number; hi: number; ticks: Tick[] };
+
+export type Axis = {
+  /** 'nice' widens the extent of the marks' columns to whole steps; 'data' keeps it exact. */
+  domain: [number, number] | 'nice' | 'data';
+  label: string;
+  /**
+   * Replaces the built-in linear scale. It receives the axis itself, so one function serves every
+   * axis of its kind and two axes with equal fields compare as equal across update().
+   */
+  scale?(axis: Axis, cols: Col[]): Resolved;
+};
 export type Margin = { top: number; right: number; bottom: number; left: number };
 
 export type Options = {

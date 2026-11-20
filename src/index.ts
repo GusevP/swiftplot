@@ -1,12 +1,18 @@
 export { plot } from './chart.js';
 export { tooltip } from './features/tooltip.js';
 export { area } from './marks/area.js';
+export { bar } from './marks/bar.js';
 export { dots } from './marks/dots.js';
 export { line } from './marks/line.js';
 export { ticks } from './marks/ticks.js';
+export { band } from './scales/band.js';
+export { time } from './scales/time.js';
 export type { TooltipOptions } from './features/tooltip.js';
 export type { AreaOptions } from './marks/area.js';
+export type { BarOptions } from './marks/bar.js';
 export type { DotsOptions } from './marks/dots.js';
 export type { LineOptions } from './marks/line.js';
 export type { TicksOptions } from './marks/ticks.js';
+export type { BandAxis } from './scales/band.js';
+export type { TimeAxis, TimeOptions } from './scales/time.js';
 export type * from './types.js';

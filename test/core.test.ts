@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from 'vitest';
 
-import { dots, line, plot, tooltip } from '../src/index.js';
+import { area, band, bar, dots, line, plot, time, tooltip } from '../src/index.js';
 import type { Internals, Mark, Options } from '../src/index.js';
 import { columns } from '../src/marks/common.js';
 import { scale } from '../src/scale.js';
@@ -51,6 +51,9 @@ test('columns keeps the min, max and last y of each pixel column', () => {
   expect([...c.lo.subarray(0, 2)]).toEqual([1, 8]);
   expect([...c.hi.subarray(0, 2)]).toEqual([9, 8]);
   expect([...c.last.subarray(0, 2)]).toEqual([6, 8]);
+  expect([...columns([0, 0.1, 0.2, 5], [1, 9, 4, 2], 0, 1, 10, 1, true).first.subarray(0, 2)]).toEqual([
+    9, 8,
+  ]);
 });
 
 test('a nice domain widens to whole steps and an explicit one is kept', () => {
@@ -397,4 +400,237 @@ test('a chart too small to draw paints nothing when a feature changes the focus'
   paints = 0;
   internals.focus('b');
   expect(paints).toBe(0);
+});
+
+test('a line is straight between its points unless it is a step', () => {
+  const el = host();
+  const chart = plot(el, { ...frame, marks: [line({ x: [0, 10], y: [0, 1], color: RED, width: 4 })] });
+  expect(pixel(el, 50, 50)).toEqual([255, 0, 0, 255]);
+  chart.update({ marks: [line({ x: [0, 10], y: [0, 1], curve: 'step', color: RED, width: 4 })] });
+  expect(pixel(el, 50, 50)).not.toEqual([255, 0, 0, 255]);
+});
+
+test('a straight line keeps a spike that falls inside one pixel column', () => {
+  const el = host();
+  plot(el, {
+    ...frame,
+    marks: [line({ x: [0, 5, 5.001, 5.002, 10], y: [0.55, 0.55, 0.9, 0.55, 0.55], color: RED, width: 4 })],
+  });
+  expect(pixel(el, 50, 15)).toEqual([255, 0, 0, 255]);
+  expect(pixel(el, 40, 15)[3]).toBe(0);
+});
+
+test('a straight line is interpolated between its samples and has no value outside them', () => {
+  const mark = line({ x: [1, 3], y: [10, 30], color: RED });
+  expect(mark.sampleAtX!(2)).toBe(20);
+  expect(mark.sampleAtX!(3)).toBe(30);
+  expect(mark.sampleAtX!(0.5)).toBeUndefined();
+  expect(mark.sampleAtX!(3.5)).toBeUndefined();
+});
+
+test('an area fills from zero to y, or between y1 and y2 along straight edges', () => {
+  const el = host();
+  const chart = plot(el, { ...frame, marks: [area({ x: [0, 10], y: [0.5, 0.5], color: RED })] });
+  expect(pixel(el, 50, 75)).toEqual([255, 0, 0, 255]);
+  expect(pixel(el, 50, 25)[3]).toBe(0);
+
+  chart.update({ marks: [area({ x: [0, 10], y1: [0, 0.5], y2: [0.5, 1], color: RED })] });
+  expect(pixel(el, 50, 55)).toEqual([255, 0, 0, 255]);
+  expect(pixel(el, 50, 12)[3]).toBe(0);
+  expect(pixel(el, 50, 88)[3]).toBe(0);
+});
+
+test('a bar covers its bounds in either order and nothing else', () => {
+  const el = host();
+  plot(el, {
+    ...frame,
+    y: { domain: [-1, 1], label: '' },
+    marks: [bar({ x1: [2, 6], x2: [4, 8], y1: [0, 0], y2: [0.5, -0.5], color: RED })],
+  });
+  expect(pixel(el, 30, 35)).toEqual([255, 0, 0, 255]);
+  expect(pixel(el, 30, 65)[3]).toBe(0);
+  expect(pixel(el, 70, 65)).toEqual([255, 0, 0, 255]);
+  expect(pixel(el, 70, 35)[3]).toBe(0);
+  expect(pixel(el, 50, 35)[3]).toBe(0);
+});
+
+test('the nearest tooltip finds a bar under the pointer, and a dot on the bar wins over it', () => {
+  const el = host();
+  plot(el, {
+    ...frame,
+    marks: [
+      bar({ x1: [2], x2: [8], y1: [0], y2: [0.8], color: RED, label: 'bar' }),
+      dots({ x: [5], y: [0.45], r: [3], color: '#0000ff', label: 'dot' }),
+    ],
+    use: [tooltip({ mode: 'nearest', text: label => label })],
+  });
+  expect(hover(el, 30, 75).innerText).toContain('bar');
+  expect(hover(el, 52, 57).innerText).toContain('dot');
+  expect(hover(el, 90, 75).innerText).not.toContain('bar');
+});
+
+test("a 'data' domain keeps the exact extent and ticks inside it", () => {
+  expect(scale('data', [[3, 97]])).toEqual({ lo: 3, hi: 97, ticks: [10, 20, 30, 40, 50, 60, 70, 80, 90] });
+});
+
+test('time ticks fall on calendar boundaries and name the day at midnight', () => {
+  const axis = time({ label: '' });
+  const hours = axis.scale!(axis, [[Date.UTC(2026, 0, 1), Date.UTC(2026, 0, 2)]]);
+  expect(hours.ticks.map(t => t.label)).toEqual([
+    'Jan 1',
+    '03:00',
+    '06:00',
+    '09:00',
+    '12:00',
+    '15:00',
+    '18:00',
+    '21:00',
+    'Jan 2',
+  ]);
+
+  const months = axis.scale!(axis, [[Date.UTC(2025, 10, 15), Date.UTC(2026, 3, 15)]]);
+  expect(months.ticks.map(t => t.label)).toEqual(['Dec', '2026', 'Feb', 'Mar', 'Apr']);
+  expect(months.ticks.map(t => t.value)).toEqual([11, 12, 13, 14, 15].map(m => Date.UTC(2025, m, 1)));
+
+  const years = axis.scale!(axis, [[Date.UTC(2023, 5, 1), Date.UTC(2029, 5, 1)]]);
+  expect(years.ticks.map(t => t.label)).toEqual(['2024', '2025', '2026', '2027', '2028', '2029']);
+  expect(years.ticks.map(t => t.value)).toEqual(
+    [2024, 2025, 2026, 2027, 2028, 2029].map(y => Date.UTC(y, 0, 1)),
+  );
+
+  const leap = axis.scale!(axis, [[Date.UTC(2024, 1, 20), Date.UTC(2024, 2, 5)]]);
+  expect(leap.ticks.map(t => t.label)).toEqual([
+    'Feb 21',
+    'Feb 23',
+    'Feb 25',
+    'Feb 27',
+    'Feb 29',
+    'Mar 1',
+    'Mar 3',
+    'Mar 5',
+  ]);
+
+  const early = new Date(0);
+  early.setUTCFullYear(50, 0, 1);
+  early.setUTCDate(15);
+  const year50 = axis.scale!(axis, [[early.getTime(), early.getTime() + 90 * 864e5]]);
+  expect(year50.ticks.map(t => t.label)).toEqual(['Feb', 'Mar', 'Apr']);
+  expect(new Date(year50.ticks[0]!.value).getUTCFullYear()).toBe(50);
+
+  const weeks = axis.scale!(axis, [[Date.UTC(2026, 0, 20), Date.UTC(2026, 1, 20)]]);
+  expect(weeks.ticks.map(t => t.label)).toEqual(['Jan 22', 'Jan 29', 'Feb 1', 'Feb 8', 'Feb 15']);
+});
+
+// The test browser runs in America/New_York (vitest.config.ts), where clocks went back on 2024-11-03 at 06:00 UTC.
+test('local time ticks keep both occurrences of the hour a clock change repeats', () => {
+  const axis = time({ label: '', utc: false });
+  const { ticks } = axis.scale!(axis, [[Date.UTC(2024, 10, 3, 5, 10), Date.UTC(2024, 10, 3, 6, 40)]]);
+  expect(ticks.map(t => t.label)).toEqual(['01:15', '01:30', '01:45', '01:00', '01:15', '01:30']);
+});
+
+test('local time ticks sit on local clock hours', () => {
+  const axis = time({ label: '', utc: false });
+  const { ticks } = axis.scale!(axis, [[Date.UTC(2026, 0, 1, 1, 20), Date.UTC(2026, 0, 2, 1, 20)]]);
+  expect(ticks.length).toBeGreaterThan(6);
+  for (const t of ticks) {
+    const d = new Date(t.value);
+    expect([d.getHours() % 3, d.getMinutes()]).toEqual([0, 0]);
+  }
+});
+
+test('a band axis labels each category at its index and bars sit on them', () => {
+  const el = host();
+  plot(el, {
+    ...frame,
+    x: band({ label: '', categories: ['a', 'b', 'c'] }),
+    marks: [bar({ x1: [0.6], x2: [1.4], y1: [0], y2: [0.5], color: RED })],
+  });
+  const label = (s: string) => [...el.querySelectorAll('div')].find(e => e.textContent === s)!.style.left;
+  expect([label('a'), label('b'), label('c')].map(parseFloat).map(Math.round)).toEqual([17, 50, 83]);
+  expect(pixel(el, 50, 75)).toEqual([255, 0, 0, 255]);
+  expect(pixel(el, 30, 75)[3]).toBe(0);
+});
+
+test('update with an equal axis keeps the geometry and a changed one redraws', () => {
+  let prepares = 0;
+  const mark: Mark = {
+    type: 'counted',
+    color: RED,
+    options: {},
+    points: 0,
+    channels: { x: [], y: [] },
+    prepare: () => (prepares++, { paint() {} }),
+  };
+  const categories = ['a', 'b'];
+  const chart = plot(host(), { ...frame, x: band({ label: '', categories }), marks: [mark] });
+  chart.update({ x: band({ label: 'renamed', categories }) });
+  expect(prepares).toBe(1);
+  chart.update({ x: band({ label: '', categories: ['a', 'b', 'c'] }) });
+  expect(prepares).toBe(2);
+});
+
+test('a bar too narrow for a pixel is drawn the same in either order, and one of no width is not', () => {
+  const el = host();
+  plot(el, {
+    ...frame,
+    marks: [bar({ x1: [3.11, 7.12, 5], x2: [3.12, 7.11, 5], y1: [0, 0, 0], y2: [1, 1, 1], color: RED })],
+    use: [tooltip({ mode: 'nearest', text: () => 'bar' })],
+  });
+  expect(pixel(el, 31, 55)).toEqual([255, 0, 0, 255]);
+  expect(pixel(el, 71, 55)).toEqual([255, 0, 0, 255]);
+  expect(pixel(el, 50, 55)[3]).toBe(0);
+  expect(hover(el, 50, 55).innerText).not.toContain('bar');
+});
+
+test('the part of a bar outside the plot area is not offered by the nearest tooltip', () => {
+  const el = host();
+  plot(el, {
+    ...frame,
+    margin: { top: 0, right: 0, bottom: 0, left: 20 },
+    marks: [bar({ x1: [-2], x2: [5], y1: [0], y2: [1], color: RED, label: 'bar' })],
+    use: [tooltip({ mode: 'nearest', text: label => label })],
+  });
+  expect(hover(el, 40, 55).innerText).toContain('bar');
+  expect(hover(el, 10, 55).innerText).not.toContain('bar');
+});
+
+test('a step line starts at the value it holds, not at the lowest of its first pixel column', () => {
+  const el = host();
+  plot(el, {
+    ...frame,
+    marks: [line({ x: [5, 5.001, 10], y: [0.15, 0.75, 0.75], curve: 'step', color: RED, width: 4 })],
+  });
+  expect(pixel(el, 80, 25)).toEqual([255, 0, 0, 255]);
+  expect(pixel(el, 50, 65)).toEqual([255, 0, 0, 255]);
+});
+
+test('where two bars overlap the pointer gets the one drawn on top, also while one is focused', () => {
+  const el = host();
+  plot(el, {
+    ...frame,
+    dim: 0.3,
+    marks: [
+      bar({ x1: [2], x2: [6], y1: [0], y2: [0.8], color: RED, label: 'under' }),
+      bar({ x1: [4], x2: [8], y1: [0], y2: [0.8], color: '#0000ff', label: 'over' }),
+    ],
+    use: [tooltip({ mode: 'nearest', text: label => label })],
+  });
+  expect(hover(el, 50, 75).innerText).toContain('over');
+  hover(el, 90, 75);
+  expect(hover(el, 30, 75).innerText).toContain('under');
+  expect(hover(el, 50, 75).innerText).toContain('under');
+});
+
+test('a custom scale reads its axis and is resolved again when the axis label changes', () => {
+  const el = host();
+  const scale: Options['x']['scale'] = axis => ({
+    lo: 0,
+    hi: 1,
+    ticks: [{ value: 0.5, label: `tick of ${axis.label}` }],
+  });
+  const x = (label: string): Options['x'] => ({ domain: [0, 1], label, scale });
+  const chart = plot(el, { ...frame, x: x('one'), marks: [] });
+  expect(el.innerText).toContain('tick of one');
+  chart.update({ x: x('two') });
+  expect(el.innerText).toContain('tick of two');
 });

@@ -100,7 +100,7 @@ export function dots(o: DotsOptions): Mark {
   };
 
   return {
-    ...base('dots', o, x, [y]),
+    ...base('dots', o, [x], [y]),
     prepare(view) {
       const { ctx, dpr, ox, kx, oy, ky } = view;
       const path = new Path2D();

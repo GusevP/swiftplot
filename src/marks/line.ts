@@ -1,21 +1,22 @@
 import type { Col, Mark } from '../types.js';
 import { base, columns } from './common.js';
-import type { Common } from './common.js';
+import type { Common, Curve } from './common.js';
 
 /** x must be ascending. */
-export type LineOptions = Common & { x: Col; y: Col; curve: 'step'; width?: number };
+export type LineOptions = Common & { x: Col; y: Col; curve?: Curve; width?: number };
 
 export function line(o: LineOptions): Mark {
-  const { x, y, color, width = 1.5, alpha = 1 } = o;
+  const { x, y, color, curve = 'linear', width = 1.5, alpha = 1 } = o;
+  const step = curve === 'step';
   return {
-    ...base('line', o, x, [y]),
+    ...base('line', o, [x], [y]),
     prepare({ ctx, dpr, ox, kx, oy, ky }) {
-      const c = columns(x, y, ox, kx, oy, ky);
+      const c = columns(x, y, ox, kx, oy, ky, !step);
       const path = new Path2D();
       for (let i = 0; i < c.n; i++) {
-        const px = c.col[i]!;
-        if (i) path.lineTo(px, c.last[i - 1]!);
-        else path.moveTo(px, c.last[0]!);
+        const px = step ? c.col[i]! : c.at[i]!;
+        if (!i) path.moveTo(px, step ? c.last[0]! : c.first[0]!);
+        else path.lineTo(px, step ? c.last[i - 1]! : c.first[i]!);
         if (c.lo[i] !== c.hi[i]) {
           path.lineTo(px, c.lo[i]!);
           path.lineTo(px, c.hi[i]!);
@@ -39,7 +40,11 @@ export function line(o: LineOptions): Mark {
         if (x[mid]! <= v) a = mid + 1;
         else b = mid;
       }
-      return a ? y[a - 1] : undefined;
+      if (!a) return undefined;
+      const x0 = x[a - 1]!;
+      const y0 = y[a - 1]!;
+      if (step || x0 === v) return y0;
+      return a < x.length ? y0 + ((y[a]! - y0) * (v - x0)) / (x[a]! - x0) : undefined;
     },
   };
 }

@@ -2,7 +2,7 @@
 
 Small, fast charts on Canvas 2D and WebGL2. MIT, TypeScript, ESM only, no dependencies.
 
-**Status: prototype.** It draws step lines, step areas, tick marks and scatter dots, with a hover tooltip and dim-the-others on hover. A chart can be updated and follows its container when no size is given. There is no zoom, pan, legend, animation or time axis yet.
+**Status: prototype.** It draws lines and areas (straight or stepped), bars, tick marks and scatter dots on linear, time and category axes, with a hover tooltip and dim-the-others on hover. A chart can be updated and follows its container when no size is given. There is no zoom, pan, legend or animation yet.
 
 ## Use
 
@@ -24,7 +24,10 @@ chart.update({ marks: [dots({ x, y: y2, r, color: '#2563eb', label: 'Group 1' })
 chart.destroy();
 ```
 
-- **Marks** are imported functions: `line`, `area`, `ticks`, `dots`. Only the ones you import are bundled.
+- **Marks** are imported functions: `line`, `area`, `bar`, `ticks`, `dots`. Only the ones you import are bundled.
+- **Lines and areas** are straight between points unless `curve: 'step'`. `area({ x, y })` fills from zero; `area({ x, y1, y2 })` is a band.
+- **Bars** have explicit bounds, `bar({ x1, x2, y1, y2 })`, so vertical, horizontal, grouped and stacked bars are the same mark.
+- **Axes** are linear by default: `{ domain: 'nice' | 'data' | [lo, hi], label }`. `time({ label })` takes millisecond timestamps and puts ticks on calendar boundaries, in UTC unless `utc: false`. `band({ label, categories })` puts category `i` at `x = i`, owning `i - 0.5` to `i + 0.5`.
 - **Columns** (`x`, `y`, `r`) are typed arrays or plain number arrays, one set per mark.
 - **Size**: leave out `width` or `height` and the chart follows its container, which must then have a size of its own (a container with no height gives an empty chart).
 - **Updates**: a mark whose options are unchanged keeps its geometry, so passing a fresh `marks` array is cheap. Columns are compared by identity: after writing new values into the same array, pass a new array or view of it (`x.subarray(0)`).

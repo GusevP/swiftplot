@@ -1,5 +1,17 @@
 import { scale } from './scale.js';
-import type { Chart, GlLayer, Hit, Internals, Mark, Options, Prepared, View } from './types.js';
+import type {
+  Axis,
+  Chart,
+  Col,
+  GlLayer,
+  Hit,
+  Internals,
+  Mark,
+  Options,
+  Prepared,
+  Resolved,
+  View,
+} from './types.js';
 
 // ponytail: measured crossover is somewhere between 10k and 100k points; tune per device if it matters.
 const GL_FROM = 30_000;
@@ -13,6 +25,14 @@ const same = (a: object, b: object) => {
     )
   );
 };
+
+const resolve = (a: Axis, cols: Col[]): Resolved => {
+  if (a.scale) return a.scale(a, cols);
+  const s = scale(a.domain, cols);
+  return { ...s, ticks: s.ticks.map(value => ({ value, label: String(value) })) };
+};
+const sameAxis = (a: Axis, b: Axis) =>
+  same({ ...a, domain: String(a.domain) }, { ...b, domain: String(b.domain) });
 
 export function plot(el: HTMLElement, options: Options): Chart {
   let o = options;
@@ -35,8 +55,8 @@ export function plot(el: HTMLElement, options: Options): Chart {
   let W = -1;
   let H = -1;
   let marks = o.marks;
-  let xs!: ReturnType<typeof scale>;
-  let ys!: ReturnType<typeof scale>;
+  let xs!: Resolved;
+  let ys!: Resolved;
   let view!: View;
   let viewKey = '';
   let axesKey = '';
@@ -66,12 +86,12 @@ export function plot(el: HTMLElement, options: Options): Chart {
   };
 
   const rescale = () => {
-    xs = scale(
-      o.x.domain,
+    xs = resolve(
+      o.x,
       marks.flatMap(k => k.channels.x),
     );
-    ys = scale(
-      o.y.domain,
+    ys = resolve(
+      o.y,
       marks.flatMap(k => k.channels.y),
     );
   };
@@ -112,8 +132,8 @@ export function plot(el: HTMLElement, options: Options): Chart {
         e.style.cssText = `position:absolute;white-space:nowrap;left:${x}px;top:${y}px;transform:${transform}`;
         labels.appendChild(e);
       };
-      for (const v of xs.ticks) text(String(v), xPx(v), H - m.bottom + 8, 'translate(-50%,0)');
-      for (const v of ys.ticks) text(String(v), m.left - 8, yPx(v), 'translate(-100%,-50%)');
+      for (const t of xs.ticks) text(t.label, xPx(t.value), H - m.bottom + 8, 'translate(-50%,0)');
+      for (const t of ys.ticks) text(t.label, m.left - 8, yPx(t.value), 'translate(-100%,-50%)');
       text(o.x.label, m.left + width / dpr / 2, H - 2, 'translate(-50%,-100%)');
       text(o.y.label, 10, m.top + height / dpr / 2, 'translate(-50%,-50%) rotate(-90deg)');
       axes.replaceChildren(labels);
@@ -158,25 +178,27 @@ export function plot(el: HTMLElement, options: Options): Chart {
     ctx.lineWidth = dpr;
     ctx.strokeStyle = '#e5e5e5';
     ctx.beginPath();
-    for (const v of ys.ticks) {
-      const y = Math.round(oy - v * ky) + dpr / 2;
+    for (const t of ys.ticks) {
+      const y = Math.round(oy - t.value * ky) + dpr / 2;
       ctx.moveTo(left, y);
       ctx.lineTo(left + width, y);
     }
     ctx.stroke();
     ctx.strokeStyle = '#888';
     ctx.beginPath();
-    for (const v of xs.ticks) {
-      const x = Math.round(ox + v * kx) + dpr / 2;
+    for (const t of xs.ticks) {
+      const x = Math.round(ox + t.value * kx) + dpr / 2;
       ctx.moveTo(x, top + height);
       ctx.lineTo(x, top + height + 5 * dpr);
     }
     ctx.stroke();
   };
 
+  const drawnFocus = () => ((o.dim ?? 1) === 1 ? null : focused);
+
   const render = () => {
     const dim = o.dim ?? 1;
-    const lit = dim === 1 ? null : focused;
+    const lit = drawnFocus();
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     grid();
     ctx.save();
@@ -226,11 +248,19 @@ export function plot(el: HTMLElement, options: Options): Chart {
     xPx,
     yPx,
     xValue: px => (px * dpr - view.ox) / view.kx,
+    // Topmost first, the reverse of render(): a hit that is no nearer never replaces one above it.
     hit(px, py, max) {
+      const lit = drawnFocus();
       let best: (Hit & { mark: Mark }) | null = null;
-      for (const [mark, { p }] of cache) {
-        const h: Hit | null | undefined = p.hit?.(px, py, best ? best.distance : max);
-        if (h) best = { ...h, mark };
+      for (const list of [onGl, flat]) {
+        for (const top of [true, false]) {
+          for (let i = list.length - 1; i >= 0; i--) {
+            const [mark, p] = list[i]!;
+            if ((mark.group === lit) !== top) continue;
+            const h: Hit | null | undefined = p.hit?.(px, py, best ? best.distance : max);
+            if (h && (!best || h.distance < best.distance)) best = { ...h, mark };
+          }
+        }
       }
       return best;
     },
@@ -259,7 +289,7 @@ export function plot(el: HTMLElement, options: Options): Chart {
     update(partial) {
       const prev = o;
       o = { ...o, ...partial };
-      let data = String(o.x.domain) !== String(prev.x.domain) || String(o.y.domain) !== String(prev.y.domain);
+      let data = !sameAxis(o.x, prev.x) || !sameAxis(o.y, prev.y);
       if (partial.marks) {
         const before = marks;
         const byKey = new Map(before.map((k, i) => [k.key ?? i, k]));
