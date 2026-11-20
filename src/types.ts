@@ -88,6 +88,11 @@ export type Mark = {
   sampleAtX?(x: number): number | Sample | undefined;
   /** A chart has dropped the mark; `layer` is that chart's, so only what was made for it is freed. */
   release?(layer: GlLayer | null): void;
+  /**
+   * The named parts of a mark that draws several, such as slices, in row order. A legend lists
+   * these in place of the mark's own label, and pointing at one focuses that row.
+   */
+  entries?: { label: string; color: string }[];
 };
 
 /** The rough length of an axis in CSS pixels, and whether its labels run along it (x) or across it (y). */
@@ -116,8 +121,14 @@ export type Options = {
   height?: number;
   /** CSS pixels around the plot area for ticks and labels. A side left out is sized from the labels. */
   margin?: Partial<Margin>;
-  x: Axis;
-  y: Axis;
+  /** Each axis is `{ domain: 'nice', label: '' }` when left out. */
+  x?: Axis;
+  y?: Axis;
+  /**
+   * A frame with no axes, for marks drawn round a centre such as arcs(). Such a mark is given the
+   * plot rectangle only, and reports a hit as fractions of it: x from the left, y from the bottom.
+   */
+  polar?: boolean;
   marks: Mark[];
   /** Read once, when the chart is created. */
   use?: Feature[];
@@ -156,6 +167,8 @@ export type Internals = {
    * False, and nothing moves, unless every changed mark can morph and none was added or removed.
    */
   morph(t: number): boolean;
+  /** Whether the frame has no axes, which is where a reveal sweeps round and does not wipe across. */
+  polar(): boolean;
   /**
    * Keeps room above the plot. `space` is asked on every layout, with the plot's left edge and
    * width in CSS pixels, for the height it needs; it must be cheap and measure nothing.

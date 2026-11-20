@@ -33,6 +33,9 @@ const resolve = (a: Axis, of: () => [number, number], room: Room): Resolved => {
   const s = scale(a.domain, typeof a.domain === 'string' ? of() : a.domain, room);
   return { ...s, ticks: s.ticks.map(value => ({ value, label: String(value) })) };
 };
+const AUTO: Axis = { domain: 'nice', label: '' };
+const NONE: Axis = { domain: [0, 1], label: '', scale: () => ({ lo: 0, hi: 1, ticks: [] }) };
+const axisOf = (o: Options, which: 'x' | 'y') => (o.polar ? NONE : (o[which] ?? AUTO));
 const sameAxis = (a: Axis, b: Axis) =>
   same({ ...a, domain: String(a.domain) }, { ...b, domain: String(b.domain) });
 
@@ -106,7 +109,21 @@ export function plot(el: HTMLElement, options: Options): Chart {
   const clipGl = (reveal = shown, opacity = faded) => {
     shown = reveal;
     if (!glCanvas) return;
-    const css = `inset(${m.top}px ${m.right + (W - m.left - m.right) * (1 - reveal)}px ${m.bottom}px ${m.left}px)`;
+    const [w, h] = [W - m.left - m.right, H - m.top - m.bottom];
+    let css = `inset(${m.top}px ${m.right + w * (1 - reveal)}px ${m.bottom}px ${m.left}px)`;
+    if (o.polar && reveal < 1) {
+      // The same sweep as the canvas gets, cut to the plot: the centre, twelve o'clock, each corner
+      // of the rectangle the sweep has passed, and where its leading ray leaves the rectangle.
+      const [cx, cy] = [m.left + w / 2, m.top + h / 2];
+      const ray = (turn: number) => {
+        const [dx, dy] = [Math.sin(turn * 2 * Math.PI), -Math.cos(turn * 2 * Math.PI)];
+        const far = Math.min(w / 2 / Math.abs(dx || 1e-9), h / 2 / Math.abs(dy || 1e-9));
+        return [cx + dx * far, cy + dy * far];
+      };
+      const corner = Math.atan2(w, h) / (2 * Math.PI);
+      const passed = [corner, 0.5 - corner, 0.5 + corner, 1 - corner].filter(turn => turn < reveal);
+      css = `polygon(${[[cx, cy], ray(0), ...passed.map(ray), ray(reveal)].map(([x, y]) => `${x}px ${y}px`).join()})`;
+    }
     if (css !== clipped) glCanvas.style.clipPath = clipped = css;
     if (opacity !== faded) glCanvas.style.opacity = String((faded = opacity));
   };
@@ -117,15 +134,15 @@ export function plot(el: HTMLElement, options: Options): Chart {
   // ones, which is what catches a legend or a wide label taking the room away.
   const rescale = (laidOut: boolean) => {
     const g = o.margin ?? {};
-    const bottom = g.bottom ?? (o.x.label ? 44 : 26);
+    const bottom = g.bottom ?? (axisOf(o, 'x').label ? 44 : 26);
     const [w, h] = laidOut
       ? [W - m.left - m.right, H - m.top - m.bottom]
       : [W - (g.left ?? 44) - (g.right ?? 16), H - (g.top ?? 12) - bottom];
-    xs = resolve(o.x, () => (extents.x ??= extent(marks.flatMap(k => k.channels.x))), {
+    xs = resolve(axisOf(o, 'x'), () => (extents.x ??= extent(marks.flatMap(k => k.channels.x))), {
       length: w,
       horizontal: true,
     });
-    ys = resolve(o.y, () => (extents.y ??= extent(marks.flatMap(k => k.channels.y))), {
+    ys = resolve(axisOf(o, 'y'), () => (extents.y ??= extent(marks.flatMap(k => k.channels.y))), {
       length: h,
       horizontal: false,
     });
@@ -137,15 +154,18 @@ export function plot(el: HTMLElement, options: Options): Chart {
   const layout = () => {
     // ponytail: tick labels are taken as 7 px a character, not measured, because measuring text
     // forces a layout before the first paint. Set the margin when labels are wider than that.
+    const [xLabel, yLabel] = [axisOf(o, 'x').label, axisOf(o, 'y').label];
     const given = o.margin ?? {};
     let widest = 0;
     if (given.left === undefined) for (const t of ys.ticks) widest = Math.max(widest, t.label.length);
-    m = {
-      top: given.top ?? 12,
-      right: given.right ?? 16,
-      bottom: given.bottom ?? (o.x.label ? 44 : 26),
-      left: given.left ?? 14 + widest * 7 + (o.y.label ? 20 : 0),
-    };
+    m = o.polar
+      ? { top: given.top ?? 8, right: given.right ?? 8, bottom: given.bottom ?? 8, left: given.left ?? 8 }
+      : {
+          top: given.top ?? 12,
+          right: given.right ?? 16,
+          bottom: given.bottom ?? (xLabel ? 44 : 26),
+          left: given.left ?? 14 + widest * 7 + (yLabel ? 20 : 0),
+        };
     // x tick labels are centred on their ticks, so the first and the last may reach past the chart.
     // A tick at fraction u of the axis sits at (1 - u) * left + u * (W - right). Each side is first
     // made the least that keeps its own label inside; if growing the right has pushed the first
@@ -187,7 +207,7 @@ export function plot(el: HTMLElement, options: Options): Chart {
     };
     clipGl();
 
-    const key = JSON.stringify([W, H, m, xs, ys, o.x.label, o.y.label]);
+    const key = JSON.stringify([W, H, m, xs, ys, xLabel, yLabel]);
     if (key !== axesKey) {
       axesKey = key;
       // Axis text is DOM, not fillText: the first text drawn on a canvas cost ~20 ms at 4x CPU slowdown.
@@ -200,14 +220,14 @@ export function plot(el: HTMLElement, options: Options): Chart {
       };
       for (const t of xs.ticks) text(t.label, xPx(t.value), H - m.bottom + 8, 'translate(-50%,0)');
       for (const t of ys.ticks) text(t.label, m.left - 8, yPx(t.value), 'translate(-100%,-50%)');
-      text(o.x.label, m.left + width / dpr / 2, H - 2, 'translate(-50%,-100%)');
-      text(o.y.label, 10, m.top + height / dpr / 2, 'translate(-50%,-50%) rotate(-90deg)');
+      text(xLabel, m.left + width / dpr / 2, H - 2, 'translate(-50%,-100%)');
+      text(yLabel, 10, m.top + height / dpr / 2, 'translate(-50%,-50%) rotate(-90deg)');
       axes.replaceChildren(labels);
     }
 
     const described = () => {
       const names = [...new Set(marks.flatMap(k => k.label ?? []))].join(', ');
-      const axesNamed = o.y.label && o.x.label ? `${o.y.label} by ${o.x.label}` : o.y.label || o.x.label;
+      const axesNamed = yLabel && xLabel ? `${yLabel} by ${xLabel}` : yLabel || xLabel;
       return [axesNamed, names].filter(Boolean).join(': ') || 'Chart';
     };
     canvas.ariaLabel = o.description ?? described();
@@ -277,8 +297,10 @@ export function plot(el: HTMLElement, options: Options): Chart {
 
   let focusedRow: { mark: Mark; row: number } | undefined;
   let several = false;
-  // One row is picked out only where there is no other series to set the hovered one against.
-  const drawnRow = () => ((o.dim ?? 1) !== 1 && !several ? focusedRow : undefined);
+  // One row is picked out where there is no other series to set the hovered one against, or where
+  // the row is a named part of its mark, such as a slice, which is then the thing pointed at.
+  const drawnRow = () =>
+    (o.dim ?? 1) !== 1 && focusedRow && (!several || focusedRow.mark.entries) ? focusedRow : undefined;
   const drawnFocus = () => ((o.dim ?? 1) === 1 || drawnRow() ? null : focused);
 
   const render = (reveal = 1) => {
@@ -293,21 +315,23 @@ export function plot(el: HTMLElement, options: Options): Chart {
     ctx.beginPath();
     ctx.rect(view.left, view.top, view.width * reveal, view.height);
     ctx.clip();
+    // Beside a focused row the other marks keep their strength, unless they are other series.
+    const others = lit !== null || (only && several) ? dim : 1;
     for (const [k, p] of flat) {
       if (k === only?.mark) p.paint(1, only.row, dim);
-      else if (k.group !== lit) p.paint(lit === null ? 1 : dim);
+      else if (k.group !== lit) p.paint(others);
     }
     for (const [k, p] of flat) if (k.group === lit) p.paint(1);
     ctx.restore();
     if (!onGl.length) return;
     gl!.clear();
+    // What is to be dimmed is drawn first and faded as one, then what is focused goes on top.
+    for (const [k, p] of onGl) if (k !== only?.mark && k.group !== lit) p.paint(1);
+    if (others !== 1) gl!.fade(dim);
     for (const [k, p] of onGl) {
       if (k === only?.mark) p.paint(1, only.row, dim);
-      else if (k.group !== lit) p.paint(1);
+      else if (lit !== null && k.group === lit) p.paint(1);
     }
-    if (lit === null) return;
-    gl!.fade(dim);
-    for (const [k, p] of onGl) if (k.group === lit) p.paint(1);
   };
 
   let painter: Painter | undefined;
@@ -359,6 +383,7 @@ export function plot(el: HTMLElement, options: Options): Chart {
       for (const p of morphs) p.morph!(t);
       return morphs.length > 0;
     },
+    polar: () => !!o.polar,
     reveal: clipGl,
     reserve(space) {
       above = space;
@@ -424,7 +449,7 @@ export function plot(el: HTMLElement, options: Options): Chart {
     update(partial) {
       const prev = o;
       o = { ...o, ...partial };
-      let data = !sameAxis(o.x, prev.x) || !sameAxis(o.y, prev.y);
+      let data = !sameAxis(axisOf(o, 'x'), axisOf(prev, 'x')) || !sameAxis(axisOf(o, 'y'), axisOf(prev, 'y'));
       replaced = new Map();
       paired = true;
       if (partial.marks) {

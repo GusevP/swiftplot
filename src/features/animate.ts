@@ -3,7 +3,10 @@ import type { Feature } from '../types.js';
 export type AnimateOptions = {
   /** Milliseconds; nothing animates when it is 0 or not finite. */
   duration?: number;
-  /** How marks appear on the first paint: uncovered from the left (the default), or all at once from transparent. */
+  /**
+   * How marks appear on the first paint: uncovered (the default), from the left or, in a frame
+   * without axes, round the clock; or all at once from transparent.
+   */
   enter?: 'reveal' | 'fade';
 };
 
@@ -68,12 +71,19 @@ export function animate({ duration = 300, enter = 'reveal' }: AnimateOptions = {
       ctx.globalAlpha = t;
       ctx.drawImage(to, 0, 0);
     });
+    // Uncovered from the left, or in a frame without axes round the clock from twelve.
     const reveal = blend(t => {
-      const { width } = chart.size();
+      const { width, height } = chart.size();
       const m = chart.margin();
+      const scale = canvas.width / width;
+      const [w, h] = [width - m.left - m.right, height - m.top - m.bottom];
       ctx.drawImage(from, 0, 0);
       ctx.beginPath();
-      ctx.rect(0, 0, ((m.left + (width - m.left - m.right) * t) * canvas.width) / width, canvas.height);
+      if (chart.polar()) {
+        const [cx, cy] = [(m.left + w / 2) * scale, (m.top + h / 2) * scale];
+        ctx.moveTo(cx, cy);
+        ctx.arc(cx, cy, canvas.width + canvas.height, -Math.PI / 2, (2 * t - 0.5) * Math.PI);
+      } else ctx.rect(0, 0, (m.left + w * t) * scale, canvas.height);
       ctx.clip();
       ctx.drawImage(to, 0, 0);
     });

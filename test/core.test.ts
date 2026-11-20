@@ -2,6 +2,7 @@ import { afterEach, expect, test, vi } from 'vitest';
 
 import {
   animate,
+  arcs,
   area,
   band,
   bands,
@@ -11,14 +12,16 @@ import {
   dots,
   errorBars,
   fiveNumbers,
+  heatmap,
   legend,
   line,
   plot,
+  sequential,
   stack,
   time,
   tooltip,
 } from '../src/index.js';
-import type { Internals, Mark, Options } from '../src/index.js';
+import type { Axis, Internals, Mark, Options } from '../src/index.js';
 import { columns } from '../src/marks/common.js';
 import { scale } from '../src/scale.js';
 
@@ -644,12 +647,12 @@ test('where two bars overlap the pointer gets the one drawn on top, also while o
 
 test('a custom scale reads its axis and is resolved again when the axis label changes', () => {
   const el = host();
-  const scale: Options['x']['scale'] = axis => ({
+  const scale: Axis['scale'] = axis => ({
     lo: 0,
     hi: 1,
     ticks: [{ value: 0.5, label: `tick of ${axis.label}` }],
   });
-  const x = (label: string): Options['x'] => ({ domain: [0, 1], label, scale });
+  const x = (label: string): Axis => ({ domain: [0, 1], label, scale });
   const chart = plot(el, { ...frame, x: x('one'), marks: [] });
   expect(el.innerText).toContain('tick of one');
   chart.update({ x: x('two') });
@@ -1752,4 +1755,474 @@ test('values that are not finite do not reach an automatic axis, and huge finite
   expect(Number.isFinite(chart.xPx(1))).toBe(true);
   expect(chart.xPx(3)).toBeCloseTo(100);
   expect(pixel(el, chart.xPx(1) + 1, chart.yPx(9.5e307))).toEqual([255, 0, 0, 255]);
+});
+
+test('a colour scale runs from its first stop to its last', () => {
+  const { table } = sequential({ stops: ['#f00', '#00ff00', '#0000ff'] });
+  const bytes = (i: number) => [...new Uint8Array(new Uint32Array([table[i]!]).buffer)];
+  expect(bytes(0)).toEqual([255, 0, 0, 255]);
+  expect(bytes(255)).toEqual([0, 0, 255, 255]);
+  expect(bytes(128)[1]).toBeGreaterThan(250);
+});
+
+test('a heatmap colours each cell by its value, leaves a missing one empty and answers for the cell hit', () => {
+  const el = host();
+  const auto = { domain: 'data' as const, label: '' };
+  plot(el, {
+    ...frame,
+    x: auto,
+    y: auto,
+    marks: [
+      heatmap({ values: [0, 10, NaN, 5], columns: 2, color: sequential({ stops: ['#ff0000', '#0000ff'] }) }),
+    ],
+    use: [tooltip({ mode: 'nearest', text: (_, x, y, row) => `cell ${row} at ${x}, ${y}` })],
+  });
+  expect(pixel(el, 25, 75)).toEqual([255, 0, 0, 255]);
+  expect(pixel(el, 75, 75)).toEqual([0, 0, 255, 255]);
+  expect(pixel(el, 25, 35)[3]).toBe(0);
+  const half = pixel(el, 75, 25);
+  expect(half[0]).toBeGreaterThan(100);
+  expect(half[2]).toBeGreaterThan(100);
+  expect(pixel(el, 52, 75)).toEqual([0, 0, 255, 255]);
+
+  expect(hover(el, 75, 25).innerText).toContain('cell 3 at 1, 1');
+  expect(hover(el, 25, 75).innerText).toContain('cell 0 at 0, 0');
+  expect(hover(el, 25, 25).innerText).not.toContain('cell');
+});
+
+test('a heatmap can be given the outer edges of its grid and a fixed colour domain', () => {
+  const el = host();
+  plot(el, {
+    ...frame,
+    x: { domain: [0, 10], label: '' },
+    y: { domain: [0, 1], label: '' },
+    marks: [
+      heatmap({
+        values: [5, 5],
+        columns: 2,
+        x: [0, 5],
+        y: [0, 0.5],
+        color: sequential({ stops: ['#ff0000', '#0000ff'], domain: [5, 6] }),
+      }),
+    ],
+  });
+  expect(pixel(el, 25, 75)).toEqual([255, 0, 0, 255]);
+  expect(pixel(el, 75, 75)[3]).toBe(0);
+  expect(pixel(el, 25, 25)[3]).toBe(0);
+});
+
+test('a heatmap squeezed below a pixel a cell still shows a single hot column, and survives a bad column count', () => {
+  const el = host();
+  const auto = { domain: 'data' as const, label: '' };
+  const values = new Float64Array(400);
+  values[200] = 1;
+  plot(el, {
+    ...frame,
+    x: auto,
+    y: auto,
+    marks: [heatmap({ values, columns: 400, color: sequential({ stops: ['#000000', '#ff0000'] }) })],
+  });
+  expect(pixel(el, 50, 55)[0]).toBeGreaterThan(20);
+  expect(pixel(el, 20, 55)[0]).toBe(0);
+
+  for (const columns of [0, 1.5, NaN]) {
+    expect(() => plot(host(), { ...frame, marks: [heatmap({ values: [1, 2], columns })] })).not.toThrow();
+  }
+});
+
+test('hover and paint agree on which cell a point belongs to', () => {
+  const el = host();
+  const auto = { domain: 'data' as const, label: '' };
+  plot(el, {
+    ...frame,
+    x: auto,
+    y: auto,
+    marks: [heatmap({ values: [0, 1, 0], columns: 3, color: sequential({ stops: ['#ff0000', '#0000ff'] }) })],
+    use: [tooltip({ mode: 'nearest', text: (_, x, y, row) => `cell ${row}` })],
+  });
+  expect(pixel(el, 32, 55)).toEqual([255, 0, 0, 255]);
+  expect(hover(el, 32, 55).innerText).toContain('cell 0');
+  expect(pixel(el, 34, 55)).toEqual([0, 0, 255, 255]);
+  expect(hover(el, 34, 55).innerText).toContain('cell 1');
+});
+
+test('a heatmap draws only what is in view, however large or sparse the grid', () => {
+  const el = host();
+  const one = sequential({ stops: ['#ff0000', '#ff0000'] });
+  expect(() =>
+    plot(el, {
+      ...frame,
+      x: { domain: [0, 1], label: '' },
+      marks: [heatmap({ values: [1], columns: 1e9, color: one })],
+    }),
+  ).not.toThrow();
+  const wide = host();
+  const values = new Float64Array(1_000_000).fill(1);
+  plot(wide, {
+    ...frame,
+    x: { domain: [499_995, 500_005], label: '' },
+    y: { domain: [-0.5, 0.5], label: '' },
+    marks: [heatmap({ values, columns: 1_000_000, color: one })],
+  });
+  expect(pixel(wide, 50, 55)).toEqual([255, 0, 0, 255]);
+  for (const columns of [Infinity, -3]) {
+    expect(() => plot(host(), { ...frame, marks: [heatmap({ values: [1, 2], columns })] })).not.toThrow();
+  }
+  expect(sequential({ stops: [] }).table).toHaveLength(256);
+});
+
+test('a heatmap answers for the cell a pixel shows, and for its grid given backwards', () => {
+  const auto = { domain: 'data' as const, label: '' };
+  const use = () => [
+    tooltip({
+      mode: 'nearest' as const,
+      text: (_: string, x: number, y: number, row?: number) => `cell ${row}`,
+    }),
+  ];
+  const shared = host();
+  const values = new Float64Array(400);
+  values.set([NaN, 1, 0, 0]);
+  plot(shared, {
+    ...frame,
+    x: auto,
+    y: auto,
+    marks: [heatmap({ values, columns: 400, color: sequential({ stops: ['#000000', '#ff0000'] }) })],
+    use: use(),
+  });
+  expect(pixel(shared, 0, 55)).toEqual([255, 0, 0, 255]);
+  expect(hover(shared, 0, 55).innerText).toContain('cell 1');
+
+  const back = host();
+  plot(back, {
+    ...frame,
+    x: { domain: [0, 2], label: '' },
+    y: { domain: [0, 1], label: '' },
+    marks: [
+      heatmap({
+        values: [0, 1],
+        columns: 2,
+        x: [2, 0],
+        y: [0, 1],
+        color: sequential({ stops: ['#ff0000', '#0000ff'] }),
+      }),
+    ],
+    use: use(),
+  });
+  expect(pixel(back, 25, 55)).toEqual([0, 0, 255, 255]);
+  expect(hover(back, 25, 55).innerText).toContain('cell 1');
+  expect(pixel(back, 75, 55)).toEqual([255, 0, 0, 255]);
+  expect(hover(back, 75, 55).innerText).toContain('cell 0');
+  expect(hover(back, 75, 0).innerText).toContain('cell 0');
+  expect(hover(back, 75, 100).innerText).toContain('cell 0');
+});
+
+test('hovering a heatmap cell dims the others, and colours span even the widest domain', () => {
+  const el = host();
+  const auto = { domain: 'data' as const, label: '' };
+  plot(el, {
+    ...frame,
+    dim: 0.2,
+    x: auto,
+    y: auto,
+    marks: [heatmap({ values: [1, 1], columns: 2, color: sequential({ stops: ['#ff0000', '#ff0000'] }) })],
+    use: [tooltip({ mode: 'nearest', text: () => 'tip' })],
+  });
+  hover(el, 25, 55);
+  expect(pixel(el, 25, 55)).toEqual([255, 0, 0, 255]);
+  expect(pixel(el, 75, 55)[3]).toBeLessThan(100);
+
+  const huge = host();
+  plot(huge, {
+    ...frame,
+    x: auto,
+    y: auto,
+    marks: [
+      heatmap({
+        values: [-1e308, 0, 1e308],
+        columns: 3,
+        color: sequential({ stops: ['#ff0000', '#00ff00', '#0000ff'], domain: [-1e308, 1e308] }),
+      }),
+    ],
+  });
+  expect(pixel(huge, 15, 55)).toEqual([255, 0, 0, 255]);
+  expect(pixel(huge, 50, 55)[1]).toBeGreaterThan(250);
+  expect(pixel(huge, 85, 55)).toEqual([0, 0, 255, 255]);
+});
+
+const BLUE = '#0000ff';
+const GREEN = '#00ff00';
+const pie = {
+  width: 100,
+  height: 100,
+  margin: { top: 0, right: 0, bottom: 0, left: 0 },
+  polar: true as const,
+};
+
+test('slices start at twelve and run clockwise, each as wide as its share', () => {
+  const el = host();
+  plot(el, { ...pie, marks: [arcs({ values: [1, 1, 2], colors: [RED, BLUE, GREEN] })] });
+  expect(pixel(el, 70, 30)).toEqual([255, 0, 0, 255]);
+  expect(pixel(el, 70, 70)).toEqual([0, 0, 255, 255]);
+  expect(pixel(el, 25, 50)).toEqual([0, 255, 0, 255]);
+  expect(pixel(el, 3, 3)[3]).toBe(0);
+  expect(el.querySelectorAll('[aria-hidden] div')).toHaveLength(2);
+  expect(el.querySelector('[aria-hidden]')!.textContent).toBe('');
+});
+
+test('a frame without axes centres the pie with the same margin all round', () => {
+  let chart!: Internals;
+  plot(host(), {
+    width: 200,
+    height: 120,
+    polar: true,
+    marks: [arcs({ values: [1], colors: [RED] })],
+    use: [c => ((chart = c), { destroy() {} })],
+  });
+  expect(chart.margin()).toEqual({ top: 8, right: 8, bottom: 8, left: 8 });
+});
+
+test('one slice fills the pie or the ring; slices worth nothing draw nothing', () => {
+  const whole = host();
+  plot(whole, { ...pie, marks: [arcs({ values: [0, 5, -2, NaN], colors: [BLUE, RED, GREEN, GREEN] })] });
+  for (const [x, y] of [
+    [50, 50],
+    [50, 10],
+    [10, 50],
+    [50, 90],
+    [90, 50],
+  ] as const) {
+    expect(pixel(whole, x, y)).toEqual([255, 0, 0, 255]);
+  }
+  const ring = host();
+  plot(ring, { ...pie, marks: [arcs({ values: [3], colors: [RED], inner: 0.5 })] });
+  expect(pixel(ring, 50, 50)[3]).toBe(0);
+  expect(pixel(ring, 50, 10)).toEqual([255, 0, 0, 255]);
+  expect(pixel(ring, 50, 90)).toEqual([255, 0, 0, 255]);
+
+  const none = host();
+  expect(() =>
+    plot(none, {
+      ...pie,
+      marks: [arcs({ values: [0, 0], colors: [RED] }), arcs({ values: [], colors: [] })],
+    }),
+  ).not.toThrow();
+  expect(pixel(none, 50, 30)[3]).toBe(0);
+});
+
+test('a slice answers the tooltip from its own area, not from the hole, and holds its starting edge', () => {
+  const el = host();
+  let chart!: Internals;
+  plot(el, {
+    ...pie,
+    marks: [arcs({ values: [1, 1, 2], colors: [RED, BLUE, GREEN], inner: 0.4 })],
+    use: [
+      tooltip({ mode: 'nearest', text: (_, x, y, row) => `slice ${row}` }),
+      c => ((chart = c), { destroy() {} }),
+    ],
+  });
+  expect(hover(el, 70, 30).innerText).toContain('slice 0');
+  expect(hover(el, 70, 70).innerText).toContain('slice 1');
+  expect(hover(el, 20, 50).innerText).toContain('slice 2');
+  expect(hover(el, 50, 50).innerText).not.toContain('slice');
+  expect(hover(el, 2, 2).innerText).not.toContain('slice');
+  expect(chart.hit(90, 50, 20)!.row).toBe(1);
+  expect(chart.hit(50, 5, 20)!.row).toBe(0);
+
+  const first = chart.hit(70, 30, 20)!;
+  const [x, y] = [chart.xPx(first.x), chart.yPx(first.y)];
+  expect(x).toBeCloseTo(50 + Math.SQRT1_2 * 35);
+  expect(y).toBeCloseTo(50 - Math.SQRT1_2 * 35);
+});
+
+test('the legend lists the slices and pointing at one picks it out, also after new values', () => {
+  const el = host();
+  const slices = (values: number[]) => arcs({ values, colors: [RED, BLUE], labels: ['one', 'two'] });
+  const chart = plot(el, {
+    ...pie,
+    width: 300,
+    height: 320,
+    dim: 0.2,
+    marks: [slices([1, 1])],
+    use: [legend()],
+  });
+  const items = () => [...el.querySelectorAll('span')].filter(s => s.children.length);
+  expect(items().map(s => s.textContent)).toEqual(['one', 'two']);
+
+  const canvas = el.querySelector('canvas')!;
+  const middle = (canvas.height / devicePixelRatio + 24) / 2;
+  items()[1]!.dispatchEvent(new MouseEvent('mousemove', { bubbles: true }));
+  expect(pixel(el, 80, middle)).toEqual([0, 0, 255, 255]);
+  expect(pixel(el, 220, middle)[3]).toBeLessThan(100);
+
+  el.firstElementChild!.dispatchEvent(new MouseEvent('mousemove'));
+  chart.update({ marks: [slices([3, 1])] });
+  items()[0]!.dispatchEvent(new MouseEvent('mousemove', { bubbles: true }));
+  expect(pixel(el, 220, middle)).toEqual([255, 0, 0, 255]);
+  expect(pixel(el, 80, 60)[3]).toBeLessThan(100);
+});
+
+test('the tooltip names and colours the slice that was hit', () => {
+  const el = host();
+  plot(el, {
+    ...pie,
+    marks: [arcs({ values: [1, 1], colors: [RED, BLUE], labels: ['right', 'left'] })],
+    use: [tooltip({ mode: 'nearest', text: label => label })],
+  });
+  expect(hover(el, 25, 50).innerText).toContain('left');
+  const row = [...el.querySelectorAll('div')].find(d => d.textContent === 'left' && !d.children.length)!;
+  expect(row.style.color).toBe('rgb(0, 0, 255)');
+});
+
+test('a heatmap squeezed to a fraction of a pixel a cell still shows its peak', () => {
+  const el = host();
+  plot(el, {
+    ...frame,
+    y: { domain: [0, 1], label: '' },
+    marks: [
+      heatmap({
+        values: [0, 1, 0, 0],
+        columns: 4,
+        x: [0, 0.22 / devicePixelRatio],
+        y: [0, 1],
+        color: sequential({ stops: ['#000000', '#ff0000'] }),
+      }),
+    ],
+  });
+  const reds = [0, 1, 2].map(px => pixel(el, px / devicePixelRatio, 55)[0]!);
+  expect(Math.max(...reds)).toBe(255);
+});
+
+test('a colour domain of the smallest possible width still spans the colours', () => {
+  const el = host();
+  const auto = { domain: 'data' as const, label: '' };
+  plot(el, {
+    ...frame,
+    x: auto,
+    y: auto,
+    marks: [
+      heatmap({
+        values: [0, Number.MIN_VALUE],
+        columns: 2,
+        color: sequential({ stops: ['#ff0000', '#0000ff'] }),
+      }),
+    ],
+  });
+  expect(pixel(el, 25, 55)).toEqual([255, 0, 0, 255]);
+  expect(pixel(el, 75, 55)).toEqual([0, 0, 255, 255]);
+});
+
+test('slices of enormous values still share the pie, and labels beyond the slices are dropped', () => {
+  const el = host();
+  const mark = arcs({ values: [1e308, 1e308], colors: [RED, BLUE], labels: ['a', 'b', 'c'] });
+  plot(el, { ...pie, marks: [mark] });
+  expect(pixel(el, 75, 50)).toEqual([255, 0, 0, 255]);
+  expect(pixel(el, 25, 50)).toEqual([0, 0, 255, 255]);
+  expect(mark.entries).toHaveLength(2);
+});
+
+test('pointing at a slice in the legend picks it out among other series too', () => {
+  const el = host();
+  let chart!: Internals;
+  plot(el, {
+    ...pie,
+    width: 300,
+    height: 324,
+    dim: 0.2,
+    marks: [
+      bar({ x1: [0.4], x2: [0.6], y1: [0.4], y2: [0.6], color: GREEN, label: 'core' }),
+      arcs({ values: [1, 1], colors: [RED, BLUE], labels: ['right', 'left'], group: '0/0', inner: 0.5 }),
+      line({ x: [0, 1], y: [0.02, 0.02], color: GREEN, label: 'other', group: '1/0' }),
+    ],
+    use: [legend(), c => ((chart = c), { destroy() {} })],
+  });
+  const items = [...el.querySelectorAll('span')].filter(s => s.children.length);
+  expect(items.map(s => s.textContent)).toEqual(['core', 'right', 'left', 'other']);
+  const y = chart.yPx(0.5);
+  const [right, left, centre] = [chart.xPx(0.9), chart.xPx(0.1), chart.xPx(0.5)];
+
+  items[1]!.dispatchEvent(new MouseEvent('mousemove', { bubbles: true }));
+  expect(pixel(el, right, y)).toEqual([255, 0, 0, 255]);
+  expect(pixel(el, left, y)[3]).toBeLessThan(100);
+  expect(pixel(el, centre, y)[3]).toBeLessThan(100);
+
+  items[0]!.dispatchEvent(new MouseEvent('mousemove', { bubbles: true }));
+  expect(pixel(el, centre, y)).toEqual([0, 255, 0, 255]);
+  expect(pixel(el, right, y)[3]).toBeLessThan(100);
+});
+
+test('a pie is revealed by a sweep from twelve round the clock', () => {
+  fakeClock();
+  const el = host();
+  plot(el, { ...pie, marks: [arcs({ values: [1], colors: [RED] })], use: [animate({ duration: 600 })] });
+  expect(pixel(el, 70, 30)[3]).toBe(0);
+  vi.advanceTimersByTime(150);
+  expect(pixel(el, 70, 30)).toEqual(RED_PIXEL);
+  expect(pixel(el, 30, 70)[3]).toBe(0);
+  expect(pixel(el, 30, 30)[3]).toBe(0);
+  vi.advanceTimersByTime(600);
+  expect(pixel(el, 30, 30)).toEqual(RED_PIXEL);
+});
+
+test('the WebGL layer dims with the rest when a slice is picked out, and is swept in a frame without axes', () => {
+  fakeClock();
+  const el = host();
+  const n = 30_000;
+  const centre = dots({
+    x: new Float64Array(n).fill(0.5),
+    y: new Float64Array(n).fill(0.5),
+    r: new Float64Array(n).fill(4),
+    color: GREEN,
+    label: 'cloud',
+  });
+  let chart!: Internals;
+  plot(el, {
+    ...pie,
+    width: 300,
+    height: 324,
+    dim: 0.2,
+    marks: [
+      arcs({ values: [1, 1], colors: [RED, BLUE], labels: ['right', 'left'], group: 'pie', inner: 0.5 }),
+      centre,
+    ],
+    use: [legend(), animate({ duration: 400 }), c => ((chart = c), { destroy() {} })],
+  });
+  const layer = el.querySelectorAll('canvas')[1]!;
+  expect(layer.style.clipPath).toContain('polygon');
+  vi.advanceTimersByTime(100);
+  expect(layer.style.clipPath).toContain('polygon');
+  vi.advanceTimersByTime(400);
+  expect(layer.style.clipPath).toBe('inset(24px 0px 0px)');
+
+  const [x, y] = [chart.xPx(0.5), chart.yPx(0.5)];
+  expect(pixel(el, x, y, 1)).toEqual([0, 255, 0, 255]);
+  const right = [...el.querySelectorAll('span')].find(s => s.textContent === 'right')!;
+  right.dispatchEvent(new MouseEvent('mousemove', { bubbles: true }));
+  expect(pixel(el, x, y, 1)[3]).toBeLessThan(100);
+});
+
+test('the sweep over the WebGL layer takes in each corner of a wide plot as it passes it', () => {
+  const el = host();
+  const n = 30_000;
+  let chart!: Internals;
+  plot(el, {
+    ...pie,
+    width: 1000,
+    marks: [
+      dots({
+        x: new Float64Array(n).fill(0.5),
+        y: new Float64Array(n).fill(0.5),
+        r: new Float64Array(n).fill(2),
+        color: RED,
+      }),
+    ],
+    use: [c => ((chart = c), { destroy() {} })],
+  });
+  const layer = el.querySelectorAll('canvas')[1]!;
+  const points = () => (layer.style.clipPath.match(/-?[\d.e-]+px/g) ?? []).map(parseFloat).map(Math.round);
+  chart.reveal(0.25);
+  expect(points()).toEqual([500, 50, 500, 0, 1000, 0, 1000, 50]);
+  chart.reveal(0.6);
+  expect(points()).toEqual([500, 50, 500, 0, 1000, 0, 1000, 100, 464, 100]);
+  chart.reveal(1);
+  expect(layer.style.clipPath).toBe('inset(0px)');
 });
