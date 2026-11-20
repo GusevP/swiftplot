@@ -8,6 +8,7 @@ import type {
   Internals,
   Mark,
   Options,
+  Painter,
   Prepared,
   Resolved,
   View,
@@ -64,6 +65,14 @@ export function plot(el: HTMLElement, options: Options): Chart {
   let flat: [Mark, Prepared][] = [];
   let onGl: [Mark, Prepared][] = [];
   let focused: string | null = null;
+  let replaced = new Map<Mark, Mark>();
+  let paired = true;
+  let morphs: Prepared[] = [];
+  // A kept mark may be part-way through a move that the next list of morphs no longer covers.
+  const settle = () => {
+    for (const p of morphs) p.morph!(1);
+    morphs = [];
+  };
   let drawable = false;
 
   const fit = (c: HTMLCanvasElement) => {
@@ -83,6 +92,20 @@ export function plot(el: HTMLElement, options: Options): Chart {
     fit(canvas);
     if (glCanvas) fit(glCanvas);
     return true;
+  };
+
+  // The WebGL canvas is clipped to the plot by CSS; an entrance narrows that to the left fraction
+  // `shown` or lowers its opacity. Layout calls this with no argument, which must undo neither.
+  let shown = 1;
+  let faded = 1;
+  let clipped = '';
+  const clipGl = (reveal = shown, opacity = faded) => {
+    shown = reveal;
+    if (!glCanvas) return;
+    const m = o.margin;
+    const css = `inset(${m.top}px ${m.right + (W - m.left - m.right) * (1 - reveal)}px ${m.bottom}px ${m.left}px)`;
+    if (css !== clipped) glCanvas.style.clipPath = clipped = css;
+    if (opacity !== faded) glCanvas.style.opacity = String((faded = opacity));
   };
 
   const rescale = () => {
@@ -119,7 +142,7 @@ export function plot(el: HTMLElement, options: Options): Chart {
       dpr,
       ctx,
     };
-    if (glCanvas) glCanvas.style.clipPath = `inset(${m.top}px ${m.right}px ${m.bottom}px ${m.left}px)`;
+    clipGl();
 
     const key = JSON.stringify([W, H, m, xs, ys, o.x.label, o.y.label]);
     if (key !== axesKey) {
@@ -153,8 +176,7 @@ export function plot(el: HTMLElement, options: Options): Chart {
       glCanvas = layer('canvas', 'left:0;top:0');
       canvas.after(glCanvas);
       fit(glCanvas);
-      const m = o.margin;
-      glCanvas.style.clipPath = `inset(${m.top}px ${m.right}px ${m.bottom}px ${m.left}px)`;
+      clipGl();
       gl = makeGl(glCanvas);
     }
     useGl &&= !!gl;
@@ -164,13 +186,23 @@ export function plot(el: HTMLElement, options: Options): Chart {
     cache = new Map();
     flat = [];
     onGl = [];
+    settle();
+    several = new Set(marks.map(k => k.group).filter(g => g !== undefined)).size > 1;
+    let all = paired;
     for (const k of marks) {
       const g = useGl && onLayer(k);
       let e = old.get(k);
-      if (!e || viewChanged || e.gl !== g) e = { p: g ? k.gl!.prepare(view, gl!) : k.prepare(view), gl: g };
+      const changed = !e;
+      if (!e || viewChanged || e.gl !== g) {
+        e = { p: g ? k.gl!.prepare(view, gl!) : k.prepare(view, replaced.get(k)), gl: g };
+      }
+      if (changed && e.p.morph && replaced.has(k)) morphs.push(e.p);
+      else if (changed) all = false;
       cache.set(k, e);
       (g ? onGl : flat).push([k, e.p]);
     }
+    if (!all) morphs = [];
+    replaced.clear();
   };
 
   const grid = () => {
@@ -194,29 +226,45 @@ export function plot(el: HTMLElement, options: Options): Chart {
     ctx.stroke();
   };
 
-  const drawnFocus = () => ((o.dim ?? 1) === 1 ? null : focused);
+  let focusedRow: { mark: Mark; row: number } | undefined;
+  let several = false;
+  // One row is picked out only where there is no other series to set the hovered one against.
+  const drawnRow = () => ((o.dim ?? 1) !== 1 && !several ? focusedRow : undefined);
+  const drawnFocus = () => ((o.dim ?? 1) === 1 || drawnRow() ? null : focused);
 
-  const render = () => {
+  const render = (reveal = 1) => {
     const dim = o.dim ?? 1;
     const lit = drawnFocus();
+    const only = drawnRow();
+    clipGl(reveal, 1);
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     grid();
+    if (!reveal) return;
     ctx.save();
     ctx.beginPath();
-    ctx.rect(view.left, view.top, view.width, view.height);
+    ctx.rect(view.left, view.top, view.width * reveal, view.height);
     ctx.clip();
-    for (const [k, p] of flat) if (k.group !== lit) p.paint(lit === null ? 1 : dim);
+    for (const [k, p] of flat) {
+      if (k === only?.mark) p.paint(1, only.row, dim);
+      else if (k.group !== lit) p.paint(lit === null ? 1 : dim);
+    }
     for (const [k, p] of flat) if (k.group === lit) p.paint(1);
     ctx.restore();
     if (!onGl.length) return;
     gl!.clear();
-    for (const [k, p] of onGl) if (k.group !== lit) p.paint(1);
+    for (const [k, p] of onGl) {
+      if (k === only?.mark) p.paint(1, only.row, dim);
+      else if (k.group !== lit) p.paint(1);
+    }
     if (lit === null) return;
     gl!.fade(dim);
     for (const [k, p] of onGl) if (k.group === lit) p.paint(1);
   };
 
-  const refresh = (data: boolean, repaint = false) => {
+  let painter: Painter | undefined;
+  const paint = (why: Parameters<Painter>[1]) => (painter ? painter(render, why) : render());
+
+  const refresh = (data: boolean, also?: 'size' | 'focus') => {
     if (data) rescale();
     const m = o.margin;
     const viewChanged = layout();
@@ -226,22 +274,37 @@ export function plot(el: HTMLElement, options: Options): Chart {
     if (!drawable) {
       flat = [];
       onGl = [];
+      settle();
       return false;
     }
     if (data || viewChanged) prepare(viewChanged);
-    if (data || viewChanged || repaint) render();
+    // A resize has already cleared the canvas, so it is 'size' even when the data changed too.
+    if (data || viewChanged || also) paint(also === 'size' || !data ? (also ?? 'size') : 'data');
     return true;
   };
 
-  const focus = (group: string | null) => {
-    if (group === focused) return;
+  const focus: Internals['focus'] = (group, row) => {
+    const [was, wasRow] = [drawnFocus(), drawnRow()];
     focused = group;
-    if (drawable && (o.dim ?? 1) !== 1) render();
+    focusedRow = row && { mark: row.mark, row: row.row };
+    // Only what is drawn counts: a new row inside a focused series changes nothing on screen.
+    const now = drawnRow();
+    if (drawnFocus() === was && now?.mark === wasRow?.mark && now?.row === wasRow?.row) return;
+    if (drawable) paint('focus');
   };
 
   const internals: Internals = {
     root,
+    canvas,
     layer,
+    onPaint(p) {
+      painter = p;
+    },
+    morph(t) {
+      for (const p of morphs) p.morph!(t);
+      return morphs.length > 0;
+    },
+    reveal: clipGl,
     marks: () => marks,
     size: () => ({ width: W, height: H }),
     margin: () => o.margin,
@@ -269,11 +332,12 @@ export function plot(el: HTMLElement, options: Options): Chart {
 
   el.appendChild(root);
   measure();
+  const features = (o.use ?? []).map(feature => feature(internals));
   refresh(true);
   const sync = () => {
     for (const f of features) f.update?.();
   };
-  const observer = new ResizeObserver(() => refresh(false, measure()) && sync());
+  const observer = new ResizeObserver(() => refresh(false, measure() ? 'size' : undefined) && sync());
   let observing = false;
   const observe = () => {
     const auto = o.width === undefined || o.height === undefined;
@@ -283,33 +347,54 @@ export function plot(el: HTMLElement, options: Options): Chart {
     else observer.disconnect();
   };
   observe();
-  const features = (o.use ?? []).map(feature => feature(internals));
 
   return {
     update(partial) {
       const prev = o;
       o = { ...o, ...partial };
       let data = !sameAxis(o.x, prev.x) || !sameAxis(o.y, prev.y);
+      replaced = new Map();
+      paired = true;
       if (partial.marks) {
         const before = marks;
         const byKey = new Map(before.map((k, i) => [k.key ?? i, k]));
         marks = partial.marks.map((k, i) => {
           const was = byKey.get(k.key ?? i);
-          return was && was.type === k.type && same(was.options, k.options) ? was : k;
+          if (was?.type !== k.type) return k;
+          if (same(was.options, k.options)) return was;
+          replaced.set(k, was);
+          return k;
         });
+
         data ||= marks.length !== before.length || marks.some((k, i) => k !== before[i]);
         const kept = new Set(marks);
+        // Every old listing must be matched by exactly one new one, kept or paired: a mark may be
+        // listed more than once, so this counts listings, not marks.
+        const unmatched = new Map<Mark, number>();
+        for (const k of before) unmatched.set(k, (unmatched.get(k) ?? 0) + 1);
+        for (const k of marks) {
+          const was = replaced.get(k) ?? k;
+          unmatched.set(was, (unmatched.get(was) ?? 0) - 1);
+        }
+        paired = [...unmatched.values()].every(n => n === 0);
         for (const k of new Set(before)) {
           if (kept.has(k)) continue;
+          // Before any release: finishing a move may still need what release() frees.
+          settle();
           cache.delete(k);
           k.release?.(gl ?? null);
         }
       }
-      const lost = focused !== null && !marks.some(k => k.group === focused);
+      // The focused row follows its mark into the mark that replaced it, so a pointer at rest
+      // on a bar asks for no new focus and does not cut the bar's move short.
+      for (const [k, was] of replaced) if (was === focusedRow?.mark) focusedRow = { ...focusedRow, mark: k };
+      const gone = focusedRow !== undefined && !marks.includes(focusedRow.mark);
+      if (gone) focusedRow = undefined;
+      const lost = gone || (focused !== null && !marks.some(k => k.group === focused));
       if (lost) focused = null;
       observe();
       const resized = measure();
-      if (refresh(data, resized || lost || o.dim !== prev.dim)) sync();
+      if (refresh(data, resized ? 'size' : lost || o.dim !== prev.dim ? 'focus' : undefined)) sync();
     },
     destroy() {
       for (const f of features) f.destroy();

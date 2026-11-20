@@ -1,5 +1,5 @@
 import type { Col, Mark } from '../types.js';
-import { base, columns } from './common.js';
+import { base, columns, sampleAt } from './common.js';
 import type { Common, Curve } from './common.js';
 
 /** Filled between 0 and y, or between y1 and y2. x must be ascending. */
@@ -12,6 +12,14 @@ export function area(o: AreaOptions): Mark {
   const y1 = 'y' in o ? undefined : o.y1;
   return {
     ...base('area', o, [x], [y1 ?? (x.length ? [0] : []), y2]),
+    sampleAtX(v) {
+      // A step line holds its last value, but the fill ends at the last x.
+      if (v > x[x.length - 1]!) return undefined;
+      const top = sampleAt(x, y2, v, step);
+      if (top === undefined) return undefined;
+      const bottom = y1 ? sampleAt(x, y1, v, step)! : 0;
+      return { value: top - bottom, y1: bottom, y2: top };
+    },
     prepare({ ctx, ox, kx, oy, ky }) {
       const u = columns(x, y2, ox, kx, oy, ky, !step);
       const ux = step ? u.col : u.at;

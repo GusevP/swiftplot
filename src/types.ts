@@ -15,10 +15,25 @@ export type View = {
 };
 
 /** A data point and its distance from the pointer in CSS pixels. */
-export type Hit = { x: number; y: number; distance: number };
+export type Hit = {
+  x: number;
+  y: number;
+  distance: number;
+  /** Which row of the mark was hit, when it draws one shape per row. */
+  row?: number;
+};
 
 export type Prepared = {
-  paint(alpha: number): void;
+  /**
+   * With a row, that row is drawn at `alpha` and the mark's other rows at `alpha * rest`.
+   * A mark that does not draw one shape per row ignores both.
+   */
+  paint(alpha: number, row?: number, rest?: number): void;
+  /**
+   * Present when the mark can move from the shape of the mark it replaced: sets what paint() draws,
+   * from that shape (0) to its own (1). It starts at 1, and hit() always answers for 1.
+   */
+  morph?(t: number): void;
   /**
    * px, py and max are CSS pixels relative to the chart. A mark hit anywhere on its shape, not
    * at a point, reports `max` as its distance, so a point within reach wins over it.
@@ -33,6 +48,8 @@ export type GlLayer = {
   fade(k: number): void;
   destroy(): void;
 };
+
+export type Sample = { value: number; y1: number; y2: number };
 
 export type Mark = {
   /** Names the implementation, e.g. 'line'. */
@@ -51,8 +68,11 @@ export type Mark = {
   points: number;
   /** Columns the 'nice' domains are computed from. */
   channels: { x: Col[]; y: Col[] };
-  /** Called once per view change; the result is kept and repainted. */
-  prepare(view: View): Prepared;
+  /**
+   * Called once per view change; the result is kept and repainted. `previous` is the mark of the
+   * same type and key that an update replaced with this one; it has been released by then.
+   */
+  prepare(view: View, previous?: Mark): Prepared;
   /**
    * Used instead of prepare() once the marks sharing the chart's layer hold enough points.
    * The first such mark's `layer` makes the chart's layer; a mark with another `layer` stays on canvas.
@@ -61,8 +81,11 @@ export type Mark = {
     layer: (canvas: HTMLCanvasElement) => GlLayer | null;
     prepare: (view: View, layer: GlLayer) => Prepared;
   };
-  /** y at x. A step holds its last sample from there on; a straight line has no value outside its samples. */
-  sampleAtX?(x: number): number | undefined;
+  /**
+   * What the mark shows at x: a y, or for a filled mark its value and the y range it covers there.
+   * A step holds its last sample from there on; a straight line has nothing outside its samples.
+   */
+  sampleAtX?(x: number): number | Sample | undefined;
   /** A chart has dropped the mark; `layer` is that chart's, so only what was made for it is freed. */
   release?(layer: GlLayer | null): void;
 };
@@ -101,9 +124,29 @@ export type Chart = {
   destroy(): void;
 };
 
-/** What a feature works with. Pixel values are CSS pixels relative to the chart. */
+/**
+ * Wraps a repaint. `draw` paints the chart now; `draw(0)` paints it with no marks. `why` says what
+ * changed: the data, the size, or only focus and dimming.
+ */
+export type Painter = (draw: (reveal?: number) => void, why: 'data' | 'size' | 'focus') => void;
+
+/**
+ * What a feature works with. Pixel values are CSS pixels relative to the chart. A feature is set
+ * up before the first paint: the pixel helpers and hit() work from that paint on.
+ */
 export type Internals = {
   root: HTMLElement;
+  /** The 2D canvas holding the grid and every mark that is not on WebGL. */
+  canvas: HTMLCanvasElement;
+  /** One painter per chart; the last one set wins. */
+  onPaint(painter: Painter | undefined): void;
+  /**
+   * Moves the marks changed by the last update between their previous shape (0) and their own (1).
+   * False, and nothing moves, unless every changed mark can morph and none was added or removed.
+   */
+  morph(t: number): boolean;
+  /** Shows only the left fraction of the WebGL layer, at an opacity; the next draw() shows all of it again. */
+  reveal(fraction: number, opacity?: number): void;
   layer<K extends keyof HTMLElementTagNameMap>(tag: K, css?: string): HTMLElementTagNameMap[K];
   marks(): readonly Mark[];
   size(): { width: number; height: number };
@@ -112,7 +155,11 @@ export type Internals = {
   yPx(y: number): number;
   xValue(px: number): number;
   hit(px: number, py: number, max: number): (Hit & { mark: Mark }) | null;
-  focus(group: string | null): void;
+  /**
+   * Dims everything outside the group. When the chart holds no second group to dim, a row focuses
+   * that one row of its mark instead and dims the mark's other rows.
+   */
+  focus(group: string | null, row?: { mark: Mark; row: number }): void;
 };
 
 /** update() runs after the chart changed under a resting pointer: new options or a new size. */

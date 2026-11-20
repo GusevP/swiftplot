@@ -1,6 +1,6 @@
-import { afterEach, expect, test } from 'vitest';
+import { afterEach, expect, test, vi } from 'vitest';
 
-import { area, band, bar, bin, dots, line, plot, stack, time, tooltip } from '../src/index.js';
+import { animate, area, band, bar, bin, dots, line, plot, stack, time, tooltip } from '../src/index.js';
 import type { Internals, Mark, Options } from '../src/index.js';
 import { columns } from '../src/marks/common.js';
 import { scale } from '../src/scale.js';
@@ -42,7 +42,10 @@ const pile = (n: number, color = RED) =>
     color,
   });
 
-afterEach(() => document.body.replaceChildren());
+afterEach(() => {
+  vi.useRealTimers();
+  document.body.replaceChildren();
+});
 
 test('columns keeps the min, max and last y of each pixel column', () => {
   const c = columns([0, 0.1, 0.2, 5], [1, 9, 4, 2], 0, 1, 10, 1);
@@ -699,4 +702,467 @@ test('a histogram is the bins handed to the bar mark', () => {
   expect(pixel(el, 25, 15)).toEqual([255, 0, 0, 255]);
   expect(pixel(el, 75, 85)).toEqual([255, 0, 0, 255]);
   expect(pixel(el, 75, 65)[3]).toBe(0);
+});
+
+const RED_PIXEL = [255, 0, 0, 255];
+const fakeClock = () =>
+  vi.useFakeTimers({ toFake: ['requestAnimationFrame', 'cancelAnimationFrame', 'performance'] });
+
+test("with enter: 'fade' marks appear together, over a grid that is there from the start", () => {
+  fakeClock();
+  const el = host();
+  plot(el, { ...frame, marks: [flat(0.55)], use: [animate({ duration: 600, enter: 'fade' })] });
+  expect(pixel(el, 10, 45)[3]).toBe(0);
+  expect(pixel(el, 50, 50)[3]).toBe(255);
+
+  vi.advanceTimersByTime(100);
+  const left = pixel(el, 10, 45)[3]!;
+  expect(left).toBeGreaterThan(0);
+  expect(left).toBeLessThan(255);
+  expect(pixel(el, 97, 45)[3]).toBe(left);
+
+  vi.advanceTimersByTime(600);
+  expect(pixel(el, 97, 45)).toEqual(RED_PIXEL);
+});
+
+test('marks are revealed from the left on the first paint', () => {
+  fakeClock();
+  const el = host();
+  plot(el, { ...frame, marks: [flat(0.55)], use: [animate({ duration: 600 })] });
+  expect(pixel(el, 10, 45)[3]).toBe(0);
+  expect(pixel(el, 50, 50)[3]).toBe(255);
+
+  vi.advanceTimersByTime(100);
+  expect(pixel(el, 10, 45)).toEqual(RED_PIXEL);
+  expect(pixel(el, 97, 45)[3]).toBe(0);
+
+  vi.advanceTimersByTime(600);
+  expect(pixel(el, 97, 45)).toEqual(RED_PIXEL);
+});
+
+test('a data change cross-fades, leaves unchanged pixels alone, and a second update skips the fade', () => {
+  fakeClock();
+  const el = host();
+  const chart = plot(el, { ...frame, marks: [flat(0.55)], use: [animate({ duration: 600 })] });
+  vi.advanceTimersByTime(700);
+  const grid = pixel(el, 50, 50);
+
+  chart.update({ marks: [flat(0.25)] });
+  expect(pixel(el, 50, 45)).toEqual(RED_PIXEL);
+  expect(pixel(el, 50, 75)[3]).toBe(0);
+
+  vi.advanceTimersByTime(150);
+  const going = pixel(el, 50, 45)[3]!;
+  const coming = pixel(el, 50, 75)[3]!;
+  expect(going).toBeGreaterThan(0);
+  expect(going).toBeLessThan(255);
+  expect(coming).toBeGreaterThan(0);
+  expect(coming).toBeLessThan(255);
+  expect(pixel(el, 50, 50)).toEqual(grid);
+
+  chart.update({ marks: [flat(0.85)] });
+  expect(pixel(el, 50, 15)).toEqual(RED_PIXEL);
+  expect(pixel(el, 50, 75)[3]).toBe(0);
+
+  vi.advanceTimersByTime(700);
+  chart.update({ marks: [flat(0.25)] });
+  expect(pixel(el, 50, 15)).toEqual(RED_PIXEL);
+  vi.advanceTimersByTime(700);
+  expect(pixel(el, 50, 75)).toEqual(RED_PIXEL);
+  expect(pixel(el, 50, 15)[3]).toBe(0);
+});
+
+test('nothing animates with a duration of zero, or once the chart is resized', () => {
+  fakeClock();
+  const still = host();
+  plot(still, { ...frame, marks: [flat(0.55)], use: [animate({ duration: 0 })] });
+  expect(pixel(still, 97, 45)).toEqual(RED_PIXEL);
+  const endless = host();
+  plot(endless, { ...frame, marks: [flat(0.55)], use: [animate({ duration: Infinity })] });
+  expect(pixel(endless, 97, 45)).toEqual(RED_PIXEL);
+
+  const el = host();
+  const chart = plot(el, { ...frame, marks: [flat(0.55)], use: [animate({ duration: 600 })] });
+  expect(pixel(el, 97, 45)[3]).toBe(0);
+  chart.update({ width: 120 });
+  expect(pixel(el, 115, 45)).toEqual(RED_PIXEL);
+  vi.advanceTimersByTime(100);
+  expect(pixel(el, 115, 45)).toEqual(RED_PIXEL);
+});
+
+test('the WebGL layer takes part in the entrance and an update in between does not undo it', () => {
+  fakeClock();
+  const fading = host();
+  const chart = plot(fading, {
+    ...frame,
+    marks: [pile(30_000)],
+    use: [animate({ duration: 300, enter: 'fade' })],
+  });
+  const layer = fading.querySelectorAll('canvas')[1]!;
+  expect(layer.style.opacity).toBe('0');
+  chart.update({});
+  expect(layer.style.opacity).toBe('0');
+  vi.advanceTimersByTime(400);
+  expect(layer.style.opacity).toBe('1');
+
+  const el = host();
+  const revealed = plot(el, {
+    ...frame,
+    marks: [pile(30_000)],
+    use: [animate({ duration: 300 })],
+  });
+  const clip = el.querySelectorAll('canvas')[1]!.style;
+  expect(clip.clipPath).toBe('inset(0px 100px 0px 0px)');
+  revealed.update({});
+  expect(clip.clipPath).toBe('inset(0px 100px 0px 0px)');
+  vi.advanceTimersByTime(400);
+  expect(clip.clipPath).toBe('inset(0px)');
+});
+
+test('a chart first drawn by a resize cross-fades its next data change and does not replay the entrance', () => {
+  fakeClock();
+  const el = host();
+  const chart = plot(el, { ...frame, width: 0, marks: [flat(0.55)], use: [animate({ duration: 600 })] });
+  chart.update({ width: 100 });
+  expect(pixel(el, 97, 45)).toEqual(RED_PIXEL);
+  vi.advanceTimersByTime(700);
+  chart.update({ marks: [flat(0.25)] });
+  expect(pixel(el, 97, 45)).toEqual(RED_PIXEL);
+});
+
+const column = (y2: number) => bar({ x1: [2], x2: [4], y1: [0], y2: [y2], color: RED });
+
+test('a bar grows to its new value: between the two heights it is solid or absent, never faint', () => {
+  fakeClock();
+  const el = host();
+  const chart = plot(el, { ...frame, marks: [column(0.2)], use: [animate({ duration: 600 })] });
+  vi.advanceTimersByTime(700);
+
+  chart.update({ marks: [column(0.8)] });
+  expect(pixel(el, 30, 85)).toEqual(RED_PIXEL);
+  expect(pixel(el, 30, 55)[3]).toBe(0);
+
+  vi.advanceTimersByTime(150);
+  expect(pixel(el, 30, 55)).toEqual(RED_PIXEL);
+  expect(pixel(el, 30, 35)[3]).toBe(0);
+
+  chart.update({ dim: 0.5 });
+  expect(pixel(el, 30, 35)).toEqual(RED_PIXEL);
+});
+
+test('bars cross-fade when their number changes, and jump without animate', () => {
+  fakeClock();
+  const el = host();
+  const chart = plot(el, { ...frame, marks: [column(0.2)], use: [animate({ duration: 600 })] });
+  vi.advanceTimersByTime(700);
+  chart.update({ marks: [bar({ x1: [2, 6], x2: [4, 8], y1: [0, 0], y2: [0.8, 0.8], color: RED })] });
+  vi.advanceTimersByTime(150);
+  const faint = pixel(el, 30, 35)[3]!;
+  expect(faint).toBeGreaterThan(0);
+  expect(faint).toBeLessThan(255);
+
+  const plain = host();
+  const still = plot(plain, { ...frame, marks: [column(0.2)] });
+  still.update({ marks: [column(0.8)] });
+  expect(pixel(plain, 30, 35)).toEqual(RED_PIXEL);
+});
+
+test('a bar part-way through its move is finished when another update leaves it unchanged', () => {
+  fakeClock();
+  const el = host();
+  const at = (x: number, y2: number, key: string) =>
+    bar({ x1: [x], x2: [x + 2], y1: [0], y2: [y2], color: RED, key });
+  const low = at(6, 0.2, 'b');
+  const chart = plot(el, { ...frame, marks: [at(2, 0.2, 'a'), low], use: [animate({ duration: 600 })] });
+  vi.advanceTimersByTime(700);
+  const tall = at(2, 0.8, 'a');
+  chart.update({ marks: [tall, low] });
+  vi.advanceTimersByTime(150);
+  expect(pixel(el, 30, 35)[3]).toBe(0);
+
+  chart.update({ marks: [tall, at(6, 0.8, 'b')] });
+  expect(pixel(el, 30, 35)).toEqual(RED_PIXEL);
+  expect(pixel(el, 70, 35)).toEqual(RED_PIXEL);
+});
+
+test('a bar far outside the domain does not wrap round into view', () => {
+  const el = host();
+  plot(el, { ...frame, marks: [bar({ x1: [429496731], x2: [429496733], y1: [0], y2: [1], color: RED })] });
+  expect(pixel(el, 24, 55)[3]).toBe(0);
+});
+
+test('a chart too slow to move its bars cross-fades from the picture it had', () => {
+  fakeClock();
+  const el = host();
+  const slow: Mark = {
+    type: 'slow',
+    color: RED,
+    options: {},
+    points: 0,
+    channels: { x: [], y: [] },
+    prepare: () => ({ paint: () => vi.advanceTimersByTime(10) }),
+  };
+  const chart = plot(el, { ...frame, marks: [slow, column(0.2)], use: [animate({ duration: 600 })] });
+  vi.advanceTimersByTime(700);
+  chart.update({
+    marks: [slow, bar({ x1: [2], x2: [4], y1: [0], y2: [0.8], color: '#0000ff' })],
+  });
+  expect(pixel(el, 30, 85)).toEqual(RED_PIXEL);
+  expect(pixel(el, 30, 35)[3]).toBe(0);
+});
+
+test('a mark that can always morph is still cross-faded when it replaces an unrelated mark', () => {
+  fakeClock();
+  const el = host();
+  const square = (key: string): Mark => ({
+    type: 'square',
+    key,
+    color: RED,
+    options: { key },
+    points: 0,
+    channels: { x: [], y: [] },
+    prepare({ ctx, dpr }) {
+      let t = 1;
+      return {
+        paint() {
+          if (t < 1) return;
+          ctx.fillStyle = RED;
+          ctx.fillRect(25 * dpr, 41 * dpr, 10 * dpr, 8 * dpr);
+        },
+        morph: v => void (t = v),
+      };
+    },
+  });
+  const chart = plot(el, { ...frame, marks: [square('a')], use: [animate({ duration: 600 })] });
+  vi.advanceTimersByTime(700);
+  chart.update({ marks: [square('b')] });
+  vi.advanceTimersByTime(150);
+  expect(pixel(el, 30, 45)).toEqual(RED_PIXEL);
+});
+
+test('a mark removed while moving is finished before it is released', () => {
+  fakeClock();
+  const order: string[] = [];
+  const mover = (name: string): Mark => ({
+    type: 'mover',
+    key: 'm',
+    color: RED,
+    options: { name },
+    points: 0,
+    channels: { x: [], y: [] },
+    prepare: () => ({ paint() {}, morph: t => void (t === 1 && order.push(`${name} settled`)) }),
+    release: () => order.push(`${name} released`),
+  });
+  const chart = plot(host(), { ...frame, marks: [mover('one')], use: [animate({ duration: 600 })] });
+  vi.advanceTimersByTime(700);
+  chart.update({ marks: [mover('two')] });
+  vi.advanceTimersByTime(150);
+  order.length = 0;
+  chart.update({ marks: [] });
+  expect(order).toEqual(['two settled', 'two released']);
+});
+
+test('removing one of two listings of the same mark cross-fades the update', () => {
+  fakeClock();
+  const el = host();
+  const at = (x: number, y2: number, key: string) =>
+    bar({ x1: [x], x2: [x + 2], y1: [0], y2: [y2], color: RED, key });
+  const twice = at(2, 0.2, 'a');
+  const chart = plot(el, {
+    ...frame,
+    marks: [twice, twice, at(6, 0.2, 'b')],
+    use: [animate({ duration: 600 })],
+  });
+  vi.advanceTimersByTime(700);
+  chart.update({ marks: [twice, at(6, 0.8, 'b')] });
+  vi.advanceTimersByTime(150);
+  const faint = pixel(el, 70, 35)[3]!;
+  expect(faint).toBeGreaterThan(0);
+  expect(faint).toBeLessThan(255);
+});
+
+test('a listing dropped and another added in one update cross-fade it, though the count is the same', () => {
+  fakeClock();
+  const el = host();
+  const at = (x: number, y2: number, key: string) =>
+    bar({ x1: [x], x2: [x + 1], y1: [0], y2: [y2], color: RED, key });
+  const a = at(1, 0.2, 'a');
+  const b = at(3, 0.2, 'b');
+  const chart = plot(el, { ...frame, marks: [a, a, b, at(6, 0.2, 'c')], use: [animate({ duration: 600 })] });
+  vi.advanceTimersByTime(700);
+  chart.update({ marks: [a, b, b, at(6, 0.8, 'c')] });
+  vi.advanceTimersByTime(150);
+  const faint = pixel(el, 65, 35)[3]!;
+  expect(faint).toBeGreaterThan(0);
+  expect(faint).toBeLessThan(255);
+});
+
+test('the x tooltip gives each stacked area its own value and focuses the one under the pointer', () => {
+  const el = host();
+  const x = [0, 10];
+  const [bottom, top] = stack([
+    [0.3, 0.3],
+    [0.4, 0.4],
+  ]);
+  plot(el, {
+    ...frame,
+    dim: 0.3,
+    marks: [
+      area({ x, ...bottom!, color: RED, label: 'Bottom' }),
+      area({ x, ...top!, color: RED, label: 'Top' }),
+      area({ x, y1: [0.9, 0.9], y2: [0.95, 0.95], color: RED, group: 'unlabelled' }),
+    ],
+    use: [tooltip({ mode: 'x', title: () => 'at', value: y => y.toFixed(1) })],
+  });
+  const root = hover(el, 50, 45);
+  expect(root.innerText).toContain('Bottom: 0.3');
+  expect(root.innerText).toContain('Top: 0.4');
+  expect(root.innerText.match(/: /g)).toHaveLength(2);
+  expect(pixel(el, 50, 45)).toEqual([255, 0, 0, 255]);
+  expect(pixel(el, 50, 85)[3]).toBeLessThan(100);
+
+  hover(el, 50, 85);
+  expect(pixel(el, 50, 85)).toEqual([255, 0, 0, 255]);
+  expect(pixel(el, 50, 45)[3]).toBeLessThan(100);
+});
+
+test('a line within reach of the pointer is focused before the area it lies on', () => {
+  const el = host();
+  plot(el, {
+    ...frame,
+    dim: 0.3,
+    marks: [
+      area({ x: [0, 10], y: [0.8, 0.8], color: RED, label: 'fill' }),
+      line({ x: [0, 10], y: [0.55, 0.55], color: '#0000ff', width: 4, label: 'line' }),
+    ],
+    use: [tooltip({ mode: 'x', title: () => 'at', value: String })],
+  });
+  hover(el, 50, 48);
+  expect(pixel(el, 50, 85)[3]).toBeLessThan(100);
+  hover(el, 50, 85);
+  expect(pixel(el, 50, 85)).toEqual([255, 0, 0, 255]);
+});
+
+test('area focus follows what is drawn: below zero, never where it is flat or has ended', () => {
+  const el = host();
+  const x = [0, 10];
+  const use = () => [tooltip({ mode: 'x' as const, title: () => 'at', value: (y: number) => y.toFixed(1) })];
+  const base = { ...frame, dim: 0.3, y: { domain: [-1, 1] as [number, number], label: '' } };
+
+  plot(el, {
+    ...base,
+    marks: [
+      area({ x, y: [-0.6, -0.6], color: RED, label: 'below' }),
+      area({ x, y: [0.6, 0.6], color: RED, label: 'above' }),
+    ],
+    use: use(),
+  });
+  expect(hover(el, 50, 65).innerText).toContain('below: -0.6');
+  expect(pixel(el, 50, 35)[3]).toBeLessThan(100);
+
+  const flat = host();
+  plot(flat, {
+    ...base,
+    marks: [
+      area({ x, y: [0.9, 0.9], color: RED, label: 'fill' }),
+      area({ x, y1: [0, 0], y2: [0, 0], color: RED, label: 'flat' }),
+    ],
+    use: use(),
+  });
+  hover(flat, 50, 35);
+  expect(pixel(flat, 50, 15)).toEqual([255, 0, 0, 255]);
+
+  const ended = host();
+  plot(ended, {
+    ...base,
+    marks: [
+      area({ x: [0, 5], y: [0.6, 0.6], curve: 'step', color: RED, label: 'short' }),
+      area({ x, y: [-0.6, -0.6], color: RED, label: 'other' }),
+    ],
+    use: use(),
+  });
+  expect(hover(ended, 80, 35).innerText).toContain('short: –');
+  expect(pixel(ended, 50, 65)).toEqual([255, 0, 0, 255]);
+});
+
+test('a line 29 px from the pointer still wins over the area the pointer is in', () => {
+  const el = host();
+  plot(el, {
+    ...frame,
+    dim: 0.3,
+    marks: [
+      line({ x: [0, 10], y: [0.55, 0.55], color: '#0000ff', width: 2, label: 'line' }),
+      area({ x: [0, 10], y: [0.8, 0.8], color: RED, label: 'fill' }),
+    ],
+    use: [tooltip({ mode: 'x', title: () => 'at', value: String })],
+  });
+  hover(el, 50, 74);
+  expect(pixel(el, 50, 85)[3]).toBeLessThan(100);
+});
+
+test('with one series the hovered bar is picked out; with two the hovered series is', () => {
+  const pair = (y2: number, color: string, label?: string) =>
+    bar({ x1: [1, 5], x2: [3, 7], y1: [0, 0], y2: [y2, y2], color, label });
+  const use = () => [tooltip({ mode: 'nearest' as const, text: () => 'tip' })];
+
+  const one = host();
+  plot(one, { ...frame, dim: 0.3, marks: [pair(0.8, RED), flat(0.95)], use: use() });
+  hover(one, 20, 55);
+  expect(pixel(one, 20, 55)).toEqual([255, 0, 0, 255]);
+  expect(pixel(one, 60, 55)[3]).toBeLessThan(100);
+  expect(pixel(one, 85, 5)).toEqual([255, 0, 0, 255]);
+  hover(one, 60, 55);
+  expect(pixel(one, 60, 55)).toEqual([255, 0, 0, 255]);
+  expect(pixel(one, 20, 55)[3]).toBeLessThan(100);
+  hover(one, 90, 55);
+  expect(pixel(one, 20, 55)).toEqual([255, 0, 0, 255]);
+
+  const two = host();
+  plot(two, {
+    ...frame,
+    dim: 0.3,
+    marks: [pair(0.8, RED, 'a'), bar({ x1: [8], x2: [10], y1: [0], y2: [0.8], color: RED, label: 'b' })],
+    use: use(),
+  });
+  hover(two, 20, 55);
+  expect(pixel(two, 60, 55)).toEqual([255, 0, 0, 255]);
+  expect(pixel(two, 90, 55)[3]).toBeLessThan(100);
+});
+
+test('a pointer at rest on a bar does not cut the bar short when its data changes', () => {
+  fakeClock();
+  const el = host();
+  const chart = plot(el, {
+    ...frame,
+    dim: 0.3,
+    marks: [column(0.2)],
+    use: [tooltip({ mode: 'nearest', text: () => 'tip' }), animate({ duration: 600 })],
+  });
+  vi.advanceTimersByTime(700);
+  hover(el, 30, 85);
+  chart.update({ marks: [column(0.8)] });
+  vi.advanceTimersByTime(150);
+  expect(pixel(el, 30, 55)).toEqual(RED_PIXEL);
+  expect(pixel(el, 30, 35)[3]).toBe(0);
+});
+
+test('moving between bars of the focused series does not cut their move short', () => {
+  fakeClock();
+  const el = host();
+  const pair = (y2: number) =>
+    bar({ x1: [1, 5], x2: [3, 7], y1: [0, 0], y2: [y2, y2], color: RED, label: 'a' });
+  const other = bar({ x1: [8], x2: [10], y1: [0], y2: [0.5], color: RED, label: 'b' });
+  const chart = plot(el, {
+    ...frame,
+    dim: 0.3,
+    marks: [pair(0.2), other],
+    use: [tooltip({ mode: 'nearest', text: () => 'tip' }), animate({ duration: 600 })],
+  });
+  vi.advanceTimersByTime(700);
+  hover(el, 20, 85);
+  chart.update({ marks: [pair(0.8), other] });
+  vi.advanceTimersByTime(150);
+  hover(el, 60, 85);
+  expect(pixel(el, 60, 55)).toEqual(RED_PIXEL);
+  expect(pixel(el, 60, 35)[3]).toBe(0);
 });

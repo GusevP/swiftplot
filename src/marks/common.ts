@@ -45,3 +45,19 @@ export function columns(x: Col, y: Col, ox: number, kx: number, oy: number, ky: 
   }
   return { n: k + 1, col, lo, hi, last, first, at };
 }
+
+/** y at v: the held sample of a step, the interpolated value of a straight line. */
+export function sampleAt(x: Col, y: Col, v: number, step: boolean) {
+  let a = 0;
+  let b = x.length;
+  while (a < b) {
+    const mid = (a + b) >> 1;
+    if (x[mid]! <= v) a = mid + 1;
+    else b = mid;
+  }
+  if (!a) return undefined;
+  const x0 = x[a - 1]!;
+  const y0 = y[a - 1]!;
+  if (step || x0 === v) return y0;
+  return a < x.length ? y0 + ((y[a]! - y0) * (v - x0)) / (x[a]! - x0) : undefined;
+}

@@ -1,7 +1,7 @@
 import type { Feature } from '../types.js';
 
 export type TooltipOptions =
-  /** One row per mark that can be sampled at the pointer's x, with a crosshair. */
+  /** One row per labelled mark that can be sampled at the pointer's x, with a crosshair. */
   | { mode: 'x'; title: (x: number) => string; value: (y: number) => string }
   | { mode: 'nearest'; text: (label: string, x: number, y: number) => string };
 
@@ -48,7 +48,10 @@ export function tooltip(t: TooltipOptions): Feature {
       if (t.mode === 'nearest') {
         const hit = chart.hit(px, py, NEAREST_PX);
         if (!hit) return hide();
-        chart.focus(hit.mark.group ?? null);
+        chart.focus(
+          hit.mark.group ?? null,
+          hit.row === undefined ? undefined : { mark: hit.mark, row: hit.row },
+        );
         show(chart.xPx(hit.x), chart.yPx(hit.y), [
           { text: t.text(hit.mark.label ?? '', hit.x, hit.y), color: hit.mark.color },
         ]);
@@ -59,15 +62,29 @@ export function tooltip(t: TooltipOptions): Feature {
       if (px < m.left || px > width - m.right || py < m.top || py > height - m.bottom) return hide();
       const v = chart.xValue(px);
       const rows: Row[] = [{ text: t.title(v) }];
+      // A line within reach of the pointer is focused before the filled mark the pointer is in,
+      // and of several filled marks the one drawn last.
       let near = FOCUS_PX;
-      let group: string | null = null;
+      let line: string | undefined;
+      let fill: string | undefined;
       for (const k of chart.marks()) {
         if (!k.sampleAtX) continue;
-        const y = k.sampleAtX(v);
-        rows.push({ text: `${k.label ?? ''}: ${y === undefined ? '–' : t.value(y)}`, color: k.color });
-        const gap = y === undefined ? Infinity : Math.abs(chart.yPx(y) - py);
-        if (gap < near && k.group !== undefined) [near, group] = [gap, k.group];
+        const s = k.sampleAtX(v);
+        const value = typeof s === 'number' ? s : s?.value;
+        if (k.label !== undefined) {
+          rows.push({ text: `${k.label}: ${value === undefined ? '–' : t.value(value)}`, color: k.color });
+        }
+        if (s === undefined || k.group === undefined) continue;
+        if (typeof s === 'number') {
+          const gap = Math.abs(chart.yPx(s) - py);
+          if (gap < near) [near, line] = [gap, k.group];
+        } else {
+          const a = chart.yPx(s.y1);
+          const b = chart.yPx(s.y2);
+          if (a !== b && py >= Math.min(a, b) && py <= Math.max(a, b)) fill = k.group;
+        }
       }
+      const group = line ?? fill ?? null;
       cross.style.display = '';
       cross.style.left = `${px}px`;
       cross.style.top = `${m.top}px`;

@@ -1,5 +1,5 @@
 import type { Col, Mark } from '../types.js';
-import { base, columns } from './common.js';
+import { base, columns, sampleAt } from './common.js';
 import type { Common, Curve } from './common.js';
 
 /** x must be ascending. */
@@ -32,19 +32,6 @@ export function line(o: LineOptions): Mark {
         },
       };
     },
-    sampleAtX(v) {
-      let a = 0;
-      let b = x.length;
-      while (a < b) {
-        const mid = (a + b) >> 1;
-        if (x[mid]! <= v) a = mid + 1;
-        else b = mid;
-      }
-      if (!a) return undefined;
-      const x0 = x[a - 1]!;
-      const y0 = y[a - 1]!;
-      if (step || x0 === v) return y0;
-      return a < x.length ? y0 + ((y[a]! - y0) * (v - x0)) / (x[a]! - x0) : undefined;
-    },
+    sampleAtX: v => sampleAt(x, y, v, step),
   };
 }
