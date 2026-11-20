@@ -93,6 +93,12 @@ export function tooltip(t: TooltipOptions): Feature {
       chart.focus(group);
     };
     const move = (e: MouseEvent) => {
+      // Over another feature's layer, such as a legend, the focus is that feature's to set.
+      if (e.target !== root) {
+        at = null;
+        cross.style.display = tip.style.display = 'none';
+        return;
+      }
       at = [e.clientX, e.clientY];
       place();
     };

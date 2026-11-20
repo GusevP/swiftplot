@@ -109,7 +109,8 @@ export type Options = {
   /** CSS pixels; when omitted the chart follows its container. */
   width?: number;
   height?: number;
-  margin: Margin;
+  /** CSS pixels around the plot area for ticks and labels. A side left out is sized from the labels. */
+  margin?: Partial<Margin>;
   x: Axis;
   y: Axis;
   marks: Mark[];
@@ -145,6 +146,12 @@ export type Internals = {
    * False, and nothing moves, unless every changed mark can morph and none was added or removed.
    */
   morph(t: number): boolean;
+  /**
+   * Keeps room above the plot. `space` is asked on every layout, with the plot's left edge and
+   * width in CSS pixels, for the height it needs; it must be cheap and measure nothing.
+   * ponytail: one caller, and the top only; other sides when a feature needs them.
+   */
+  reserve(space: (left: number, width: number) => number): void;
   /** Shows only the left fraction of the WebGL layer, at an opacity; the next draw() shows all of it again. */
   reveal(fraction: number, opacity?: number): void;
   layer<K extends keyof HTMLElementTagNameMap>(tag: K, css?: string): HTMLElementTagNameMap[K];

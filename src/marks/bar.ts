@@ -2,22 +2,38 @@ import type { Col, Mark, View } from '../types.js';
 import { base } from './common.js';
 import type { Common } from './common.js';
 
-/** One rectangle per row, from (x1, y1) to (x2, y2) in data units; either pair may be in any order. */
-export type BarOptions = Common & { x1: Col; x2: Col; y1: Col; y2: Col };
+/**
+ * One rectangle per row, from (x1, y1) to (x2, y2) in data units; either pair may be in any order.
+ * A single `y` (or `x`) stands for a pair that starts at zero.
+ */
+export type BarOptions = Common & ({ x1: Col; x2: Col } | { x: Col }) & ({ y1: Col; y2: Col } | { y: Col });
+
+// A bound left out is zero throughout, which needs no column.
+type Bounds = { x1?: Col; x2: Col; y1?: Col; y2: Col };
+const bounds = (o: BarOptions): Bounds => ({
+  x1: 'x' in o ? undefined : o.x1,
+  x2: 'x' in o ? o.x : o.x2,
+  y1: 'y' in o ? undefined : o.y1,
+  y2: 'y' in o ? o.y : o.y2,
+});
 
 // ponytail: a morph rebuilds every bar each frame, so beyond this many they cross-fade instead.
 const MORPH_MAX = 2000;
 
 // Edges are snapped to device pixels so neighbours meet without a seam. Holds l, t, r, b per bar,
 // as doubles: a bar far outside the domain must not wrap round into view as a 32-bit integer would.
-function boxes({ x1, x2, y1, y2 }: BarOptions, { ox, kx, oy, ky }: View) {
-  const box = new Float64Array(x1.length * 4);
+function boxes({ x1, x2, y1, y2 }: Bounds, { ox, kx, oy, ky }: View) {
+  const box = new Float64Array(x2.length * 4);
   for (let i = 0, j = 0; j < box.length; i++, j += 4) {
-    const l = (box[j] = Math.round(ox + Math.min(x1[i]!, x2[i]!) * kx));
-    const t = (box[j + 1] = Math.round(oy - Math.max(y1[i]!, y2[i]!) * ky));
+    const xa = x1 ? x1[i]! : 0;
+    const xb = x2[i]!;
+    const ya = y1 ? y1[i]! : 0;
+    const yb = y2[i]!;
+    const l = (box[j] = Math.round(ox + Math.min(xa, xb) * kx));
+    const t = (box[j + 1] = Math.round(oy - Math.max(ya, yb) * ky));
     // A bar with a size keeps one pixel of it, so a narrow bin or a small value stays visible.
-    box[j + 2] = Math.max(Math.round(ox + Math.max(x1[i]!, x2[i]!) * kx), l + +(x1[i] !== x2[i]));
-    box[j + 3] = Math.max(Math.round(oy - Math.min(y1[i]!, y2[i]!) * ky), t + +(y1[i] !== y2[i]));
+    box[j + 2] = Math.max(Math.round(ox + Math.max(xa, xb) * kx), l + +(xa !== xb));
+    box[j + 3] = Math.max(Math.round(oy - Math.min(ya, yb) * ky), t + +(ya !== yb));
   }
   return box;
 }
@@ -31,15 +47,18 @@ function rects(box: Float64Array) {
 }
 
 export function bar(o: BarOptions): Mark {
-  const { x1, x2, y1, y2, color, alpha = 1 } = o;
-  const n = x1.length;
+  const { color, alpha = 1 } = o;
+  const own = bounds(o);
+  const { x1, x2, y2 } = own;
+  const n = x2.length;
+  const zero = n ? [0] : [];
   return {
-    ...base('bar', o, [x1, x2], [y1, y2]),
+    ...base('bar', o, [x2, x1 ?? zero], [y2, own.y1 ?? zero]),
     prepare(view, previous) {
       const { ctx, dpr, left, top, width, height } = view;
-      const box = boxes(o, view);
-      const own = rects(box);
-      let path = own;
+      const box = boxes(own, view);
+      const full = rects(box);
+      let path = full;
       // What is drawn now, which during a move is not yet `box`; hit() keeps answering for `box`.
       let shown = box;
       // Rows are matched by position, so the previous bars must be as many.
@@ -69,9 +88,9 @@ export function bar(o: BarOptions): Mark {
         morph:
           before &&
           (t => {
-            if (t >= 1) return void ([path, shown] = [own, box]);
+            if (t >= 1) return void ([path, shown] = [full, box]);
             // In this view, not the one the previous bars were drawn in: the axes have already moved.
-            const from = (start ??= boxes(before, view));
+            const from = (start ??= boxes(bounds(before), view));
             shown = box.map((v, i) => Math.round(from[i]! + (v - from[i]!) * t));
             path = rects(shown);
           }),
@@ -84,7 +103,7 @@ export function bar(o: BarOptions): Mark {
           for (let i = n - 1; i >= 0; i--) {
             const j = i * 4;
             if (x >= box[j]! && y >= box[j + 1]! && x < box[j + 2]! && y < box[j + 3]!) {
-              return { x: (x1[i]! + x2[i]!) / 2, y: y2[i]!, distance: max, row: i };
+              return { x: ((x1 ? x1[i]! : 0) + x2[i]!) / 2, y: y2[i]!, distance: max, row: i };
             }
           }
           return null;

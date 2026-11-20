@@ -69,3 +69,24 @@ export function stack(series: Col[]) {
     return { y1, y2 };
   });
 }
+
+/**
+ * The two bounds of one bar per category on a band axis, where category i sits at i: a count for
+ * categories 0 to n - 1, or the indices themselves. `width` is the share of the category that the
+ * bars of all slots take together; grouped bars pass their own `slot` out of `of`.
+ */
+export function bands(
+  at: number | Col,
+  { slot = 0, of = 1, width = 0.8 }: { slot?: number; of?: number; width?: number } = {},
+): [Float64Array, Float64Array] {
+  const n = typeof at === 'number' ? at : at.length;
+  const lo = new Float64Array(n);
+  const hi = new Float64Array(n);
+  const each = width / of;
+  const offset = slot * each - width / 2;
+  for (let i = 0; i < n; i++) {
+    lo[i] = (typeof at === 'number' ? i : at[i]!) + offset;
+    hi[i] = lo[i]! + each;
+  }
+  return [lo, hi];
+}

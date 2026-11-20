@@ -6,6 +6,7 @@ import type {
   GlLayer,
   Hit,
   Internals,
+  Margin,
   Mark,
   Options,
   Painter,
@@ -65,6 +66,8 @@ export function plot(el: HTMLElement, options: Options): Chart {
   let flat: [Mark, Prepared][] = [];
   let onGl: [Mark, Prepared][] = [];
   let focused: string | null = null;
+  let m: Margin = { top: 0, right: 0, bottom: 0, left: 0 };
+  let above: Parameters<Internals['reserve']>[0] | undefined;
   let replaced = new Map<Mark, Mark>();
   let paired = true;
   let morphs: Prepared[] = [];
@@ -102,7 +105,6 @@ export function plot(el: HTMLElement, options: Options): Chart {
   const clipGl = (reveal = shown, opacity = faded) => {
     shown = reveal;
     if (!glCanvas) return;
-    const m = o.margin;
     const css = `inset(${m.top}px ${m.right + (W - m.left - m.right) * (1 - reveal)}px ${m.bottom}px ${m.left}px)`;
     if (css !== clipped) glCanvas.style.clipPath = clipped = css;
     if (opacity !== faded) glCanvas.style.opacity = String((faded = opacity));
@@ -123,7 +125,38 @@ export function plot(el: HTMLElement, options: Options): Chart {
   const yPx = (v: number) => (view.oy - v * view.ky) / dpr;
 
   const layout = () => {
-    const m = o.margin;
+    // ponytail: tick labels are taken as 7 px a character, not measured, because measuring text
+    // forces a layout before the first paint. Set the margin when labels are wider than that.
+    const given = o.margin ?? {};
+    let widest = 0;
+    if (given.left === undefined) for (const t of ys.ticks) widest = Math.max(widest, t.label.length);
+    m = {
+      top: given.top ?? 12,
+      right: given.right ?? 16,
+      bottom: given.bottom ?? (o.x.label ? 44 : 26),
+      left: given.left ?? 14 + widest * 7 + (o.y.label ? 20 : 0),
+    };
+    // x tick labels are centred on their ticks, so the first and the last may reach past the chart.
+    // A tick at fraction u of the axis sits at (1 - u) * left + u * (W - right). Each side is first
+    // made the least that keeps its own label inside; if growing the right has pushed the first
+    // label out again, both bind at once and the two equations are solved together.
+    const span = xs.hi - xs.lo || 1;
+    const edge = (t: { value: number; label: string } | undefined) =>
+      t && { u: (t.value - xs.lo) / span, half: t.label.length * 3.5 + 4 };
+    const [a, b] = [edge(xs.ticks[0]), edge(xs.ticks.at(-1))];
+    const [freeLeft, freeRight] = [given.left === undefined, given.right === undefined];
+    const leftFor = (right: number) => (a && a.u < 1 ? (a.half - a.u * (W - right)) / (1 - a.u) : 0);
+    if (freeLeft) m.left = Math.max(m.left, leftFor(m.right));
+    if (freeRight && b && b.u > 0) {
+      m.right = Math.max(m.right, W - (W - b.half - (1 - b.u) * m.left) / b.u);
+      if (freeLeft && a && a.u !== b.u && leftFor(m.right) > m.left) {
+        const p = a.half - a.u * W;
+        const q = (1 - b.u) * W - b.half;
+        m.left = (a.u * q - b.u * p) / (a.u - b.u);
+        m.right = ((1 - a.u) * q - (1 - b.u) * p) / (a.u - b.u);
+      }
+    }
+    m.top += above?.(m.left, W - m.left - m.right) ?? 0;
     const left = m.left * dpr;
     const top = m.top * dpr;
     const width = (W - m.left - m.right) * dpr;
@@ -266,7 +299,6 @@ export function plot(el: HTMLElement, options: Options): Chart {
 
   const refresh = (data: boolean, also?: 'size' | 'focus') => {
     if (data) rescale();
-    const m = o.margin;
     const viewChanged = layout();
     drawable = W > m.left + m.right && H > m.top + m.bottom;
     root.style.visibility = drawable ? '' : 'hidden';
@@ -305,9 +337,12 @@ export function plot(el: HTMLElement, options: Options): Chart {
       return morphs.length > 0;
     },
     reveal: clipGl,
+    reserve(space) {
+      above = space;
+    },
     marks: () => marks,
     size: () => ({ width: W, height: H }),
-    margin: () => o.margin,
+    margin: () => m,
     xPx,
     yPx,
     xValue: px => (px * dpr - view.ox) / view.kx,

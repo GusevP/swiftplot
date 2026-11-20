@@ -1,6 +1,20 @@
 import { afterEach, expect, test, vi } from 'vitest';
 
-import { animate, area, band, bar, bin, dots, line, plot, stack, time, tooltip } from '../src/index.js';
+import {
+  animate,
+  area,
+  band,
+  bands,
+  bar,
+  bin,
+  dots,
+  legend,
+  line,
+  plot,
+  stack,
+  time,
+  tooltip,
+} from '../src/index.js';
 import type { Internals, Mark, Options } from '../src/index.js';
 import { columns } from '../src/marks/common.js';
 import { scale } from '../src/scale.js';
@@ -1165,4 +1179,260 @@ test('moving between bars of the focused series does not cut their move short', 
   hover(el, 60, 85);
   expect(pixel(el, 60, 55)).toEqual(RED_PIXEL);
   expect(pixel(el, 60, 35)[3]).toBe(0);
+});
+
+test('a margin left out is sized from the labels, and a side that is given is kept', () => {
+  const left = (options: Partial<Options>) => {
+    let chart!: Internals;
+    plot(host(), { ...frame, marks: [], ...options, use: [c => ((chart = c), { destroy() {} })] });
+    return chart.margin();
+  };
+  const small = left({ margin: undefined });
+  const wide = left({ margin: undefined, y: { domain: [0, 1_000_000], label: '' } });
+  const titled = left({ margin: undefined, y: { domain: [0, 1], label: 'Value' } });
+  expect(wide.left).toBeGreaterThan(small.left);
+  expect(titled.left).toBeGreaterThan(small.left);
+  expect(left({ margin: { left: 5 } })).toEqual({ ...small, left: 5 });
+});
+
+test('bands gives each category its bar, and each slot of a group its share of it', () => {
+  const round = (pair: Float64Array[]) => pair.map(c => Array.from(c, v => +v.toFixed(3)));
+  expect(round(bands(3))).toEqual([
+    [-0.4, 0.6, 1.6],
+    [0.4, 1.4, 2.4],
+  ]);
+  expect(round(bands([2, 5], { slot: 1, of: 2 }))).toEqual([
+    [2, 5],
+    [2.4, 5.4],
+  ]);
+  expect(round(bands(1, { width: 1 }))).toEqual([[-0.5], [0.5]]);
+});
+
+test('a bar given a single y or x starts at zero', () => {
+  const el = host();
+  plot(el, {
+    ...frame,
+    marks: [
+      bar({ x1: [1], x2: [3], y: [0.5], color: RED }),
+      bar({ x: [8], y1: [0.72], y2: [0.88], color: RED }),
+    ],
+  });
+  expect(pixel(el, 20, 75)).toEqual([255, 0, 0, 255]);
+  expect(pixel(el, 20, 35)[3]).toBe(0);
+  expect(pixel(el, 5, 21)).toEqual([255, 0, 0, 255]);
+  expect(pixel(el, 75, 21)).toEqual([255, 0, 0, 255]);
+  expect(pixel(el, 85, 21)[3]).toBe(0);
+});
+
+test('the legend lists each labelled group once, makes room above the plot and focuses on hover', () => {
+  const el = host();
+  let chart!: Internals;
+  const marks = [
+    line({ x: [0, 10], y: [0.25, 0.25], color: RED, width: 4, label: 'first' }),
+    area({ x: [0, 10], y1: [0.2, 0.2], y2: [0.3, 0.3], color: RED, group: 'first' }),
+    line({ x: [0, 10], y: [0.75, 0.75], color: '#0000ff', width: 4, label: 'second' }),
+    line({ x: [0, 10], y: [0.5, 0.5], color: RED }),
+  ];
+  plot(el, {
+    ...frame,
+    width: 300,
+    dim: 0.3,
+    marks,
+    use: [
+      legend(),
+      tooltip({ mode: 'x', title: () => '', value: String }),
+      c => ((chart = c), { destroy() {} }),
+    ],
+  });
+  const items = [...el.querySelectorAll('span')].filter(s => s.children.length);
+  expect(items.map(s => s.textContent)).toEqual(['first', 'second']);
+  expect(chart.margin().top).toBe(24);
+
+  const second = chart.yPx(0.75);
+  items[0]!.dispatchEvent(new MouseEvent('mousemove', { bubbles: true }));
+  expect(pixel(el, 150, second)[3]).toBeLessThan(100);
+  items[0]!.firstElementChild!.dispatchEvent(new MouseEvent('mousemove', { bubbles: true }));
+  expect(pixel(el, 150, second)[3]).toBeLessThan(100);
+  el.firstElementChild!.dispatchEvent(new MouseEvent('mousemove'));
+  expect(pixel(el, 150, second)).toEqual([0, 0, 255, 255]);
+});
+
+test('the legend wraps onto as many rows as its entries need and reserves them all', () => {
+  let chart!: Internals;
+  const named = (label: string) => line({ x: [0, 10], y: [0.5, 0.5], color: RED, label });
+  const el = host();
+  plot(el, {
+    ...frame,
+    marks: [named('a rather long name'), named('another long name'), named('third')],
+    use: [legend(), c => ((chart = c), { destroy() {} })],
+  });
+  expect(chart.margin().top).toBe(64);
+  expect(el.querySelectorAll('span > span')).toHaveLength(3);
+});
+
+test('only the legend entries take the pointer, and the legend follows an update', () => {
+  const el = host();
+  let internals!: Internals;
+  const named = (label: string) => line({ x: [0, 10], y: [0.5, 0.5], color: RED, label });
+  const chart = plot(el, {
+    ...frame,
+    width: 300,
+    marks: [named('one')],
+    use: [legend(), c => ((internals = c), { destroy() {} })],
+  });
+  const root = el.firstElementChild!;
+  const box = root.getBoundingClientRect();
+  const item = [...el.querySelectorAll('span')].find(s => s.children.length)!;
+  const spot = item.getBoundingClientRect();
+  expect(document.elementFromPoint(spot.left + 2, spot.top + spot.height / 2)).toBe(item.firstElementChild);
+  expect(document.elementFromPoint(box.left + 250, box.top + 12)).toBe(root);
+
+  chart.update({ marks: [named('one'), named('two')] });
+  expect([...el.querySelectorAll('span')].filter(s => s.children.length).map(s => s.textContent)).toEqual([
+    'one',
+    'two',
+  ]);
+  chart.update({ marks: [line({ x: [0, 10], y: [0.5, 0.5], color: RED })] });
+  expect(el.querySelectorAll('span')).toHaveLength(0);
+  expect(internals.margin().top).toBe(0);
+});
+
+test('an automatic margin survives an undefined side and makes room for a long first x tick', () => {
+  const margin = (options: Partial<Options>) => {
+    let chart!: Internals;
+    plot(host(), { ...frame, marks: [], ...options, use: [c => ((chart = c), { destroy() {} })] });
+    return chart.margin();
+  };
+  const auto = margin({ margin: undefined });
+  expect(margin({ margin: { left: undefined, top: 0 } })).toEqual({ ...auto, top: 0 });
+
+  const long = 'a tick label of 26 letters';
+  const el = host();
+  let chart!: Internals;
+  plot(el, {
+    ...frame,
+    width: 190,
+    margin: undefined,
+    marks: [],
+    x: { domain: [0, 1], label: '', scale: () => ({ lo: 0, hi: 1, ticks: [{ value: 0, label: long }] }) },
+    use: [c => ((chart = c), { destroy() {} })],
+  });
+  expect(chart.margin().left).toBeGreaterThanOrEqual(long.length * 3.5);
+  expect(chart.margin().right).toBe(16);
+  expect((el.firstElementChild as HTMLElement).style.visibility).toBe('');
+});
+
+test('the legend lets go of its focus when the hovered entry is taken away, and sets a colour only as a colour', () => {
+  const el = host();
+  const named = (label?: string) =>
+    line({ x: [0, 10], y: [0.25, 0.25], color: RED, width: 4, label, group: 'a' });
+  const other = line({
+    x: [0, 10],
+    y: [0.75, 0.75],
+    color: 'red;background-image:url(x)',
+    width: 4,
+    label: 'b',
+  });
+  let internals!: Internals;
+  const chart = plot(el, {
+    ...frame,
+    width: 300,
+    dim: 0.3,
+    marks: [named('a'), other],
+    use: [legend(), c => ((internals = c), { destroy() {} })],
+  });
+  const items = [...el.querySelectorAll('span')].filter(s => s.children.length);
+  expect((items[1]!.firstElementChild as HTMLElement).style.backgroundImage).toBe('');
+
+  const y = internals.yPx(0.25);
+  expect(pixel(el, 150, y)).toEqual([255, 0, 0, 255]);
+  items[1]!.dispatchEvent(new MouseEvent('mousemove', { bubbles: true }));
+  expect(pixel(el, 150, y)[3]).toBeLessThan(100);
+  chart.update({
+    marks: [named('a'), line({ x: [0, 10], y: [0.75, 0.75], color: RED, width: 4, group: 'b' })],
+  });
+  expect(pixel(el, 150, y)).toEqual([255, 0, 0, 255]);
+});
+
+test('the legend follows its entries when they move under a pointer at rest', () => {
+  const el = host();
+  let internals!: Internals;
+  const a = line({ x: [0, 10], y: [0.25, 0.25], color: RED, width: 4, label: 'aa' });
+  const b = line({ x: [0, 10], y: [0.75, 0.75], color: RED, width: 4, label: 'bb' });
+  const chart = plot(el, {
+    ...frame,
+    width: 300,
+    dim: 0.3,
+    marks: [a, b],
+    use: [legend(), c => ((internals = c), { destroy() {} })],
+  });
+  const first = [...el.querySelectorAll('span')].find(s => s.children.length)!;
+  const spot = first.getBoundingClientRect();
+  const [x, y] = [spot.left + spot.width / 2, spot.top + spot.height / 2];
+  first.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: x, clientY: y }));
+  expect(pixel(el, 150, internals.yPx(0.75))[3]).toBeLessThan(100);
+
+  chart.update({ marks: [b, a] });
+  expect(pixel(el, 150, internals.yPx(0.75))).toEqual([255, 0, 0, 255]);
+  expect(pixel(el, 150, internals.yPx(0.25))[3]).toBeLessThan(100);
+
+  chart.update({ marks: [line({ x: [0, 10], y: [0.25, 0.25], color: RED, width: 4 })] });
+  expect(pixel(el, 150, internals.yPx(0.25))).toEqual([255, 0, 0, 255]);
+});
+
+test('a long label on a tick part-way along the axis is kept inside the chart, and no further', () => {
+  let chart!: Internals;
+  const long = 'x'.repeat(40);
+  plot(host(), {
+    ...frame,
+    width: 300,
+    margin: undefined,
+    marks: [],
+    x: {
+      domain: [0, 1],
+      label: '',
+      scale: () => ({
+        lo: 0,
+        hi: 1,
+        ticks: [
+          { value: 0.2, label: long },
+          { value: 0.5, label: 'm' },
+        ],
+      }),
+    },
+    use: [c => ((chart = c), { destroy() {} })],
+  });
+  const leftEdge = chart.xPx(0.2) - (long.length * 3.5 + 4);
+  expect(leftEdge).toBeGreaterThanOrEqual(-0.01);
+  expect(leftEdge).toBeLessThan(1);
+  expect(chart.margin().right).toBe(16);
+});
+
+test('two long labels close together on the axis are both kept inside the chart', () => {
+  let chart!: Internals;
+  const long = 'x'.repeat(140);
+  const half = long.length * 3.5 + 4;
+  const el = host();
+  plot(el, {
+    ...frame,
+    width: 1000,
+    margin: undefined,
+    marks: [],
+    x: {
+      domain: [0, 1],
+      label: '',
+      scale: () => ({
+        lo: 0,
+        hi: 1,
+        ticks: [
+          { value: 0.4, label: long },
+          { value: 0.45, label: long },
+        ],
+      }),
+    },
+    use: [c => ((chart = c), { destroy() {} })],
+  });
+  expect(chart.xPx(0.4) - half).toBeGreaterThanOrEqual(-0.01);
+  expect(chart.xPx(0.45) + half).toBeLessThanOrEqual(1000.01);
+  expect((el.firstElementChild as HTMLElement).style.visibility).toBe('');
 });

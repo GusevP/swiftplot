@@ -1,5 +1,6 @@
 export { plot } from './chart.js';
 export { animate } from './features/animate.js';
+export { legend } from './features/legend.js';
 export { tooltip } from './features/tooltip.js';
 export { area } from './marks/area.js';
 export { bar } from './marks/bar.js';
@@ -8,7 +9,7 @@ export { line } from './marks/line.js';
 export { ticks } from './marks/ticks.js';
 export { band } from './scales/band.js';
 export { time } from './scales/time.js';
-export { bin, stack } from './transforms.js';
+export { bands, bin, stack } from './transforms.js';
 export type { AnimateOptions } from './features/animate.js';
 export type { TooltipOptions } from './features/tooltip.js';
 export type { AreaOptions } from './marks/area.js';
