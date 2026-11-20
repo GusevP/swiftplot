@@ -11,9 +11,10 @@ export function extent(cols: Col[]): [number, number] {
   let hi = -Infinity;
   for (const c of cols) {
     for (let i = 0; i < c.length; i++) {
+      // NaN fails both comparisons; an infinite value must not become a bound either.
       const v = c[i]!;
-      if (v < lo) lo = v;
-      if (v > hi) hi = v;
+      if (v < lo && v !== -Infinity) lo = v;
+      if (v > hi && v !== Infinity) hi = v;
     }
   }
   return lo > hi ? [0, 1] : [lo, hi];

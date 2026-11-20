@@ -2,7 +2,7 @@
 
 Small, fast charts on Canvas 2D and WebGL2. MIT, TypeScript, ESM only, no dependencies.
 
-**Status: prototype.** It draws lines and areas (straight or stepped), bars, tick marks and scatter dots on linear, time and category axes, with a hover tooltip, dim-the-others on hover and optional animation. A chart can be updated and follows its container when no size is given. There is a legend; there is no zoom or pan yet.
+**Status: prototype.** It draws lines and areas (straight or stepped), bars, box plots, error bars, tick marks and scatter dots on linear, time and category axes, with a hover tooltip, dim-the-others on hover and optional animation. A chart can be updated and follows its container when no size is given. There is a legend; there is no zoom or pan yet.
 
 ## Use
 
@@ -23,9 +23,11 @@ chart.update({ marks: [dots({ x, y: y2, r, color: '#2563eb', label: 'Group 1' })
 chart.destroy();
 ```
 
-- **Marks** are imported functions: `line`, `area`, `bar`, `ticks`, `dots`. Only the ones you import are bundled.
+- **Marks** are imported functions: `line`, `area`, `bar`, `box`, `errorBars`, `ticks`, `dots`. Only the ones you import are bundled.
 - **Lines and areas** are straight between points unless `curve: 'step'`. `area({ x, y })` fills from zero; `area({ x, y1, y2 })` is a band.
 - **Bars** have explicit bounds, `bar({ x1, x2, y1, y2 })`, so vertical, horizontal, grouped and stacked bars are the same mark. A single `y` (or `x`) starts at zero. On a category axis `const [x1, x2] = bands(7)` gives the bounds, and `bands(7, { slot: 0, of: 2 })` those of one series of a grouped chart.
+- **Box plots** take the five numbers as columns: `box({ x, ...fiveNumbers(groups), color })`. The whiskers go to the minimum and maximum; leave outliers out and draw them with `dots`.
+- **Error bars** are `errorBars({ x, y1, y2 })`, or `{ y, x1, x2 }` lying down.
 - **Rows** need no helper: `Float64Array.from(rows, r => r.value)` makes a column and `Map.groupBy(rows, r => r.series)` splits rows into series.
 - **Ticks** thin out to fit the axis, so a narrow chart shows fewer labels, not overlapping ones.
 - **Accessibility:** the chart is exposed as an image with a label built from the axis labels and series names; set `description` to say what it shows. The data itself is not exposed yet.

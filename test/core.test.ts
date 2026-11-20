@@ -7,7 +7,10 @@ import {
   bands,
   bar,
   bin,
+  box,
   dots,
+  errorBars,
+  fiveNumbers,
   legend,
   line,
   plot,
@@ -1602,4 +1605,151 @@ test('a custom scale whose bounds depend on the room is drawn with the bounds it
   });
   expect(asked).toBe(400 - chart.margin().left - chart.margin().right);
   expect(chart.xPx(asked)).toBeCloseTo(400 - chart.margin().right);
+});
+
+test('error bars draw a stem between their ends and a cap across each, upright or lying', () => {
+  const el = host();
+  plot(el, {
+    ...frame,
+    marks: [
+      errorBars({ x: [2], y1: [0.25], y2: [0.75], color: RED, width: 2, cap: 10 }),
+      errorBars({ y: [0.45], x1: [5], x2: [9], color: RED, width: 2, cap: 10 }),
+    ],
+  });
+  expect(pixel(el, 20, 55)).toEqual([255, 0, 0, 255]);
+  expect(pixel(el, 13, 25)).toEqual([255, 0, 0, 255]);
+  expect(pixel(el, 27, 75)).toEqual([255, 0, 0, 255]);
+  expect(pixel(el, 13, 55)[3]).toBe(0);
+  expect(pixel(el, 70, 55)).toEqual([255, 0, 0, 255]);
+  expect(pixel(el, 50, 62)).toEqual([255, 0, 0, 255]);
+  expect(pixel(el, 90, 48)).toEqual([255, 0, 0, 255]);
+  expect(pixel(el, 70, 62)[3]).toBe(0);
+});
+
+test('fiveNumbers gives the quartiles of each group, interpolated, without what is not a number', () => {
+  const stats = fiveNumbers([[5, 1, 3, 2, 4, NaN, Infinity], [10, 20], []]);
+  expect(plain(stats)).toEqual({
+    min: [1, 10, NaN],
+    q1: [2, 12.5, NaN],
+    median: [3, 15, NaN],
+    q3: [4, 17.5, NaN],
+    max: [5, 20, NaN],
+  });
+});
+
+test('a box spans its quartiles with whiskers to the extremes and answers the tooltip with its median', () => {
+  const el = host();
+  plot(el, {
+    ...frame,
+    marks: [
+      box({ x: [5], min: [0.1], q1: [0.35], median: [0.55], q3: [0.75], max: [0.95], color: RED, width: 4 }),
+    ],
+    use: [tooltip({ mode: 'nearest', text: (_, x, y, row) => `median ${y} of row ${row}` })],
+  });
+  expect(pixel(el, 40, 35)[3]).toBeGreaterThan(40);
+  expect(pixel(el, 40, 35)[3]).toBeLessThan(90);
+  expect(pixel(el, 40, 35)).toEqual(pixel(el, 60, 58));
+  expect(pixel(el, 50, 15)[3]).toBeGreaterThan(150);
+  expect(pixel(el, 50, 80)[3]).toBeGreaterThan(150);
+  expect(pixel(el, 40, 15)[3]).toBe(0);
+  expect(pixel(el, 40, 45)[3]).toBeGreaterThan(200);
+  expect(hover(el, 60, 62).innerText).toContain('median 0.55 of row 0');
+  expect(hover(el, 60, 15).innerText).not.toContain('median');
+});
+
+test('rows with a number missing draw nothing and join nothing', () => {
+  const el = host();
+  plot(el, {
+    ...frame,
+    marks: [
+      errorBars({ x: [2, 8], y1: [0.25, NaN], y2: [0.45, 0.85], color: RED, width: 3, cap: 10 }),
+      box({ x: [5], min: [0.05], q1: [NaN], median: [0.5], q3: [0.7], max: [0.95], color: RED, width: 2 }),
+    ],
+  });
+  expect(pixel(el, 20, 65)).toEqual([255, 0, 0, 255]);
+  for (const [x, y] of [
+    [55, 35],
+    [80, 25],
+    [50, 85],
+    [50, 15],
+  ] as const)
+    expect(pixel(el, x, y)[3]).toBe(0);
+});
+
+test('an automatic x domain makes room for whole boxes, and hovering one dims the other', () => {
+  const el = host();
+  let chart!: Internals;
+  const five = (v: number) => ({
+    min: [v - 0.3, v - 0.3],
+    q1: [v - 0.1, v - 0.1],
+    median: [v, v],
+    q3: [v + 0.1, v + 0.1],
+    max: [v + 0.3, v + 0.3],
+  });
+  plot(el, {
+    ...frame,
+    width: 300,
+    dim: 0.2,
+    x: { domain: 'data', label: '' },
+    marks: [box({ x: [1, 2], ...five(0.55), color: RED, width: 0.6 })],
+    use: [tooltip({ mode: 'nearest', text: () => 'tip' }), c => ((chart = c), { destroy() {} })],
+  });
+  expect(chart.xPx(0.7)).toBeCloseTo(0);
+  expect(chart.xPx(2.3)).toBeCloseTo(300);
+  const [one, two] = [chart.xPx(1), chart.xPx(2)];
+  expect(pixel(el, two - 20, 45)[3]).toBeGreaterThan(200);
+  hover(el, one + 20, 40);
+  expect(pixel(el, one - 20, 45)[3]).toBeGreaterThan(200);
+  expect(pixel(el, two - 20, 45)[3]).toBeLessThan(100);
+});
+
+test('fiveNumbers interpolates between huge values of opposite sign', () => {
+  expect(fiveNumbers([[-1e308, 1e308]]).median[0]).toBe(0);
+});
+
+test('two boxes at the same x are told apart on hover', () => {
+  const el = host();
+  plot(el, {
+    ...frame,
+    dim: 0.2,
+    marks: [
+      box({
+        x: [5, 5],
+        min: [0.05, 0.6],
+        q1: [0.1, 0.65],
+        median: [0.25, 0.75],
+        q3: [0.35, 0.85],
+        max: [0.4, 0.95],
+        color: RED,
+        width: 4,
+      }),
+    ],
+    use: [tooltip({ mode: 'nearest', text: () => 'tip' })],
+  });
+  hover(el, 60, 22);
+  expect(pixel(el, 40, 25)[3]).toBeGreaterThan(200);
+  expect(pixel(el, 40, 75)[3]).toBeLessThan(100);
+});
+
+test('values that are not finite do not reach an automatic axis, and huge finite ones are drawn', () => {
+  const el = host();
+  let chart!: Internals;
+  plot(el, {
+    ...frame,
+    x: { domain: 'data', label: '' },
+    y: { domain: [0, 1.1e308], label: '' },
+    marks: [
+      errorBars({
+        x: [1, Infinity, 3],
+        y1: [9e307, 9e307, NaN],
+        y2: [1e308, 1e308, 1e308],
+        color: RED,
+        width: 4,
+      }),
+    ],
+    use: [c => ((chart = c), { destroy() {} })],
+  });
+  expect(Number.isFinite(chart.xPx(1))).toBe(true);
+  expect(chart.xPx(3)).toBeCloseTo(100);
+  expect(pixel(el, chart.xPx(1) + 1, chart.yPx(9.5e307))).toEqual([255, 0, 0, 255]);
 });

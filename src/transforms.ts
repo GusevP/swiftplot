@@ -90,3 +90,28 @@ export function bands(
   }
   return [lo, hi];
 }
+
+/**
+ * The five numbers a box plot draws, for each group of values: minimum, quartiles and maximum.
+ * Quartiles are interpolated between the two nearest values; NaN and infinite values are left out,
+ * and a group with nothing left gives NaN, which draws nothing.
+ */
+export function fiveNumbers(groups: Col[]) {
+  const column = () => new Float64Array(groups.length);
+  const [min, q1, median, q3, max] = [column(), column(), column(), column(), column()];
+  groups.forEach((group, g) => {
+    const v = Float64Array.from(group).filter(Number.isFinite).sort();
+    const quantile = (p: number) => {
+      const at = (v.length - 1) * p;
+      const [a, b, t] = [v[Math.floor(at)]!, v[Math.ceil(at)]!, at % 1];
+      // The difference overflows for huge values of opposite sign; the weighted sum does not.
+      return Number.isFinite(b - a) ? a + (b - a) * t : a * (1 - t) + b * t;
+    };
+    min[g] = v[0] ?? NaN;
+    q1[g] = quantile(0.25);
+    median[g] = quantile(0.5);
+    q3[g] = quantile(0.75);
+    max[g] = v.at(-1) ?? NaN;
+  });
+  return { min, q1, median, q3, max };
+}
