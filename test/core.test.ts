@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from 'vitest';
 
-import { area, band, bar, dots, line, plot, time, tooltip } from '../src/index.js';
+import { area, band, bar, bin, dots, line, plot, stack, time, tooltip } from '../src/index.js';
 import type { Internals, Mark, Options } from '../src/index.js';
 import { columns } from '../src/marks/common.js';
 import { scale } from '../src/scale.js';
@@ -633,4 +633,70 @@ test('a custom scale reads its axis and is resolved again when the axis label ch
   expect(el.innerText).toContain('tick of one');
   chart.update({ x: x('two') });
   expect(el.innerText).toContain('tick of two');
+});
+
+const plain = (o: Record<string, ArrayLike<number>>) =>
+  Object.fromEntries(Object.entries(o).map(([k, v]) => [k, Array.from(v)]));
+
+test('bin counts values into equal bins, the largest value included', () => {
+  expect(plain(bin([0, 1, 2, 3, 4, 5, 6, 7, 8, 10], 2))).toEqual({
+    x1: [0, 5],
+    x2: [5, 10],
+    y1: [0, 0],
+    y2: [5, 5],
+  });
+  expect([...bin([1, 2, 3, 4, 5, 6, 7, 8]).y2]).toEqual([2, 2, 2, 2]);
+  expect([...bin([0, 1, 2, 3, 10], 2.4).y2]).toEqual([4, 1]);
+  expect([...bin([0, 1, 2, 3, 10], 0).y2]).toEqual([5]);
+});
+
+test('bin ignores NaN and infinite values, and copes with a constant or a huge extent', () => {
+  expect([...bin([0, 1, NaN, Infinity, -Infinity]).y2]).toEqual([1, 1]);
+  expect(plain(bin([3, 3, 3], 2))).toEqual({ x1: [1.5, 3], x2: [3, 4.5], y1: [0, 0], y2: [0, 3] });
+  expect([...bin([-1e308, 0, 1e308], 2).y2]).toEqual([1, 2]);
+  expect([...bin([-Infinity, 0, 1, Infinity], [-Infinity, 0, Infinity]).y2]).toEqual([0, 2]);
+  expect([...bin([0, 1, 2], Infinity).y2]).toEqual([3]);
+  for (const v of [Number.MAX_VALUE, -Number.MAX_VALUE]) {
+    const top = bin([v], 2);
+    expect(Array.from(top.x1).concat(top.x2[1]!).every(Number.isFinite)).toBe(true);
+    expect(top.y2[0]! + top.y2[1]!).toBe(1);
+  }
+  const huge = bin([1e16, 1e16], 2);
+  expect(huge.x2[0]).toBeGreaterThan(huge.x1[0]!);
+  expect([...huge.y2]).toEqual([0, 2]);
+});
+
+test('bin with edges puts a value on an edge in the bin above and drops what is outside', () => {
+  expect(plain(bin([0, 0.5, 1, 5, 10, 11, -1, NaN], [0, 1, 10]))).toEqual({
+    x1: [0, 1],
+    x2: [1, 10],
+    y1: [0, 0],
+    y2: [2, 3],
+  });
+});
+
+test('stack layers series row by row, negatives downwards', () => {
+  expect(
+    stack([
+      [1, -1, 2],
+      [3, -2, NaN],
+      [1, 1, 1],
+    ]).map(plain),
+  ).toEqual([
+    { y1: [0, 0, 0], y2: [1, -1, 2] },
+    { y1: [1, -1, 2], y2: [4, -3, 2] },
+    { y1: [4, 0, 2], y2: [5, 1, 3] },
+  ]);
+});
+
+test('a histogram is the bins handed to the bar mark', () => {
+  const el = host();
+  plot(el, {
+    ...frame,
+    y: { domain: [0, 4], label: '' },
+    marks: [bar({ ...bin([1, 1, 1, 1, 9], [0, 5, 10]), color: RED })],
+  });
+  expect(pixel(el, 25, 15)).toEqual([255, 0, 0, 255]);
+  expect(pixel(el, 75, 85)).toEqual([255, 0, 0, 255]);
+  expect(pixel(el, 75, 65)[3]).toBe(0);
 });

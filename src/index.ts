@@ -7,6 +7,7 @@ export { line } from './marks/line.js';
 export { ticks } from './marks/ticks.js';
 export { band } from './scales/band.js';
 export { time } from './scales/time.js';
+export { bin, stack } from './transforms.js';
 export type { TooltipOptions } from './features/tooltip.js';
 export type { AreaOptions } from './marks/area.js';
 export type { BarOptions } from './marks/bar.js';
