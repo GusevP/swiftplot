@@ -2798,6 +2798,68 @@ test('the tooltip names and colours the slice that was hit', () => {
   expect(row.style.color).toBe('rgb(0, 0, 255)');
 });
 
+test('a tooltip wider than half the chart stays inside it wherever the pointer is', () => {
+  const el = host();
+  const text = 'a tooltip of twenty';
+  const at = [0.1, 4.5, 5.5, 9.9];
+  plot(el, {
+    ...frame,
+    width: 200,
+    marks: [dots({ x: at, y: at.map(() => 0.5), r: at.map(() => 3), color: RED, label: 'A' })],
+    use: [tooltip({ mode: 'nearest', text: () => text })],
+  });
+  for (const x of at) {
+    const root = hover(el, x * 20, 50);
+    const box = root.getBoundingClientRect();
+    const tip = textOf(el, text).parentElement!.getBoundingClientRect();
+    expect(tip.width).toBeGreaterThan(box.width / 2);
+    expect(tip.width).toBeLessThan(box.width);
+    expect(tip.left).toBeGreaterThanOrEqual(box.left);
+    expect(tip.right).toBeLessThanOrEqual(box.right);
+  }
+});
+
+test('the x tooltip samples each line at its own x, and gives a dash where a line has no sample', () => {
+  const el = host();
+  plot(el, {
+    ...frame,
+    marks: [
+      line({ x: [0, 10], y: [0, 1], color: RED, label: 'A' }),
+      line({ x: [2, 3, 6], y: [1, 0.9, 0.1], color: RED, label: 'B' }),
+    ],
+    use: [tooltip({ mode: 'x', title: () => 'at', value: y => y.toFixed(1) })],
+  });
+  const root = hover(el, 40, 50);
+  expect(root.innerText).toContain('A: 0.4');
+  expect(root.innerText).toContain('B: 0.6');
+  for (const px of [10, 80]) {
+    hover(el, px, 50);
+    expect(root.innerText).toContain(`A: ${(px / 100).toFixed(1)}`);
+    expect(root.innerText).toContain('B: –');
+  }
+});
+
+test('two points at the same place give one tooltip, the one drawn on top', () => {
+  const at = (label: string, color: string) => dots({ x: [5], y: [0.5], r: [3], color, label });
+  for (const [below, above] of [
+    [at('A', RED), at('B', BLUE)],
+    [at('B', BLUE), at('A', RED)],
+  ]) {
+    const el = host();
+    plot(el, {
+      ...frame,
+      marks: [below!, above!],
+      use: [tooltip({ mode: 'nearest', text: label => label })],
+    });
+    hover(el, 50, 50);
+    expect(el.querySelectorAll('canvas')).toHaveLength(1);
+    const row = textOf(el, above!.label!);
+    expect(row.parentElement!.children).toHaveLength(1);
+    expect(row.style.color).toBe(above!.color === RED ? 'rgb(255, 0, 0)' : 'rgb(0, 0, 255)');
+    expect(textOf(el, below!.label!)).toBeUndefined();
+  }
+});
+
 test('a heatmap squeezed to a fraction of a pixel a cell still shows its peak', () => {
   const el = host();
   plot(el, {

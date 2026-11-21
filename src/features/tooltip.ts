@@ -37,9 +37,11 @@ export function tooltip(t: TooltipOptions): Feature {
       const fx = x > width / 2;
       const fy = y > height / 2;
       tip.style.display = '';
-      tip.style.left = `${x + (fx ? -12 : 12)}px`;
+      const w = tip.getBoundingClientRect().width;
+      const left = fx ? x - 12 - w : x + 12;
+      tip.style.left = `${Math.max(0, Math.min(left, width - w))}px`;
       tip.style.top = `${y + (fy ? -12 : 12)}px`;
-      tip.style.transform = `translate(${fx ? -100 : 0}%,${fy ? -100 : 0}%)`;
+      tip.style.transform = `translateY(${fy ? -100 : 0}%)`;
     };
     const place = () => {
       if (!at) return;
