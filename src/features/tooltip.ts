@@ -17,9 +17,12 @@ export function tooltip(t: TooltipOptions): Feature {
     const cross = chart.layer('div', 'display:none;border-left:1px dashed #888');
     const tip = chart.layer(
       'div',
-      'display:none;left:0;background:#fff;border:1px solid #ccc;padding:4px 8px;box-sizing:border-box;width:max-content;max-width:100%;white-space:normal;overflow-wrap:anywhere;z-index:100',
+      'display:none;left:0;top:0;background:#fff;border:1px solid #ccc;padding:4px 8px;box-sizing:border-box;width:max-content;max-width:100%;white-space:normal;overflow-wrap:anywhere;z-index:100',
     );
     let at: [number, number] | null = null;
+    // A lifted finger is held to what its tip showed, found again after a resize or a new domain.
+    let last: (() => [number, number]) | null = null;
+    let held: (() => [number, number]) | null = null;
     const hide = () => {
       cross.style.display = tip.style.display = 'none';
       chart.focus(null);
@@ -38,15 +41,17 @@ export function tooltip(t: TooltipOptions): Feature {
       const fy = y > height / 2;
       tip.style.display = '';
       const left = fx ? `${x - 12}px - 100%` : `${x + 12}px`;
-      tip.style.top = `${y + (fy ? -12 : 12)}px`;
-      tip.style.transform = `translate(clamp(0px, ${left}, ${width}px - 100%), ${fy ? -100 : 0}%)`;
+      const top = fy ? `${y - 12}px - 100%` : `${y + 12}px`;
+      tip.style.transform = `translate(clamp(0px, ${left}, ${width}px - 100%), clamp(0px, ${top}, ${height}px - 100%))`;
     };
     const place = () => {
       if (!at) return;
       const { width, height } = chart.size();
       const box = root.getBoundingClientRect();
-      const px = ((at[0] - box.left) * width) / box.width;
-      const py = ((at[1] - box.top) * height) / box.height;
+      const [px, py] = held
+        ? held()
+        : [((at[0] - box.left) * width) / box.width, ((at[1] - box.top) * height) / box.height];
+      last = null;
       if (t.mode === 'nearest') {
         const hit = chart.hit(px, py, NEAREST_PX);
         if (!hit) return hide();
@@ -58,6 +63,7 @@ export function tooltip(t: TooltipOptions): Feature {
         const part = hit.row === undefined ? undefined : hit.mark.entries?.[hit.row];
         const { label = '', color } = part ?? hit.mark;
         const text = t.text(label, hit.x, hit.y, hit.row);
+        last = () => [chart.xPx(hit.x), chart.yPx(hit.y)];
         show(chart.xPx(hit.x), chart.yPx(hit.y), [{ text, color: hit.color ?? color }]);
         return;
       }
@@ -88,6 +94,7 @@ export function tooltip(t: TooltipOptions): Feature {
         }
       }
       const group = line ?? fill ?? null;
+      last = () => [chart.xPx(v), py];
       cross.style.display = '';
       cross.style.left = `${px}px`;
       cross.style.top = `${m.top}px`;
@@ -103,15 +110,18 @@ export function tooltip(t: TooltipOptions): Feature {
         return;
       }
       at = [e.clientX, e.clientY];
+      held = null;
       place();
     };
     const leave = () => {
       at = null;
+      held = null;
       hide();
     };
     // A lifted finger leaves the chart, and a tapped tip is meant to stay until a tap elsewhere.
     const lift = (e: PointerEvent) => {
-      if (e.pointerType !== 'touch') leave();
+      if (e.pointerType !== 'touch' || !last) leave();
+      else held = last;
     };
     // Capturing, so a control that stops the tap still dismisses, and a tap on the chart sets its own state after.
     const away = () => {

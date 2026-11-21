@@ -69,8 +69,8 @@ function hover(el: HTMLElement, x: number, y: number) {
 }
 
 /** What a finger lifted from target sends: the leave reaches every element it was over. */
-function touch(target: Element, clientX = 0, clientY = 0) {
-  const init = { bubbles: true, composed: true, pointerType: 'touch', clientX, clientY };
+function touch(target: Element, clientX = 0, clientY = 0, pointerType = 'touch') {
+  const init = { bubbles: true, composed: true, pointerType, clientX, clientY };
   target.dispatchEvent(new PointerEvent('pointerdown', init));
   target.dispatchEvent(new PointerEvent('pointerup', init));
   for (let e: Element | null = target; e; e = e.parentElement) {
@@ -394,7 +394,7 @@ test('a tapped tooltip stays after the finger lifts, until the touch is cancelle
   ];
   for (const { marks, tip, at, text } of cases) {
     const el = host();
-    plot(el, { ...frame, marks, use: [tip] });
+    const chart = plot(el, { ...frame, marks, use: [tip] });
     const root = el.firstElementChild as HTMLElement;
     const box = root.getBoundingClientRect();
     const tap = () => touch(root, box.left + at[0]!, box.top + at[1]!);
@@ -403,6 +403,8 @@ test('a tapped tooltip stays after the finger lifts, until the touch is cancelle
     root.dispatchEvent(new PointerEvent('pointercancel', { pointerType: 'touch' }));
     expect(root.innerText).not.toContain(text);
     tap();
+    expect(root.innerText).toContain(text);
+    chart.update({ width: 200 });
     expect(root.innerText).toContain(text);
     const control = host();
     control.addEventListener('pointerdown', e => e.stopPropagation());
@@ -544,6 +546,30 @@ test('a chart whose WebGL context is lost draws its marks on the canvas', async 
   await lost;
   expect(layer.style.display).toBe('none');
   expect(pixel(el, 50, 50)).toEqual([255, 0, 0, 255]);
+});
+
+test('a lost WebGL context releases only the marks that were on it, each once', async () => {
+  const released: string[] = [];
+  const kept: Mark = {
+    type: 'kept',
+    color: RED,
+    options: {},
+    points: 0,
+    channels: { x: [], y: [] },
+    prepare: () => ({ paint() {} }),
+    release: () => released.push('kept'),
+  };
+  const piled = pile(30_000);
+  const free = piled.release!.bind(piled);
+  piled.release = layer => (released.push('piled'), free(layer));
+  const el = host();
+  const chart = plot(el, { ...frame, marks: [piled, kept] });
+  const { lost, lose } = losing(el);
+  lose();
+  await lost;
+  expect(released).toEqual(['piled']);
+  chart.destroy();
+  expect(released).toEqual(['piled', 'piled', 'kept']);
 });
 
 test('a paint after a WebGL context is lost and before the event arrives draws on the canvas', async () => {
@@ -2005,7 +2031,7 @@ test('the legend lets go of its focus when the hovered entry is taken away, and 
 test('a tapped legend entry keeps its series highlighted after the finger lifts, until the page is tapped elsewhere', () => {
   const el = host();
   let internals!: Internals;
-  plot(el, {
+  const chart = plot(el, {
     ...frame,
     width: 300,
     dim: 0.3,
@@ -2020,9 +2046,39 @@ test('a tapped legend entry keeps its series highlighted after the finger lifts,
   touch(first, spot.left + spot.width / 2, spot.top + spot.height / 2);
   expect(pixel(el, 150, internals.yPx(0.75))[3]).toBeLessThan(100);
   expect(pixel(el, 150, internals.yPx(0.25))).toEqual([255, 0, 0, 255]);
+  el.style.marginTop = '200px';
+  chart.update({ dim: 0.2 });
+  expect(pixel(el, 150, internals.yPx(0.75))[3]).toBeLessThan(100);
   const control = host();
   control.addEventListener('pointerdown', e => e.stopPropagation());
   control.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerType: 'touch' }));
+  expect(pixel(el, 150, internals.yPx(0.75))).toEqual([255, 0, 0, 255]);
+});
+
+test('a pen lifted off the chart leaves no tooltip or legend highlight behind', () => {
+  const el = host();
+  let internals!: Internals;
+  plot(el, {
+    ...frame,
+    width: 300,
+    dim: 0.3,
+    marks: [
+      line({ x: [0, 10], y: [0.25, 0.25], color: RED, width: 4, label: 'aa' }),
+      line({ x: [0, 10], y: [0.75, 0.75], color: RED, width: 4, label: 'bb' }),
+    ],
+    use: [
+      legend(),
+      tooltip({ mode: 'x', title: x => `x=${x.toFixed(0)}`, value: y => y.toFixed(1) }),
+      c => ((internals = c), { destroy() {} }),
+    ],
+  });
+  const root = el.firstElementChild as HTMLElement;
+  const box = root.getBoundingClientRect();
+  touch(root, box.left + 210, box.top + internals.yPx(0.5), 'pen');
+  expect(root.innerText).not.toContain('x=7');
+  const first = [...el.querySelectorAll('span')].find(s => s.children.length)!;
+  const spot = first.getBoundingClientRect();
+  touch(first, spot.left + spot.width / 2, spot.top + spot.height / 2, 'pen');
   expect(pixel(el, 150, internals.yPx(0.75))).toEqual([255, 0, 0, 255]);
 });
 
@@ -2842,6 +2898,8 @@ test('a tooltip with text wider than the chart wraps inside it at either edge, e
     const tip = row.parentElement!.getBoundingClientRect();
     expect(tip.left).toBeGreaterThanOrEqual(box.left);
     expect(tip.right).toBeLessThanOrEqual(box.right);
+    expect(tip.top).toBeGreaterThanOrEqual(box.top);
+    expect(tip.bottom).toBeLessThanOrEqual(box.bottom);
     expect(row.scrollWidth).toBeLessThanOrEqual(row.clientWidth);
   }
 });

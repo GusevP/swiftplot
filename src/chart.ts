@@ -330,7 +330,7 @@ export function plot(el: HTMLElement, options: Options): Chart {
   // The browser takes a context away when too many are open, so a lost layer gives its marks back to the canvas.
   const dropLost = () => {
     if (!gl?.gl.isContextLost()) return false;
-    release();
+    for (const k of new Set(onGl.map(([k]) => k))) k.release?.(gl);
     gl.destroy();
     gl = null;
     return true;
