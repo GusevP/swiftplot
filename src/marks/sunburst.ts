@@ -1,3 +1,4 @@
+import { rgba } from '../gl.js';
 import type { Label, Mark } from '../types.js';
 import { inRing, TURN, turnAt } from './common.js';
 import { first, grow, type TreeColumns } from './tree.js';
@@ -15,6 +16,11 @@ export type SunburstOptions = TreeColumns & {
   colors: string[];
   /** Text on each node that has room: its name by default, your own, or none. */
   text?: false | ((row: number) => string);
+  /**
+   * Each branch runs smoothly from its full colour at the centre to this opacity at the rim, in
+   * place of a lighter step for each ring.
+   */
+  shade?: number;
   alpha?: number;
   key?: string;
   label?: string;
@@ -103,6 +109,17 @@ export function sunburst(o: SunburstOptions): Mark {
       gather(roots);
       for (const node of order) if (to[node]! > from[node]!) gather(kids[node]!);
       const faded = (ring: number) => 0.4 + 0.6 * (1 - ring / rings);
+      const inks = new Map<string, CanvasGradient>();
+      for (const { lead } of o.shade === undefined ? [] : shapes) {
+        if (inks.has(shade(lead))) continue;
+        const [red, green, blue, a = 1] = rgba(ctx, shade(lead)).map((v, at) =>
+          at < 3 ? Math.round(v * 255) : v,
+        );
+        const out = ctx.createRadialGradient(cx, cy, 0, cx, cy, outer || 1);
+        out.addColorStop(0, `rgba(${red},${green},${blue},${a})`);
+        out.addColorStop(1, `rgba(${red},${green},${blue},${a * o.shade!})`);
+        inks.set(shade(lead), out);
+      }
       // Half-way round the node and half-way out; a disc is named at its centre.
       const anchor = (i: number) => {
         const [near, far] = reach(i);
@@ -131,8 +148,11 @@ export function sunburst(o: SunburstOptions): Mark {
           }
           shapes.forEach(({ path, lead }, at) => {
             ctx.globalAlpha =
-              alpha * k * (row === undefined ? 1 : (lit.get(at) ?? rest)) * faded(depth[lead]!);
-            ctx.fillStyle = shade(lead);
+              alpha *
+              k *
+              (row === undefined ? 1 : (lit.get(at) ?? rest)) *
+              (inks.size ? 1 : faded(depth[lead]!));
+            ctx.fillStyle = inks.get(shade(lead)) ?? shade(lead);
             ctx.fill(path);
           });
         },

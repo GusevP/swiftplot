@@ -1,3 +1,4 @@
+import { painter, type Gradient } from '../paint.js';
 import type { Col, Label, Mark } from '../types.js';
 
 /**
@@ -15,6 +16,8 @@ export type FunnelOptions = {
    * written inside the stage in white, or beside it where it does not fit.
    */
   text?: true | ((row: number, share: number) => string);
+  /** One blend over the whole funnel in place of a colour per stage; `colors` still name the stages in a legend. */
+  fill?: Gradient;
   alpha?: number;
   key?: string;
   label?: string;
@@ -98,6 +101,7 @@ export function funnel(o: FunnelOptions): Mark {
         path.bezierCurveTo(cx - into, b, cx - out, a, cx - half(i), y0);
         path.closePath();
       }
+      const ink = o.fill && painter(ctx, o.fill, shade(0))([left, top, left + width, top + height]);
       const labels: Label[] = [];
       for (let i = 0; said && i < n && most; i++) {
         const [y0, y1] = span(i);
@@ -119,7 +123,7 @@ export function funnel(o: FunnelOptions): Mark {
         paint(k, row, rest = 1) {
           for (const { path, from, to } of stages) {
             ctx.globalAlpha = alpha * k * (row === undefined || (row >= from && row < to) ? 1 : rest);
-            ctx.fillStyle = shade(from);
+            ctx.fillStyle = ink || shade(from);
             ctx.fill(path);
           }
         },

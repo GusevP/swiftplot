@@ -3,8 +3,12 @@ import type { Col, GlLayer, Mark, Prepared, View } from '../types.js';
 import { base } from './common.js';
 import type { Common } from './common.js';
 
-/** r is the radius of each point in CSS pixels. */
-export type DotsOptions = Common & { x: Col; y: Col; r: Col };
+/**
+ * r is the radius of each point in CSS pixels. With `ring`, a width in CSS pixels, a point is a
+ * ring of its colour that wide round a middle of `fill`, white by default; such points are
+ * always drawn on the canvas.
+ */
+export type DotsOptions = Common & { x: Col; y: Col; r: Col; ring?: number; fill?: string };
 
 const TAU = 2 * Math.PI;
 
@@ -91,7 +95,7 @@ export function dots(o: DotsOptions): Mark {
 
   return {
     ...base('dots', o, [x], [y]),
-    overhang: reach,
+    overhang: reach + (o.ring ?? 0) / 2,
     prepare(view) {
       const { ctx, dpr, ox, kx, oy, ky } = view;
       const path = new Path2D();
@@ -105,13 +109,17 @@ export function dots(o: DotsOptions): Mark {
       return {
         paint(a) {
           ctx.globalAlpha = alpha * a;
-          ctx.fillStyle = color;
+          ctx.fillStyle = o.ring ? (o.fill ?? '#fff') : color;
           ctx.fill(path);
+          if (!o.ring) return;
+          ctx.strokeStyle = color;
+          ctx.lineWidth = o.ring * dpr;
+          ctx.stroke(path);
         },
         hit: hit(view),
       };
     },
-    gl: { layer: glLayer, prepare: prepareGl },
+    gl: o.ring ? undefined : { layer: glLayer, prepare: prepareGl },
     release(layer) {
       const buffer = layer && buffers.get(layer.gl);
       if (!buffer) return;

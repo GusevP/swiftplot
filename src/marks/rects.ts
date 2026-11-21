@@ -5,15 +5,29 @@ const programs = new WeakMap<WebGL2RenderingContext, ReturnType<typeof rectProgr
 
 // An instance is a rectangle between two x and two y in data units, which `m` takes to device
 // pixels; `box` then moves it and grows it by pixels, which is how a stem or a cap is made of a point.
+// `ramp` blends `color` into `far` across each rectangle or down it; down one that stands on a
+// baseline, it runs from the value end, which is the bottom of one below the baseline.
 function rectProgram(gl: WebGL2RenderingContext) {
   const p = program(
     gl,
-    'layout(location=0) in float xa;layout(location=1) in float xb;layout(location=2) in float ya;layout(location=3) in float yb;uniform vec4 m;uniform vec4 box;uniform vec2 size;uniform float snap;void main(){float x0=min(xa,xb)*m.x+m.y;float x1=max(xa,xb)*m.x+m.y;float y0=m.w-max(ya,yb)*m.z;float y1=m.w-min(ya,yb)*m.z;if(snap>0.5){x0=floor(x0+0.5);y0=floor(y0+0.5);x1=max(floor(x1+0.5),x0+float(xa!=xb));y1=max(floor(y1+0.5),y0+float(ya!=yb));}x0+=box.x-box.z;x1=max(x1+box.x+box.z,x0);y0+=box.y-box.w;y1=max(y1+box.y+box.w,y0);vec2 p=vec2((gl_VertexID&1)==0?x0:x1,(gl_VertexID&2)==0?y0:y1);gl_Position=isnan(xa+xb+ya+yb)?vec4(2,2,2,1):vec4(p.x/size.x*2.0-1.0,1.0-p.y/size.y*2.0,0,1);}',
-    'precision mediump float;uniform vec4 color;out vec4 o;void main(){o=color;}',
+    'layout(location=0) in float xa;layout(location=1) in float xb;layout(location=2) in float ya;layout(location=3) in float yb;uniform vec4 m;uniform vec4 box;uniform vec2 size;uniform float snap;uniform vec2 ramp;out vec2 q;void main(){float x0=min(xa,xb)*m.x+m.y;float x1=max(xa,xb)*m.x+m.y;float y0=m.w-max(ya,yb)*m.z;float y1=m.w-min(ya,yb)*m.z;if(snap>0.5){x0=floor(x0+0.5);y0=floor(y0+0.5);x1=max(floor(x1+0.5),x0+float(xa!=xb));y1=max(floor(y1+0.5),y0+float(ya!=yb));}x0+=box.x-box.z;x1=max(x1+box.x+box.z,x0);y0+=box.y-box.w;y1=max(y1+box.y+box.w,y0);vec2 p=vec2((gl_VertexID&1)==0?x0:x1,(gl_VertexID&2)==0?y0:y1);q=vec2(float(gl_VertexID&1),float((gl_VertexID>>1)&1));if(ramp.y>0.5&&yb<ya)q.y=1.0-q.y;gl_Position=isnan(xa+xb+ya+yb)?vec4(2,2,2,1):vec4(p.x/size.x*2.0-1.0,1.0-p.y/size.y*2.0,0,1);}',
+    'precision highp float;uniform vec4 color;uniform vec4 far;uniform vec2 ramp;in vec2 q;out vec4 o;void main(){o=ramp.x<0.0?color:mix(color,far,ramp.x<0.5?q.x:q.y);}',
   );
   const at = (name: string) => gl.getUniformLocation(p, name);
-  return { p, m: at('m'), box: at('box'), size: at('size'), snap: at('snap'), color: at('color') };
+  return {
+    p,
+    m: at('m'),
+    box: at('box'),
+    size: at('size'),
+    snap: at('snap'),
+    color: at('color'),
+    far: at('far'),
+    ramp: at('ramp'),
+  };
 }
+
+/** Two colours as red, green, blue and opacity, blended across each rectangle or down it; `based` starts it at the value end. */
+export type Blend = { stops: number[][]; upright: boolean; based: boolean };
 
 type Held = { vao: WebGLVertexArrayObject; buffer: WebGLBuffer };
 
@@ -68,6 +82,7 @@ export function gpuRows(
       gl: WebGL2RenderingContext,
       color: string,
       overhang = 0,
+      blend?: Blend,
     ) {
       const u = programs.get(gl) ?? rectProgram(gl);
       programs.set(gl, u);
@@ -104,8 +119,12 @@ export function gpuRows(
         gl.uniform4f(u.box, ...(part.shift ?? [0, 0]), ...(part.pad ?? [0, 0]));
         gl.uniform2f(u.size, gl.canvas.width, gl.canvas.height);
         gl.uniform1f(u.snap, +!!part.snap);
-        const a = strength * opacity * (part.alpha ?? 1);
-        gl.uniform4f(u.color, red! * a, green! * a, blue! * a, a);
+        const a = strength * (blend ? 1 : opacity) * (part.alpha ?? 1);
+        const lit = ([r, g, b, alpha = 1]: number[]) =>
+          [r! * alpha * a, g! * alpha * a, b! * alpha * a, alpha * a] as const;
+        gl.uniform4f(u.color, ...lit(blend ? blend.stops[0]! : [red!, green!, blue!]));
+        gl.uniform4f(u.far, ...lit(blend ? blend.stops[1]! : [0, 0, 0, 0]));
+        gl.uniform2f(u.ramp, blend ? +blend.upright : -1, +!!blend?.based);
         gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, count);
         gl.bindVertexArray(null);
       };

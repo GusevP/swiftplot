@@ -6,6 +6,9 @@ import {
   area,
   band,
   bands,
+  bare,
+  brand,
+  gradient,
   bar,
   bin,
   box,
@@ -3436,4 +3439,264 @@ test('a sankey of links too thin to show one by one still shows them together, a
   });
   expect(pixel(round, 50, 30)).toEqual(RED_PIXEL);
   expect(fills.mock.calls.length).toBeLessThan(1000);
+});
+
+test('a smooth line curves through its points, and a line drawn with the brand blend runs from cyan to violet', () => {
+  const el = host();
+  plot(el, {
+    ...frame,
+    x: bare([0, 10]),
+    y: bare([0, 1]),
+    marks: [line({ x: [0, 5, 10], y: [0, 1, 0], curve: 'smooth', color: RED, width: 4 })],
+  });
+  // Straight, the line is half-way up a quarter of the way along; curved, it is already higher.
+  expect(pixel(el, 25, 50)).toEqual([0, 0, 0, 0]);
+  expect(pixel(el, 25, 38)).toEqual(RED_PIXEL);
+  expect(pixel(el, 50, 1)[3]).toBeGreaterThan(0);
+
+  const blended = host();
+  plot(blended, {
+    ...frame,
+    marks: [line({ x: [0, 10], y: [0.5, 0.5], color: RED, stroke: brand, width: 6 })],
+  });
+  const [left, right] = [pixel(blended, 3, 50), pixel(blended, 97, 50)];
+  expect(left[1]).toBeGreaterThan(160);
+  expect(right[0]).toBeGreaterThan(120);
+  expect(right[1]).toBeLessThan(110);
+});
+
+test('an area fades towards its baseline on both sides of it, and a bare axis shows nothing', () => {
+  const el = host();
+  plot(el, {
+    ...frame,
+    x: bare([0, 10]),
+    y: bare([-1, 1]),
+    marks: [area({ x: [0, 5, 5, 10], y: [1, 1, -1, -1], color: RED, fill: gradient(1, 0) })],
+  });
+  expect(pixel(el, 25, 2)[3]).toBeGreaterThan(235);
+  expect(pixel(el, 25, 47)[3]).toBeLessThan(25);
+  expect(pixel(el, 75, 97)[3]).toBeGreaterThan(235);
+  expect(pixel(el, 75, 53)[3]).toBeLessThan(25);
+  expect(el.innerText.trim()).toBe('');
+});
+
+test('bars are rounded at their value end and blended alike on the canvas and on WebGL; ringed points are hollow', () => {
+  const fill = gradient(RED, BLUE);
+  const small = host();
+  plot(small, {
+    ...frame,
+    marks: [bar({ x1: [2], x2: [8], y: [1], color: RED, radius: 10, fill })],
+  });
+  expect(pixel(small, 21, 1)).toEqual([0, 0, 0, 0]);
+  expect(pixel(small, 50, 1)[0]).toBeGreaterThan(240);
+  expect(pixel(small, 21, 98)[2]).toBeGreaterThan(240);
+
+  const large = host();
+  plot(large, { ...frame, marks: [bar({ x1: padded(2), x2: padded(8), y: padded(1), color: RED, fill })] });
+  for (const y of [10, 50, 90]) {
+    const [onCanvas, onLayer] = [pixel(small, 50, y), pixel(large, 50, y, 1)];
+    onCanvas.forEach((channel, at) => expect(Math.abs(channel - onLayer[at]!)).toBeLessThan(8));
+  }
+
+  const ringed = host();
+  plot(ringed, {
+    ...frame,
+    marks: [dots({ x: [5], y: [0.5], r: [10], color: RED, ring: 4 })],
+  });
+  expect(pixel(ringed, 50, 50)).toEqual([255, 255, 255, 255]);
+  expect(pixel(ringed, 60, 50)).toEqual(RED_PIXEL);
+});
+
+test('below the baseline a fade and a blend still run from the value end to the baseline', () => {
+  const el = host();
+  plot(el, {
+    ...frame,
+    x: bare([0, 10]),
+    y: bare([-1, 0]),
+    marks: [area({ x: [0, 10], y: [-1, -1], color: RED, fill: gradient(1, 0) })],
+  });
+  expect(pixel(el, 50, 3)[3]).toBeLessThan(25);
+  expect(pixel(el, 50, 97)[3]).toBeGreaterThan(235);
+
+  const fill = gradient(RED, BLUE);
+  const [small, large] = [host(), host()];
+  const axes = { ...frame, x: bare([0, 10]), y: bare([-1, 0]) };
+  plot(small, { ...axes, marks: [bar({ x1: [2], x2: [8], y: [-1], color: RED, fill })] });
+  plot(large, { ...axes, marks: [bar({ x1: padded(2), x2: padded(8), y: padded(-1), color: RED, fill })] });
+  for (const [painted, nth] of [
+    [small, 0],
+    [large, 1],
+  ] as const) {
+    expect(pixel(painted, 50, 97, nth)[0]).toBeGreaterThan(235);
+    expect(pixel(painted, 50, 3, nth)[2]).toBeGreaterThan(235);
+  }
+});
+
+test('a line shades what is under it only when asked, fading towards the bottom of the plot area', () => {
+  const under = (fill?: boolean) => {
+    const el = host();
+    plot(el, {
+      ...frame,
+      x: bare([0, 10]),
+      y: bare([0, 1]),
+      marks: [line({ x: [0, 10], y: [0.8, 0.8], color: RED, width: 2, fill })],
+    });
+    return [pixel(el, 50, 25)[3]!, pixel(el, 50, 95)[3]!];
+  };
+  expect(under()).toEqual([0, 0]);
+  const [near, far] = under(true);
+  expect(near).toBeGreaterThan(30);
+  expect(near).toBeLessThan(50);
+  expect(far).toBeLessThan(6);
+});
+
+test('a gap sets touching bars apart alike on both painters, and bars that start at zero are rounded at the top only', () => {
+  const [small, large] = [host(), host()];
+  const axes = { ...frame, x: bare([0, 10]), y: bare([0, 1]) };
+  plot(small, {
+    ...axes,
+    marks: [bar({ x1: [0, 5], x2: [5, 10], y1: [0, 0], y2: [1, 1], color: RED, gap: 4, radius: 10 })],
+  });
+  plot(large, {
+    ...axes,
+    marks: [
+      bar({ x1: padded(0, 5), x2: padded(5, 10), y1: padded(0, 0), y2: padded(1, 1), color: RED, gap: 4 }),
+    ],
+  });
+  for (const [painted, nth] of [
+    [small, 0],
+    [large, 1],
+  ] as const) {
+    expect(pixel(painted, 44, 50, nth)).toEqual(RED_PIXEL);
+    expect(pixel(painted, 47, 50, nth)).toEqual([0, 0, 0, 0]);
+    expect(pixel(painted, 51, 50, nth)).toEqual(RED_PIXEL);
+  }
+  expect(pixel(small, 1, 1)).toEqual([0, 0, 0, 0]);
+  expect(pixel(small, 1, 98)).toEqual(RED_PIXEL);
+});
+
+test('a sankey ribbon blends from its source to its target on both painters; a funnel and a donut take a blend', () => {
+  const spare = Array.from({ length: 2000 }, () => 0);
+  for (const [extra, nth] of [
+    [[], 0],
+    [spare, 1],
+  ] as const) {
+    const el = host();
+    plot(el, {
+      ...blank,
+      marks: [
+        sankey({
+          nodes: ['a', 'b'],
+          source: [0, ...extra],
+          target: [1, ...extra.map(() => 1)],
+          value: [1, ...extra],
+          colors: [RED, BLUE],
+          blend: true,
+          text: false,
+        }),
+      ],
+    });
+    const [left, right] = [pixel(el, 18, 50, nth), pixel(el, 82, 50, nth)];
+    expect(left[0]! - left[2]!).toBeGreaterThan(150);
+    expect(right[2]! - right[0]!).toBeGreaterThan(150);
+  }
+
+  const narrowing = host();
+  plot(narrowing, {
+    ...blank,
+    marks: [funnel({ values: [1, 1, 1, 1], colors: [GREEN], fill: gradient(RED, BLUE) })],
+  });
+  expect(pixel(narrowing, 50, 4)[0]).toBeGreaterThan(230);
+  expect(pixel(narrowing, 50, 96)[2]).toBeGreaterThan(230);
+
+  const ring = host();
+  plot(ring, { ...pie, marks: [arcs({ values: [1], colors: [RED], inner: 0.5, sweep: 0.2 })] });
+  // Just past twelve the single slice is faint; just before it, where it ends, it is full.
+  expect(pixel(ring, 58, 14)[3]).toBeLessThan(80);
+  expect(pixel(ring, 42, 14)[3]).toBeGreaterThan(230);
+});
+
+test('a shaded treemap is lighter at the top of a branch, and a swept radial bar at its start', () => {
+  const map = host();
+  plot(map, {
+    ...blank,
+    marks: [
+      treemap({
+        nodes: ['a', 'top', 'bottom'],
+        parent: [-1, 0, 0],
+        value: [0, 1, 1],
+        colors: [RED],
+        shade: 0.2,
+        text: false,
+      }),
+    ],
+  });
+  const [high, low] = [pixel(map, 30, 6)[3]!, pixel(map, 70, 94)[3]!];
+  expect(high).toBeLessThan(90);
+  expect(low).toBeGreaterThan(230);
+
+  const bars = host();
+  plot(bars, { ...pie, marks: [radialBars({ values: [1], max: 1, colors: [RED], sweep: 0.2, inner: 0.5 })] });
+  // The one bar runs three quarters of a turn from twelve: faint just after it, full near nine.
+  expect(pixel(bars, 58, 12)[3]).toBeLessThan(90);
+  expect(pixel(bars, 12, 58)[3]).toBeGreaterThan(215);
+});
+
+test('a shaded sunburst runs from its full colour at the centre to a fainter rim', () => {
+  const el = host();
+  plot(el, {
+    ...pie,
+    marks: [
+      sunburst({
+        nodes: ['a', 'b'],
+        parent: [-1, -1],
+        value: [1, 1],
+        colors: [RED, BLUE],
+        shade: 0.2,
+        text: false,
+      }),
+    ],
+  });
+  expect(pixel(el, 56, 50)[3]).toBeGreaterThan(215);
+  expect(pixel(el, 95, 50)[3]).toBeLessThan(95);
+});
+
+test('a box takes a blend, a heavier median and fainter whiskers alike on both painters, and round corners on the canvas', () => {
+  const style = { color: RED, width: 4, fill: gradient(0.8, 0.2), medianWidth: 6, whiskers: 0.5 };
+  const [small, large] = [host(), host()];
+  const axes = { ...frame, x: bare([0, 10]), y: bare([0, 1]) };
+  plot(small, {
+    ...axes,
+    marks: [
+      box({ x: [5], min: [0.1], q1: [0.3], median: [0.5], q3: [0.7], max: [0.9], radius: 8, ...style }),
+    ],
+  });
+  plot(large, {
+    ...axes,
+    marks: [
+      box({
+        x: padded(5),
+        min: padded(0.1),
+        q1: padded(0.3),
+        median: padded(0.5),
+        q3: padded(0.7),
+        max: padded(0.9),
+        ...style,
+      }),
+    ],
+  });
+  for (const [painted, nth] of [
+    [small, 0],
+    [large, 1],
+  ] as const) {
+    // Stronger under the top of the box than above its bottom, a median three pixels either side, a faint whisker.
+    expect(pixel(painted, 40, 34, nth)[3]! - pixel(painted, 40, 66, nth)[3]!).toBeGreaterThan(90);
+    expect(pixel(painted, 40, 52, nth)).toEqual(RED_PIXEL);
+    expect(pixel(painted, 40, 48, nth)).toEqual(RED_PIXEL);
+    const whisker = pixel(painted, 50, 20, nth)[3]!;
+    expect(whisker).toBeGreaterThan(85);
+    expect(whisker).toBeLessThan(145);
+  }
+  expect(pixel(small, 31, 31)[3]).toBeLessThan(60);
+  expect(pixel(large, 31, 31, 1)[3]).toBeGreaterThan(150);
 });

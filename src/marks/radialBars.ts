@@ -1,4 +1,5 @@
 import { scale } from '../scale.js';
+import { rgba } from '../gl.js';
 import type { Label, Col, Mark } from '../types.js';
 import { TURN, turnAt } from './common.js';
 
@@ -16,6 +17,11 @@ export type RadialBarsOptions = {
   labels?: string[];
   text?: boolean;
   max?: number;
+  /**
+   * Each bar starts at this opacity and reaches its full colour at its end. Where the browser
+   * has no conic gradient the bars stay solid.
+   */
+  sweep?: number;
   inner?: number;
   alpha?: number;
   key?: string;
@@ -69,12 +75,21 @@ export function radialBars(o: RadialBarsOptions): Mark {
       const tracks = new Path2D();
       if (per > 1) tracks.addPath(bent(0, n - 1, SWEEP));
       else for (let i = 0; i < n && thick; i++) tracks.addPath(bent(i, i, SWEEP));
-      const bars: { path: Path2D; from: number; to: number; lead: number }[] = [];
+      const bars: { path: Path2D; from: number; to: number; lead: number; ink?: CanvasGradient }[] = [];
       for (let from = 0; from < n && thick; from += per) {
         const to = Math.min(from + per, n);
         let lead = from;
         for (let i = from; i < to; i++) if (round[i]! > round[lead]!) lead = i;
-        if (round[lead]) bars.push({ path: bent(from, to - 1, round[lead]!), from, to, lead });
+        if (!round[lead]) continue;
+        const ink = o.sweep === undefined ? undefined : ctx.createConicGradient?.(-TURN / 4, cx, cy);
+        if (ink) {
+          const [red, green, blue, a = 1] = rgba(ctx, shade(lead)).map((v, at) =>
+            at < 3 ? Math.round(v * 255) : v,
+          );
+          ink.addColorStop(0, `rgba(${red},${green},${blue},${a * o.sweep!})`);
+          ink.addColorStop(round[lead]!, `rgba(${red},${green},${blue},${a})`);
+        }
+        bars.push({ path: bent(from, to - 1, round[lead]!), from, to, lead, ink });
       }
       const anchor = (i: number) => {
         const angle = (round[i]! / 2) * TURN - TURN / 4;
@@ -97,9 +112,9 @@ export function radialBars(o: RadialBarsOptions): Mark {
           ctx.globalAlpha = alpha * k * 0.06;
           ctx.fillStyle = '#000';
           ctx.fill(tracks);
-          for (const { path, from, to, lead } of bars) {
+          for (const { path, from, to, lead, ink } of bars) {
             ctx.globalAlpha = alpha * k * (row === undefined || (row >= from && row < to) ? 1 : rest);
-            ctx.fillStyle = shade(lead);
+            ctx.fillStyle = ink ?? shade(lead);
             ctx.fill(path);
           }
         },

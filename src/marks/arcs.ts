@@ -1,3 +1,4 @@
+import { rgba } from '../gl.js';
 import type { Col, Mark } from '../types.js';
 import { inRing, TURN, turnAt } from './common.js';
 
@@ -14,6 +15,11 @@ export type ArcsOptions = {
   inner?: number;
   /** Text on each slice that has room for it: true for its share as a percentage, or your own. */
   text?: true | ((row: number, share: number) => string);
+  /**
+   * Each slice starts at this opacity and reaches its full colour at its end, clockwise. Where
+   * the browser has no conic gradient the slices stay solid.
+   */
+  sweep?: number;
   alpha?: number;
   key?: string;
   label?: string;
@@ -52,7 +58,7 @@ export function arcs(o: ArcsOptions): Mark {
       // A gap of a device pixel between neighbours, which shows whatever is behind the chart.
       // Slices are gathered until they are a device pixel wide at the rim, and drawn as one in
       // the colour of the widest among them: more shapes than pixels cost time and show nothing.
-      const slices: { path: Path2D; from: number; to: number; lead: number }[] = [];
+      const slices: { path: Path2D; from: number; to: number; lead: number; span: [number, number] }[] = [];
       const width1 = (i: number) => ends[i]! - (ends[i - 1] ?? 0);
       let [first, lead, start] = [0, 0, 0];
       for (let i = 0; i < n && outer; i++) {
@@ -66,9 +72,18 @@ export function arcs(o: ArcsOptions): Mark {
           path.arc(cx, cy, outer, a, b);
           path.arc(cx, cy, hole, b, a, true);
           path.closePath();
-          slices.push({ path, from: first, to: i + 1, lead });
+          slices.push({ path, from: first, to: i + 1, lead, span: [start, end] });
         }
         [first, start] = [i + 1, end];
+      }
+      // One paint for every slice: round the clock, each from faint at its start to full at its end.
+      const round = o.sweep !== undefined && ctx.createConicGradient?.(-TURN / 4, cx, cy);
+      for (const { lead, span } of round ? slices : []) {
+        const [red, green, blue, a = 1] = rgba(ctx, shade(lead)).map((v, at) =>
+          at < 3 ? Math.round(v * 255) : v,
+        );
+        (round as CanvasGradient).addColorStop(span[0], `rgba(${red},${green},${blue},${a * o.sweep!})`);
+        (round as CanvasGradient).addColorStop(span[1], `rgba(${red},${green},${blue},${a})`);
       }
       // Where a slice's label and its tooltip sit: half-way round it and half-way out.
       const anchor = (i: number) => {
@@ -94,7 +109,7 @@ export function arcs(o: ArcsOptions): Mark {
         paint(k, row, rest = 1) {
           for (const { path, from, to, lead } of slices) {
             ctx.globalAlpha = alpha * k * (row === undefined || (row >= from && row < to) ? 1 : rest);
-            ctx.fillStyle = shade(lead);
+            ctx.fillStyle = round || shade(lead);
             ctx.fill(path);
           }
         },

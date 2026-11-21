@@ -24,7 +24,7 @@ chart.destroy();
 ```
 
 - **Marks** are imported functions: `line`, `area`, `bar`, `box`, `errorBars`, `heatmap`, `ticks`, `dots`, `arcs`, `radar`, `radialBars`, `funnel`, `sankey`, `treemap`, `sunburst`. Only the ones you import are bundled.
-- **Lines and areas** are straight between points unless `curve: 'step'`. `area({ x, y })` fills from zero; `area({ x, y1, y2 })` is a band.
+- **Lines and areas** are straight between points unless `curve: 'step'` or `curve: 'smooth'`, which curves through the points without overshooting them. `area({ x, y })` fills from zero; `area({ x, y1, y2 })` is a band.
 - **Bars** have explicit bounds, `bar({ x1, x2, y1, y2 })`, so vertical, horizontal, grouped and stacked bars are the same mark. A single `y` (or `x`) starts at zero. On a category axis `const [x1, x2] = bands(7)` gives the bounds, and `bands(7, { slot: 0, of: 2 })` those of one series of a grouped chart.
 - **Box plots** take the five numbers as columns: `box({ x, ...fiveNumbers(groups), color })`. The whiskers go to the minimum and maximum; leave outliers out and draw them with `dots`.
 - **Heatmaps** are `heatmap({ values, columns, color: sequential({ stops }) })`, with cell (c, r) centred on x = c, y = r so it sits on band axes; `x` and `y` give the grid's outer edges instead. Create the colour scale once, outside the update, or every update repaints the grid.
@@ -37,6 +37,11 @@ chart.destroy();
 - **Labels on shapes** (slices, stages, nodes) are drawn where they fit and left out where they would overlap or run off the chart.
 - **A colour legend** for a heatmap comes with `legend()`: a strip of its colours between the ends of its domain.
 - **Error bars** are `errorBars({ x, y1, y2 })`, or `{ y, x1, x2 }` lying down.
+- **Colours:** `palette` is eight series colours to give out in order, and `brand` the cyan-to-violet blend. `gradient(from, to, 'down' | 'up' | 'right' | 'left')` makes a blend of two colours; a number stands for the mark's own colour at that opacity. `line({ fill: true })` puts a faint fade of the line's colour under it. A blend goes in `area({ fill })`, `bar({ fill })`, `line({ stroke })` and `line({ fill })`, so `area({ x, y, color, fill: gradient(0.4, 0) })` fades an area out towards its baseline. `color` stays the one colour a legend and a tooltip show.
+- **Blends on other charts:** `sankey({ blend: true })` runs each ribbon from its source's colour into its target's; `funnel({ fill: gradient(a, b) })` puts one blend down the whole funnel; `arcs({ sweep: 0.8 })` and `radialBars({ sweep: 0.35 })` start each slice or bar at that opacity and bring it to full colour at its end; `treemap({ shade: 0.7 })` starts each branch at that opacity at its top, and `sunburst({ shade: 0.7 })` ends each at that opacity at the rim.
+- **Box plots** take `radius`, `medianWidth`, `whiskers` (their opacity) and `fill`: `box({ ..., radius: 4, medianWidth: 2.5, whiskers: 0.5, fill: gradient(0.4, 0.1) })`.
+- **Rounded bars and ringed points:** `bar({ radius: 6 })` rounds the value end of a bar that starts at zero, or all corners of one that floats, and `bar({ gap: 2 })` sets touching bars such as a histogram's two pixels apart; `dots({ ring: 2 })` draws rings round a white middle.
+- **No axes:** `x: bare()` and `y: bare([0, 100])` place the marks and draw no ticks, grid or label, for a chart inside a card.
 - **Rows** need no helper: `Float64Array.from(rows, r => r.value)` makes a column and `Map.groupBy(rows, r => r.series)` splits rows into series.
 - **Ticks** thin out to fit the axis, so a narrow chart shows fewer labels, not overlapping ones.
 - **Accessibility:** the chart is exposed as an image with a label built from the axis labels and series names; set `description` to say what it shows. The data itself is not exposed yet.

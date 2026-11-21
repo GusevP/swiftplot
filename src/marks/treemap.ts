@@ -1,4 +1,5 @@
 import type { Label, Mark } from '../types.js';
+import { gradient, painter } from '../paint.js';
 import { first, grow, type TreeColumns } from './tree.js';
 
 /**
@@ -16,6 +17,8 @@ export type TreemapOptions = TreeColumns & {
   colors: string[];
   /** Text in each rectangle that has room: the node's name by default, your own, or none. */
   text?: false | ((row: number) => string);
+  /** Each branch starts at this opacity at the top of its room and reaches its full colour at the bottom. */
+  shade?: number;
   alpha?: number;
   key?: string;
   label?: string;
@@ -97,10 +100,22 @@ export function treemap(o: TreemapOptions): Mark {
         return [x! + gx, y! + gy, w! - 2 * gx, h! - 2 * gy] as const;
       };
       // One shape per colour, since no two rectangles overlap: a fill each would cost far more.
-      const sheets = new Map<string, Path2D>();
+      // With a shade each branch has its own paint, lighter at the top of the branch's room.
+      const sheets = new Map<string | number, { path: Path2D; ink: string | CanvasGradient }>();
+      const sheetOf = (i: number) => (o.shade === undefined ? shade(i) : tint[i]!);
       for (const i of shown) {
-        if (!sheets.has(shade(i))) sheets.set(shade(i), new Path2D());
-        sheets.get(shade(i))!.rect(...box(i));
+        if (!sheets.has(sheetOf(i))) {
+          const branch =
+            tint[i]! < 0 ? roots[0]! : roots.length === 1 ? kids[roots[0]!]![tint[i]!]! : roots[tint[i]!]!;
+          const [x, y, w, h] = room.subarray(branch * 4, branch * 4 + 4);
+          const ink = painter(
+            ctx,
+            o.shade === undefined ? undefined : gradient(o.shade, 1),
+            shade(i),
+          )([x!, y!, x! + w!, y! + h!]);
+          sheets.set(sheetOf(i), { path: new Path2D(), ink });
+        }
+        sheets.get(sheetOf(i))!.path.rect(...box(i));
       }
       const labels: Label[] = [];
       for (const i of o.text === false ? [] : largest) {
@@ -122,7 +137,7 @@ export function treemap(o: TreemapOptions): Mark {
           ctx.save();
           if (row !== undefined && solid[row]) {
             ctx.globalAlpha = alpha * k;
-            ctx.fillStyle = shade(row);
+            ctx.fillStyle = sheets.get(sheetOf(row))?.ink ?? shade(row);
             ctx.fillRect(...box(row));
             // The rest is drawn through a hole where that rectangle is, so it is not painted twice.
             const around = new Path2D();
@@ -131,9 +146,9 @@ export function treemap(o: TreemapOptions): Mark {
             ctx.clip(around, 'evenodd');
           }
           ctx.globalAlpha = alpha * k * (row === undefined ? 1 : rest);
-          for (const [color, sheet] of sheets) {
-            ctx.fillStyle = color;
-            ctx.fill(sheet);
+          for (const { path, ink } of sheets.values()) {
+            ctx.fillStyle = ink;
+            ctx.fill(path);
           }
           ctx.restore();
         },

@@ -14,7 +14,28 @@ export const base = (type: string, o: Common, x: Col[], y: Col[]) =>
     channels: { x, y },
   }) satisfies Partial<Mark>;
 
-export type Curve = 'linear' | 'step';
+/** 'smooth' curves through the points where they are further apart than a pixel, and is 'linear' where they are not. */
+export type Curve = 'linear' | 'step' | 'smooth';
+
+/**
+ * A curve on from the path's current point through n points, forwards or backwards, that never
+ * goes above or below the points it joins: its lean at each is the harmonic mean of the leans
+ * either side of it, and level where they turn.
+ */
+export function smooth(path: Path2D, xs: ArrayLike<number>, ys: ArrayLike<number>, n: number, back = false) {
+  const at = (k: number) => (back ? n - 1 - k : k);
+  const rise = (k: number) => (ys[at(k + 1)]! - ys[at(k)]!) / (xs[at(k + 1)]! - xs[at(k)]! || 1);
+  const lean = (k: number) => {
+    if (k === 0 || k === n - 1) return rise(Math.min(k, n - 2));
+    const [a, b] = [rise(k - 1), rise(k)];
+    return a * b > 0 ? (2 * a * b) / (a + b) : 0;
+  };
+  for (let k = 1; k < n; k++) {
+    const [x0, y0, x1, y1] = [xs[at(k - 1)]!, ys[at(k - 1)]!, xs[at(k)]!, ys[at(k)]!];
+    const third = (x1 - x0) / 3;
+    path.bezierCurveTo(x0 + third, y0 + lean(k - 1) * third, x1 - third, y1 - lean(k) * third, x1, y1);
+  }
+}
 
 export const TURN = 2 * Math.PI;
 

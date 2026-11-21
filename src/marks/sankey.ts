@@ -20,6 +20,8 @@ export type SankeyOptions = {
   target: Col;
   value: Col;
   colors: string[];
+  /** Each ribbon runs from the colour of the node it leaves into the colour of the one it reaches. */
+  blend?: boolean;
   /** Node names beside the nodes; true by default. */
   text?: boolean;
   alpha?: number;
@@ -40,7 +42,7 @@ const programs = new WeakMap<WebGL2RenderingContext, ReturnType<typeof ribbonPro
 function ribbonProgram(gl: WebGL2RenderingContext) {
   const p = program(
     gl,
-    `layout(location=0) in vec4 e;layout(location=1) in float h;layout(location=2) in vec4 c;layout(location=3) in float s;uniform vec2 size;uniform float lit;out vec4 col;out vec2 v;void main(){float t=float(gl_VertexID>>1)/${SEGMENTS}.0;float side=float(gl_VertexID&1)*2.0-1.0;float w=1.0-t;float x=e.x*w*w*w+(e.x+e.y)*1.5*w*t+e.y*t*t*t;uint z=uint(gl_InstanceID)*2654435761u;z^=z>>15;float d=h;if(h>0.0&&h<0.125)d=s>=lit||float(z&65535u)/65536.0<h*8.0?0.125:0.0;float r=d*0.5+0.5;float y=mix(e.z,e.w,t*t*(3.0-2.0*t))+d*0.5+side*r;gl_Position=vec4(x/size.x*2.0-1.0,1.0-y/size.y*2.0,0,1);col=vec4(c.rgb,1)*c.a*s;v=vec2(side*r,d*0.5);}`,
+    `layout(location=0) in vec4 e;layout(location=1) in float h;layout(location=2) in vec4 c;layout(location=3) in float s;layout(location=4) in vec4 c2;uniform vec2 size;uniform float lit;out vec4 col;out vec2 v;void main(){float t=float(gl_VertexID>>1)/${SEGMENTS}.0;float side=float(gl_VertexID&1)*2.0-1.0;float w=1.0-t;float x=e.x*w*w*w+(e.x+e.y)*1.5*w*t+e.y*t*t*t;uint z=uint(gl_InstanceID)*2654435761u;z^=z>>15;float d=h;if(h>0.0&&h<0.125)d=s>=lit||float(z&65535u)/65536.0<h*8.0?0.125:0.0;float r=d*0.5+0.5;float y=mix(e.z,e.w,t*t*(3.0-2.0*t))+d*0.5+side*r;gl_Position=vec4(x/size.x*2.0-1.0,1.0-y/size.y*2.0,0,1);vec4 k=mix(c,c2,t);col=vec4(k.rgb,1)*k.a*s;v=vec2(side*r,d*0.5);}`,
     'precision highp float;in vec4 col;in vec2 v;out vec4 o;void main(){o=col*clamp(min(v.y,v.x+0.5)-max(-v.y,v.x-0.5),0.0,1.0);}',
   );
   return { p, size: gl.getUniformLocation(p, 'size'), lit: gl.getUniformLocation(p, 'lit') };
@@ -280,7 +282,7 @@ export function sankey(o: SankeyOptions): Mark {
     programs.set(gl, u);
     const count = links + n;
     const place = new Float32Array(count * 5);
-    const tone = new Uint8Array(count * 4);
+    const tone = new Uint8Array(count * 8);
     const tones = (colors.length ? colors : ['#888']).map(c =>
       rgba(view.ctx, c).map(v => Math.round(v * 255)),
     );
@@ -289,11 +291,13 @@ export function sankey(o: SankeyOptions): Mark {
         [x[source[i]!]! + thick, x[target[i]!]!, tops[i * 2]!, tops[i * 2 + 1]!, value[i]! * scale],
         i * 5,
       );
-      tone.set(tones[source[i]! % tones.length]!, i * 4);
+      tone.set(tones[source[i]! % tones.length]!, i * 8);
+      tone.set(tones[(o.blend ? target[i]! : source[i]!) % tones.length]!, i * 8 + 4);
     }
     for (let i = 0; i < n; i++) {
       place.set([x[i]!, x[i]! + thick, y[i]!, y[i]!, tall(i)], (links + i) * 5);
-      tone.set(tones[i % tones.length]!, (links + i) * 4);
+      tone.set(tones[i % tones.length]!, (links + i) * 8);
+      tone.set(tones[i % tones.length]!, (links + i) * 8 + 4);
     }
     let held = holds.get(gl);
     if (!held)
@@ -329,7 +333,10 @@ export function sankey(o: SankeyOptions): Mark {
       [0, 4, 0],
       [1, 1, 16],
     ]);
-    column(2, held.buffers[1]!, tone, [[0, 4, 0]]);
+    column(2, held.buffers[1]!, tone, [
+      [0, 4, 0],
+      [2, 4, 4],
+    ]);
     const strengths = new Float32Array(count);
     column(3, held.buffers[2]!, strengths, [[0, 1, 0]]);
     gl.bindVertexArray(null);
@@ -368,13 +375,21 @@ export function sankey(o: SankeyOptions): Mark {
       const { ctx } = view;
       const { x, y, thick, labels, tall, trace, hit } = lay(view);
       const ribbons = Array.from({ length: links }, (_, i) => trace(i));
+      const inks = !o.blend
+        ? undefined
+        : ribbons.map((_, i) => {
+            const across = ctx.createLinearGradient(x[source[i]!]! + thick, 0, x[target[i]!]!, 0);
+            across.addColorStop(0, shade(source[i]!));
+            across.addColorStop(1, shade(target[i]!));
+            return across;
+          });
       return {
         labels,
         paint(k, row, rest = 1) {
           ribbons.forEach((path, i) => {
             if (!path) return;
             ctx.globalAlpha = strength(k, row, rest, n + i) * 0.45;
-            ctx.fillStyle = shade(source[i]!);
+            ctx.fillStyle = inks?.[i] ?? shade(source[i]!);
             ctx.fill(path);
           });
           for (let i = 0; i < n; i++) {
