@@ -2804,18 +2804,19 @@ test.each(['none', 'scale(0.5)'])(
     const el = host();
     el.style.transform = transform;
     el.style.transformOrigin = '0 0';
-    const text = 'a tooltip of twenty';
+    const scale = transform === 'none' ? 1 : 0.5;
+    const text = (x: number) => `a tooltip of twenty at ${x}`;
     const at = [0.1, 4.5, 5.5, 9.9];
     plot(el, {
       ...frame,
       width: 200,
       marks: [dots({ x: at, y: at.map(() => 0.5), r: at.map(() => 3), color: RED, label: 'A' })],
-      use: [tooltip({ mode: 'nearest', text: () => text })],
+      use: [tooltip({ mode: 'nearest', text: (_, x) => text(x) })],
     });
     for (const x of at) {
-      const root = hover(el, x * 20, 50);
+      const root = hover(el, x * 20 * scale, 50 * scale);
       const box = root.getBoundingClientRect();
-      const tip = textOf(el, text).parentElement!.getBoundingClientRect();
+      const tip = textOf(el, text(x)).parentElement!.getBoundingClientRect();
       expect(tip.width).toBeGreaterThan(box.width / 2);
       expect(tip.width).toBeLessThan(box.width);
       expect(tip.left).toBeGreaterThanOrEqual(box.left);
@@ -2823,6 +2824,22 @@ test.each(['none', 'scale(0.5)'])(
     }
   },
 );
+
+test('a tooltip with text wider than the chart wraps inside it at either edge', () => {
+  const el = host();
+  const text = 'a tooltip whose text is far wider than this narrow chart';
+  plot(el, {
+    ...frame,
+    marks: [dots({ x: [0.1, 9.9], y: [0.5, 0.5], r: [3, 3], color: RED, label: 'A' })],
+    use: [tooltip({ mode: 'nearest', text: () => text })],
+  });
+  for (const px of [1, 99]) {
+    const box = hover(el, px, 50).getBoundingClientRect();
+    const tip = textOf(el, text).parentElement!.getBoundingClientRect();
+    expect(tip.left).toBeGreaterThanOrEqual(box.left);
+    expect(tip.right).toBeLessThanOrEqual(box.right);
+  }
+});
 
 test('the x tooltip samples each line at its own x, and gives a dash where a line has no sample', () => {
   const el = host();

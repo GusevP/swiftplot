@@ -17,7 +17,7 @@ export function tooltip(t: TooltipOptions): Feature {
     const cross = chart.layer('div', 'display:none;border-left:1px dashed #888');
     const tip = chart.layer(
       'div',
-      'display:none;background:#fff;border:1px solid #ccc;padding:4px 8px;white-space:nowrap;z-index:100',
+      'display:none;background:#fff;border:1px solid #ccc;padding:4px 8px;box-sizing:border-box;width:max-content;max-width:100%;overflow-wrap:anywhere;z-index:100',
     );
     let at: [number, number] | null = null;
     const hide = () => {
@@ -45,9 +45,10 @@ export function tooltip(t: TooltipOptions): Feature {
     };
     const place = () => {
       if (!at) return;
+      const { width, height } = chart.size();
       const box = root.getBoundingClientRect();
-      const px = at[0] - box.left;
-      const py = at[1] - box.top;
+      const px = ((at[0] - box.left) * width) / box.width;
+      const py = ((at[1] - box.top) * height) / box.height;
       if (t.mode === 'nearest') {
         const hit = chart.hit(px, py, NEAREST_PX);
         if (!hit) return hide();
@@ -62,7 +63,6 @@ export function tooltip(t: TooltipOptions): Feature {
         show(chart.xPx(hit.x), chart.yPx(hit.y), [{ text, color: hit.color ?? color }]);
         return;
       }
-      const { width, height } = chart.size();
       const m = chart.margin();
       if (px < m.left || px > width - m.right || py < m.top || py > height - m.bottom) return hide();
       const v = chart.xValue(px);
