@@ -2200,7 +2200,7 @@ test('the WebGL layer dims with the rest when a slice is picked out, and is swep
   vi.advanceTimersByTime(100);
   expect(layer.style.clipPath).toContain('polygon');
   vi.advanceTimersByTime(400);
-  expect(layer.style.clipPath).toBe('inset(24px 0px 0px)');
+  expect(layer.style.clipPath).toBe('inset(20px 0px 0px)');
 
   const [x, y] = [chart.xPx(0.5), chart.yPx(0.5)];
   expect(pixel(el, x, y, 1)).toEqual([0, 255, 0, 255]);
@@ -3154,4 +3154,42 @@ test('trees cope with a nested object inside itself, an only child, an empty bra
   expect(asked.sort((a, b) => a - b)).toEqual([0, 1, 2, 3, 4, 5]);
   expect(chart.hit(98, 20, 0)!.row).toBe(5);
   expect(chart.hit(102, 20, 0)!.row).toBe(0);
+});
+
+test('a point on the edge of the plot area is drawn whole, and a bar beside it is still cut there', () => {
+  const el = host();
+  plot(el, {
+    ...frame,
+    margin: { top: 10, right: 10, bottom: 10, left: 10 },
+    marks: [
+      bar({ x1: [0], x2: [4], y1: [0], y2: [2], color: BLUE }),
+      dots({ x: [10], y: [1], r: [4], color: RED }),
+    ],
+  });
+  expect(pixel(el, 92, 8)).toEqual(RED_PIXEL);
+  expect(pixel(el, 20, 12)).toEqual([0, 0, 255, 255]);
+  expect(pixel(el, 20, 8)).toEqual([0, 0, 0, 0]);
+});
+
+test('points drawn by WebGL overhang the plot area as far as on the canvas', () => {
+  const el = host();
+  plot(el, { ...frame, margin: { top: 10, right: 10, bottom: 10, left: 10 }, marks: [pile(30_000)] });
+  expect(el.querySelectorAll('canvas')[1]!.style.clipPath).toBe('inset(7px)');
+});
+
+test('the nearest tooltip takes the colour of the node it names', () => {
+  const el = host();
+  plot(el, {
+    ...blank,
+    marks: [treemap({ nodes: ['a', 'b'], parent: [-1, -1], value: [1, 1], colors: [RED, BLUE] })],
+    use: [tooltip({ mode: 'nearest', text: () => 'tip' })],
+  });
+  const tipColor = (x: number) =>
+    [...hover(el, x, x).querySelectorAll<HTMLElement>('*')].find(
+      e => e.innerText === 'tip' && !e.children.length,
+    )!.style.color;
+  const painted = (x: number) => `rgb(${pixel(el, x, x).slice(0, 3).join(', ')})`;
+  expect(tipColor(25)).toBe(painted(25));
+  expect(tipColor(75)).toBe(painted(75));
+  expect(tipColor(25)).not.toBe(tipColor(75));
 });

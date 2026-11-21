@@ -21,6 +21,8 @@ export type Hit = {
   distance: number;
   /** Which row of the mark was hit, when it draws one shape per row. */
   row?: number;
+  /** The colour of what was hit, where the rows of a mark differ in colour and are not its entries. */
+  color?: string;
 };
 
 /**
@@ -112,6 +114,11 @@ export type Mark = {
   ramp?(): { table: Uint32Array; lo: number; hi: number };
   /** Drawn at full strength whatever is focused, and always on the canvas: a grid behind other marks, say. */
   backdrop?: true;
+  /**
+   * How far past the plot area the mark may show, in CSS pixels: a point's radius, half a line's
+   * width. Without it a point on the edge of the domain is cut in half.
+   */
+  overhang?: number;
   /** A reveal uncovers the chart downwards when a mark asks for it; otherwise from the left. */
   reveal?: 'down';
   /**

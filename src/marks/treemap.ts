@@ -131,6 +131,7 @@ export function treemap(o: TreemapOptions): Mark {
             y: 1 - (y + h / 2 - top) / height,
             distance: max,
             row: node,
+            color: shade(node),
           };
         },
       };

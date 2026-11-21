@@ -10,6 +10,7 @@ export function line(o: LineOptions): Mark {
   const step = curve === 'step';
   return {
     ...base('line', o, [x], [y]),
+    overhang: width / 2,
     prepare({ ctx, dpr, ox, kx, oy, ky }) {
       const c = columns(x, y, ox, kx, oy, ky, !step);
       const path = new Path2D();

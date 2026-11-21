@@ -29,6 +29,7 @@ export function box(o: BoxOptions): Mark {
   }
   return {
     ...base('box', o, [x, [first - width / 2, last + width / 2]], [min, max]),
+    overhang: 0.75,
     prepare({ ctx, dpr, ox, kx, oy, ky, left, top, width: plotWidth, height }) {
       const edges = new Float64Array(n * 4).fill(NaN);
       const y = (v: number) => Math.round(oy - v * ky);

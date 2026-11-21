@@ -138,7 +138,13 @@ export function sunburst(o: SunburstOptions): Mark {
           const shape = node === undefined ? undefined : shapes.get(node);
           if (node === undefined || !shape || !ctx.isPointInPath(shape, hx, hy)) return null;
           const [x, y] = anchor(node);
-          return { x: (x - left) / width, y: 1 - (y - top) / height, distance: max, row: node };
+          return {
+            x: (x - left) / width,
+            y: 1 - (y - top) / height,
+            distance: max,
+            row: node,
+            color: shade(node),
+          };
         },
       };
     },

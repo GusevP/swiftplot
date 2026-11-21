@@ -104,15 +104,20 @@ export function plot(el: HTMLElement, options: Options): Chart {
 
   // What a reveal has uncovered at a progress, in CSS pixels: the one shape the canvas clip, the
   // WebGL clip and the labels all follow.
-  const revealed = (t: number): [number, number][] => {
+  const overhang = () => marks.reduce((most, k) => Math.max(most, k.overhang ?? 0), 0);
+  const revealed = (t: number, over = overhang()): [number, number][] => {
     const [l, top, w, h] = [m.left, m.top, W - m.left - m.right, H - m.top - m.bottom];
     if (t >= 1 || o.frame !== 'polar') {
       const [across, down] = marks.some(k => k.reveal === 'down') ? [1, Math.min(t, 1)] : [Math.min(t, 1), 1];
+      // The edge a reveal is moving stays where it is; the others let a mark overhang them.
+      const [x0, y0] = [Math.max(l - over, 0), Math.max(top - over, 0)];
+      const x1 = across < 1 ? l + w * across : Math.min(l + w + over, W);
+      const y1 = down < 1 ? top + h * down : Math.min(top + h + over, H);
       return [
-        [l, top],
-        [l + w * across, top],
-        [l + w * across, top + h * down],
-        [l, top + h * down],
+        [x0, y0],
+        [x1, y0],
+        [x1, y1],
+        [x0, y1],
       ];
     }
     // The centre, twelve o'clock, each corner of the rectangle the sweep has passed, and where
@@ -207,7 +212,7 @@ export function plot(el: HTMLElement, options: Options): Chart {
     if (!glCanvas) return;
     const css = shape
       ? `polygon(${shape.map(([x, y]) => `${x}px ${y}px`).join()})`
-      : `inset(${m.top}px ${m.right}px ${m.bottom}px ${m.left}px)`;
+      : `inset(${[m.top, m.right, m.bottom, m.left].map(side => `${Math.max(side - overhang(), 0)}px`).join(' ')})`;
     if (css !== clipped) glCanvas.style.clipPath = clipped = css;
     glCanvas.style.opacity = opacity === 1 ? '' : String(opacity);
   };
@@ -397,18 +402,22 @@ export function plot(el: HTMLElement, options: Options): Chart {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     grid();
     if (!reveal) return;
-    ctx.save();
-    ctx.beginPath();
-    for (const [x, y] of revealed(reveal)) ctx.lineTo(x * dpr, y * dpr);
-    ctx.clip();
+    // Each mark is cut to the plot area and its own overhang, so a bar beside a point keeps its edge.
+    const cut = (k: Mark, draw: () => void) => {
+      ctx.save();
+      ctx.beginPath();
+      for (const [x, y] of revealed(reveal, k.overhang ?? 0)) ctx.lineTo(x * dpr, y * dpr);
+      ctx.clip();
+      draw();
+      ctx.restore();
+    };
     // Beside a focused row the other marks keep their strength, unless they are other series.
     const others = lit !== null || (only && several) ? dim : 1;
     for (const [k, p] of flat) {
-      if (k === only?.mark) p.paint(1, only.row, dim);
-      else if (k.group !== lit) p.paint(k.backdrop ? 1 : others);
+      if (k === only?.mark) cut(k, () => p.paint(1, only.row, dim));
+      else if (k.group !== lit) cut(k, () => p.paint(k.backdrop ? 1 : others));
     }
-    for (const [k, p] of flat) if (k.group === lit) p.paint(1);
-    ctx.restore();
+    for (const [k, p] of flat) if (k.group === lit) cut(k, () => p.paint(1));
     if (!onGl.length) return;
     gl!.clear();
     // What is to be dimmed is drawn first and faded as one, then what is focused goes on top.

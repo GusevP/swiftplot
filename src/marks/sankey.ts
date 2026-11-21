@@ -236,7 +236,12 @@ export function sankey(o: SankeyOptions): Mark {
           if (hx < left || hx > left + width || hy < top || hy > top + height) return null;
           for (let i = n - 1; i >= 0; i--) {
             if (hx >= x[i]! && hx < x[i]! + thick && hy >= y[i]! && hy < y[i]! + tall(i)) {
-              return { ...frac(x[i]! + thick / 2, y[i]! + (size[i]! * scale) / 2), distance: reach, row: i };
+              return {
+                ...frac(x[i]! + thick / 2, y[i]! + (size[i]! * scale) / 2),
+                distance: reach,
+                row: i,
+                color: shade(i),
+              };
             }
           }
           ctx.lineWidth = 6 * dpr;
@@ -245,7 +250,12 @@ export function sankey(o: SankeyOptions): Mark {
               const path = ribbons[i];
               if (!path || !(near ? ctx.isPointInStroke(path, hx, hy) : ctx.isPointInPath(path, hx, hy)))
                 continue;
-              return { ...frac(middle[i * 2]!, middle[i * 2 + 1]!), distance: reach, row: n + i };
+              return {
+                ...frac(middle[i * 2]!, middle[i * 2 + 1]!),
+                distance: reach,
+                row: n + i,
+                color: shade(source[i]!),
+              };
             }
           }
           return null;

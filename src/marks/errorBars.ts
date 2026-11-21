@@ -18,6 +18,7 @@ export function errorBars(o: ErrorBarsOptions): Mark {
   const [at, from, to] = upright ? [o.x, o.y1, o.y2] : [o.y, o.x1, o.x2];
   return {
     ...base('errorBars', o, upright ? [at] : [from, to], upright ? [from, to] : [at]),
+    overhang: Math.max(cap, width / 2),
     prepare({ ctx, dpr, ox, kx, oy, ky }) {
       const c = cap * dpr;
       const path = new Path2D();

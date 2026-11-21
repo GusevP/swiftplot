@@ -56,7 +56,8 @@ export function tooltip(t: TooltipOptions): Feature {
         // A mark made of named parts, such as slices, is spoken for by the part that was hit.
         const part = hit.row === undefined ? undefined : hit.mark.entries?.[hit.row];
         const { label = '', color } = part ?? hit.mark;
-        show(chart.xPx(hit.x), chart.yPx(hit.y), [{ text: t.text(label, hit.x, hit.y, hit.row), color }]);
+        const text = t.text(label, hit.x, hit.y, hit.row);
+        show(chart.xPx(hit.x), chart.yPx(hit.y), [{ text, color: hit.color ?? color }]);
         return;
       }
       const { width, height } = chart.size();

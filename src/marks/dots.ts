@@ -33,6 +33,8 @@ export function dots(o: DotsOptions): Mark {
   const { x, y, r, color, alpha = 1 } = o;
   const n = x.length;
   const buffers = new WeakMap<WebGL2RenderingContext, WebGLBuffer>();
+  let reach = 0;
+  for (let i = 0; i < n; i++) reach = Math.max(reach, r[i]!);
 
   // ponytail: linear scan per pointer move, fine at 100k points; a grid index when it shows in a profile.
   const hit =
@@ -101,6 +103,7 @@ export function dots(o: DotsOptions): Mark {
 
   return {
     ...base('dots', o, [x], [y]),
+    overhang: reach,
     prepare(view) {
       const { ctx, dpr, ox, kx, oy, ky } = view;
       const path = new Path2D();
