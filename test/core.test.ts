@@ -45,6 +45,7 @@ const frame = {
   x: { domain: [0, 10], label: '' },
   y: { domain: [0, 1], label: '' },
 } satisfies Partial<Options>;
+const { width: _w, height: _h, ...unsized } = frame;
 
 function host() {
   return document.body.appendChild(document.createElement('div'));
@@ -166,8 +167,7 @@ test('a line is drawn where the scales put it, and moves when the domain changes
 test('a chart without a size fills its container and follows it', async () => {
   const el = host();
   el.style.cssText = 'width:300px;height:200px';
-  const { width: _w, height: _h, ...rest } = frame;
-  plot(el, { ...rest, marks: [flat(0.5)] });
+  plot(el, { ...unsized, marks: [flat(0.5)] });
   expect(pixel(el, 150, 100)).toEqual([255, 0, 0, 255]);
 
   el.style.cssText = 'width:400px;height:300px';
@@ -181,15 +181,14 @@ async function framesOf(outerCss: string | undefined, innerCss: string) {
   const el = outerCss === undefined ? outer : outer.appendChild(document.createElement('div'));
   if (outerCss !== undefined) outer.style.cssText = outerCss;
   el.style.cssText = innerCss;
-  const { width: _w, height: _h, ...rest } = frame;
-  const chart = plot(el, { ...rest, marks: [flat(0.5)] });
+  plot(el, { ...unsized, marks: [flat(0.5)] });
   const canvas = el.querySelector('canvas')!;
   const sizes: string[] = [];
   for (let i = 0; i < 3; i++) {
     await new Promise(requestAnimationFrame);
     sizes.push(`${canvas.style.width}x${canvas.style.height}`);
   }
-  return { outer, el, canvas, chart, sizes };
+  return { outer, el, canvas, sizes };
 }
 
 test('a chart without a size keeps the size of a flex item, a grid cell or a percent height', async () => {
@@ -223,9 +222,13 @@ test('a chart in a container with no height stays empty, and draws once the cont
 test('a chart created inside display: none draws once its container is shown', async () => {
   const el = host();
   el.style.cssText = 'display:none;width:300px;height:200px';
-  const { width: _w, height: _h, ...rest } = frame;
   let chart!: Internals;
-  plot(el, { ...rest, margin: undefined, marks: [flat(0.5)], use: [c => ((chart = c), { destroy() {} })] });
+  plot(el, {
+    ...unsized,
+    margin: undefined,
+    marks: [flat(0.5)],
+    use: [c => ((chart = c), { destroy() {} })],
+  });
   const root = el.firstElementChild as HTMLElement;
   expect(el.querySelector('canvas')!.width).toBe(0);
   expect(root.style.visibility).toBe('hidden');
@@ -238,10 +241,9 @@ test('a chart created inside display: none draws once its container is shown', a
 test('a chart hidden and shown again keeps its marks, labels and tooltip', async () => {
   const el = host();
   el.style.cssText = 'width:300px;height:200px';
-  const { width: _w, height: _h, ...rest } = frame;
   let chart!: Internals;
   plot(el, {
-    ...rest,
+    ...unsized,
     margin: undefined,
     marks: [flat(0.25), dots({ x: [5], y: [0.5], r: [3], color: RED, label: 'A' })],
     use: [tooltip({ mode: 'nearest', text: label => `tip ${label}` }), c => ((chart = c), { destroy() {} })],
