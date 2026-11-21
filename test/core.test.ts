@@ -194,11 +194,20 @@ test('at a fractional pixel density the canvas is rounded, not truncated, to who
     ] as const) {
       Object.defineProperty(window, 'devicePixelRatio', { value: dpr, configurable: true });
       const el = host();
-      plot(el, { ...frame, width, height: 101, marks: [flat(0.5)] });
+      const row = 50;
+      const v = 1 - (row + 0.5) / (101 * dpr);
+      plot(el, {
+        ...frame,
+        width,
+        height: 101,
+        marks: [line({ x: [0, 10], y: [v, v], curve: 'step', color: RED, width: 1 / dpr })],
+      });
       const canvas = el.querySelector('canvas')!;
       expect(canvas.width).toBe(Math.round(width * dpr));
       expect(canvas.height).toBe(Math.round(101 * dpr));
-      expect(pixel(el, 50, 50)).toEqual([255, 0, 0, 255]);
+      expect([...canvas.getContext('2d')!.getImageData(40, row - 1, 1, 3).data]).toEqual([
+        0, 0, 0, 0, 255, 0, 0, 255, 0, 0, 0, 0,
+      ]);
     }
   } finally {
     Object.defineProperty(window, 'devicePixelRatio', { value: was, configurable: true });
