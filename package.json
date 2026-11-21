@@ -21,7 +21,8 @@
     "lint": "oxlint --type-aware --deny-warnings",
     "format": "oxfmt",
     "format:check": "oxfmt --check",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:import": "node test/import.mjs"
   },
   "devDependencies": {
     "@vitest/browser-playwright": "^5.1.1",
