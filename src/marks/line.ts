@@ -26,9 +26,8 @@ export function line(o: LineOptions): Mark {
     prepare({ ctx, dpr, ox, kx, oy, ky, left, top, width: wide, height }) {
       const c = columns(x, y, ox, kx, oy, ky, !step);
       const cx = step ? c.col : c.at;
-      const curved = curve === 'smooth' && c.n === c.real;
-      const trace = (path: Path2D, a: number, b: number) => {
-        if (curved) {
+      const trace = (path: Path2D, [a, b, kept]: [number, number, number]) => {
+        if (curve === 'smooth' && kept === b - a) {
           path.moveTo(c.at[a]!, c.first[a]!);
           smooth(path, c.at.subarray(a, b), c.first.subarray(a, b), b - a);
           return;
@@ -45,15 +44,16 @@ export function line(o: LineOptions): Mark {
         }
       };
       const path = new Path2D();
-      for (const [a, b] of c.runs) trace(path, a, b);
+      for (const run of c.runs) trace(path, run);
       const ink = painter(ctx, o.stroke, color)([left, top, left + wide, top + height]);
       let under: Path2D | undefined;
       let shade: string | CanvasGradient = color;
       if (o.fill && c.n) {
         const floor = top + height;
         under = new Path2D();
-        for (const [a, b] of c.runs) {
-          trace(under, a, b);
+        for (const run of c.runs) {
+          const [a, b] = run;
+          trace(under, run);
           under.lineTo(cx[b - 1]!, floor);
           under.lineTo(cx[a]!, floor);
           under.closePath();

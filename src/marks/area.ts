@@ -35,10 +35,9 @@ export function area(o: AreaOptions): Mark {
       const l = y1 && columns(x, y1, ox, kx, oy, ky, !step, y2);
       const ux = step ? u.col : u.at;
       const lx = l && (step ? l.col : l.at);
-      const curved = curve === 'smooth' && u.n === u.real;
       const path = new Path2D();
-      for (const [a, b] of u.runs) {
-        if (curved) {
+      for (const [a, b, kept] of u.runs) {
+        if (curve === 'smooth' && kept === b - a) {
           path.moveTo(u.at[a]!, u.first[a]!);
           smooth(path, u.at.subarray(a, b), u.first.subarray(a, b), b - a);
           if (l) {

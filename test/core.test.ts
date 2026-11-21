@@ -97,21 +97,20 @@ test('columns ends a run at a value that is not finite, splitting the pixel colu
   const c = columns(x, y, 0, 1, 10, 1, true);
   expect(c.n).toBe(5);
   expect(c.runs).toEqual([
-    [0, 2],
-    [2, 4],
-    [4, 5],
+    [0, 2, 3],
+    [2, 4, 2],
+    [4, 5, 1],
   ]);
-  expect(c.real).toBe(6);
   expect([...c.col.subarray(0, 5)]).toEqual([0, 1, 1, 2, 4]);
   expect([...c.lo.subarray(0, 5)]).toEqual([1, 5, 3, 7, 8]);
   expect([...c.hi.subarray(0, 5)]).toEqual([6, 5, 3, 7, 8]);
   expect([...c.first.subarray(0, 5)]).toEqual([1, 5, 3, 7, 8]);
   expect([...c.last.subarray(0, 5)]).toEqual([6, 5, 3, 7, 8]);
   expect(columns([0, 1, 2], [1, 1, 1], 0, 1, 10, 1, false, [0, NaN, 0]).runs).toEqual([
-    [0, 1],
-    [1, 2],
+    [0, 1, 1],
+    [1, 2, 1],
   ]);
-  expect(columns([0, 1], [NaN, NaN], 0, 1, 10, 1)).toMatchObject({ n: 0, runs: [], real: 0 });
+  expect(columns([0, 1], [NaN, NaN], 0, 1, 10, 1)).toMatchObject({ n: 0, runs: [] });
 });
 
 test('a nice domain widens to whole steps and an explicit one is kept', () => {
@@ -960,6 +959,23 @@ test('a smooth line curves each run between gaps on its own', () => {
     expect(pixel(el, at, 38), `curved at ${at}`).toEqual(RED_PIXEL);
   }
   expect(pixel(el, 200, 99)[3]).toBe(0);
+
+  const dense = host();
+  plot(dense, {
+    ...clear,
+    width: 400,
+    marks: [
+      line({
+        x: [0, 0.01, 1, 2, 4, 6, 8],
+        y: [0, 1, 0, NaN, 0, 1, 0],
+        curve: 'smooth',
+        color: RED,
+        width: 4,
+      }),
+    ],
+  });
+  expect(pixel(dense, 200, 50), 'straight after a run sharing a pixel').toEqual([0, 0, 0, 0]);
+  expect(pixel(dense, 200, 38), 'curved after a run sharing a pixel').toEqual(RED_PIXEL);
 });
 
 test('a value missing from an area, or from either of its bounds, leaves it empty there', () => {
@@ -968,6 +984,7 @@ test('a value missing from an area, or from either of its bounds, leaves it empt
       { y: gapped(0.5) },
       { y1: gapped(0.2), y2: gapped(0.8, 0.8) },
       { y1: gapped(0.2, 0.2), y2: gapped(0.8) },
+      { y1: gapped(0.2, Number.MAX_VALUE), y2: gapped(0.8, 0.8) },
     ]) {
       const el = host();
       plot(el, { ...clear, marks: [area({ x: GAP_X, ...o, curve, color: RED })] });

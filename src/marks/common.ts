@@ -80,9 +80,9 @@ export const turnAt = (dx: number, dy: number) => ((((Math.atan2(dy, dx) + TURN 
  * One min, max and last y per device-pixel column. x must be ascending.
  * `first` (each column's first y) and `at` (its exact x) are kept only with `straight`;
  * without it they alias `lo` and must not be read.
- * A y that is not finite, or a value of `also` at the same row that is not, ends a run: `runs`
- * holds each run's first column and the column after its last, and a pixel column a run ends in
- * is split. `real` counts the values kept.
+ * A y that is not finite once projected, or a value of `also` at the same row that is not, ends a
+ * run: `runs` holds each run's first column, the column after its last and how many values it
+ * kept, and a pixel column a run ends in is split.
  */
 export function columns(
   x: Col,
@@ -101,23 +101,23 @@ export function columns(
   const last = new Float64Array(n);
   const first = straight ? new Float64Array(n) : lo;
   const at = straight ? new Float64Array(n) : lo;
-  const runs: [number, number][] = [];
+  const runs: [number, number, number][] = [];
   let cut = true;
-  let real = 0;
   let k = -1;
   for (let i = 0; i < n; i++) {
     const p = ox + x[i]! * kx;
     const c = Math.round(p);
     const v = oy - y[i]! * ky;
-    if (!Number.isFinite(v) || (also && !Number.isFinite(also[i]!))) {
+    if (!Number.isFinite(v) || (also && !Number.isFinite(oy - also[i]! * ky))) {
       cut = true;
       continue;
     }
-    real++;
+    if (cut) runs.push([k + 1, k + 1, 0]);
+    const run = runs[runs.length - 1]!;
+    run[2]++;
     if (cut || c !== col[k]) {
       k++;
-      if (cut) runs.push([k, k + 1]);
-      else runs[runs.length - 1]![1] = k + 1;
+      run[1] = k + 1;
       cut = false;
       col[k] = c;
       at[k] = p;
@@ -126,7 +126,7 @@ export function columns(
     else if (v > hi[k]!) hi[k] = v;
     last[k] = v;
   }
-  return { n: k + 1, col, lo, hi, last, first, at, runs, real };
+  return { n: k + 1, col, lo, hi, last, first, at, runs };
 }
 
 /** y at v: the held sample of a step, the interpolated value of a straight line. */
