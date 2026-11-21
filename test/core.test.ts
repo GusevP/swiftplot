@@ -140,6 +140,71 @@ test('a chart without a size fills its container and follows it', async () => {
   expect(pixel(el, 150, 100)[3]).toBe(0);
 });
 
+/** Mounts a chart with no size in `inner`, placed in `outer` when given, and returns its canvas size on three frames. */
+async function framesOf(outerCss: string | undefined, innerCss: string) {
+  const outer = host();
+  const el = outerCss === undefined ? outer : outer.appendChild(document.createElement('div'));
+  if (outerCss !== undefined) outer.style.cssText = outerCss;
+  el.style.cssText = innerCss;
+  const { width: _w, height: _h, ...rest } = frame;
+  const chart = plot(el, { ...rest, marks: [flat(0.5)] });
+  const canvas = el.querySelector('canvas')!;
+  const sizes: string[] = [];
+  for (let i = 0; i < 3; i++) {
+    await new Promise(requestAnimationFrame);
+    sizes.push(`${canvas.style.width}x${canvas.style.height}`);
+  }
+  return { outer, el, canvas, chart, sizes };
+}
+
+test('a chart without a size keeps the size of a flex item, a grid cell or a percent height', async () => {
+  const flexed = await framesOf('display:flex;width:300px;height:200px', 'flex:1');
+  expect(flexed.sizes).toEqual(['300pxx200px', '300pxx200px', '300pxx200px']);
+  const grid = await framesOf('display:grid;grid-template-rows:1fr;width:300px;height:200px', '');
+  expect(grid.sizes).toEqual(['300pxx200px', '300pxx200px', '300pxx200px']);
+  const percent = await framesOf('width:300px;height:200px', 'height:50%');
+  expect(percent.sizes).toEqual(['300pxx100px', '300pxx100px', '300pxx100px']);
+});
+
+test('a chart without a size shrinks with a flex or grid container', async () => {
+  for (const css of ['display:flex;', 'display:grid;grid-template-rows:1fr;']) {
+    const { outer, canvas } = await framesOf(`${css}width:300px;height:200px`, 'flex:1');
+    outer.style.cssText = `${css}width:150px;height:80px`;
+    await expect.poll(() => `${canvas.style.width}x${canvas.style.height}`).toBe('150pxx80px');
+    await new Promise(requestAnimationFrame);
+    expect(`${canvas.style.width}x${canvas.style.height}`).toBe('150pxx80px');
+  }
+});
+
+test('a chart in a container with no height stays empty, and draws once the container has one', async () => {
+  const { el, canvas, sizes } = await framesOf(undefined, 'width:300px');
+  expect(sizes).toEqual(['300pxx0px', '300pxx0px', '300pxx0px']);
+  expect(canvas.height).toBe(0);
+  el.style.height = '200px';
+  await expect.poll(() => canvas.height).toBeGreaterThan(0);
+  expect(pixel(el, 150, 100)).toEqual([255, 0, 0, 255]);
+});
+
+test('at a fractional pixel density the canvas is rounded, not truncated, to whole device pixels', () => {
+  const was = devicePixelRatio;
+  try {
+    for (const [dpr, width] of [
+      [0.9, 101],
+      [1.1, 107],
+    ] as const) {
+      Object.defineProperty(window, 'devicePixelRatio', { value: dpr, configurable: true });
+      const el = host();
+      plot(el, { ...frame, width, height: 101, marks: [flat(0.5)] });
+      const canvas = el.querySelector('canvas')!;
+      expect(canvas.width).toBe(Math.round(width * dpr));
+      expect(canvas.height).toBe(Math.round(101 * dpr));
+      expect(pixel(el, 50, 50)).toEqual([255, 0, 0, 255]);
+    }
+  } finally {
+    Object.defineProperty(window, 'devicePixelRatio', { value: was, configurable: true });
+  }
+});
+
 test('update repaints after a resize that leaves the plot area unchanged', () => {
   const el = host();
   const chart = plot(el, {

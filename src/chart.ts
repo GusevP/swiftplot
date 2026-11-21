@@ -84,8 +84,8 @@ export function plot(el: HTMLElement, options: Options): Chart {
   let drawable = false;
 
   const fit = (c: HTMLCanvasElement) => {
-    c.width = W * dpr;
-    c.height = H * dpr;
+    c.width = Math.round(W * dpr);
+    c.height = Math.round(H * dpr);
     c.style.width = `${W}px`;
     c.style.height = `${H}px`;
   };
