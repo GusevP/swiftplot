@@ -324,7 +324,25 @@ export function plot(el: HTMLElement, options: Options): Chart {
     viewKey = [kx, view.ox, ky, view.oy, left, top, width, height].join();
   };
 
+  const release = () => {
+    for (const k of new Set(marks)) k.release?.(gl ?? null);
+  };
+  // The browser takes a context away when too many are open, so a lost layer gives its marks back to the canvas.
+  const dropLost = () => {
+    if (!gl?.gl.isContextLost()) return false;
+    release();
+    gl = null;
+    return true;
+  };
+  const onLost = () => {
+    if (dropLost() && drawable) {
+      prepare(false);
+      paint('size');
+    }
+  };
+
   const prepare = (viewChanged: boolean) => {
+    dropLost();
     // A backdrop stays on the canvas: the WebGL layer is dimmed as one when a group is focused.
     const make = makeGl ?? marks.find(k => k.gl && !k.backdrop)?.gl?.layer;
     const on = marks.map(k => !!k.gl && !k.backdrop && k.gl.layer === make);
@@ -345,6 +363,7 @@ export function plot(el: HTMLElement, options: Options): Chart {
       fit(glCanvas);
       uncover();
       gl = makeGl(glCanvas);
+      glCanvas.addEventListener('webglcontextlost', onLost);
     }
     useGl &&= !!gl;
     if (glCanvas) glCanvas.style.display = useGl ? '' : 'none';
@@ -410,6 +429,7 @@ export function plot(el: HTMLElement, options: Options): Chart {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     grid();
     if (!reveal) return;
+    if (onGl.length && dropLost()) prepare(false);
     // Each mark is cut to the plot area and its own overhang, so a bar beside a point keeps its edge.
     const cut = (k: Mark, draw: () => void) => {
       ctx.save();
@@ -605,7 +625,8 @@ export function plot(el: HTMLElement, options: Options): Chart {
       for (const f of features) f.destroy();
       observer.disconnect();
       density.removeEventListener('change', redensify);
-      for (const k of new Set(marks)) k.release?.(gl ?? null);
+      release();
+      glCanvas?.removeEventListener('webglcontextlost', onLost);
       gl?.destroy();
       root.remove();
     },

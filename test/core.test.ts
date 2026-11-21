@@ -524,6 +524,97 @@ test('a dots mark shared by two WebGL charts survives the destruction of one', (
   expect(pixel(el, 50, 50, 1)).toEqual([255, 0, 0, 255]);
 });
 
+/** The WebGL canvas of a chart, a promise of its context being lost, and a way to lose it. */
+function losing(el: HTMLElement) {
+  const layer = el.querySelectorAll('canvas')[1]!;
+  const lost = new Promise(resolve => layer.addEventListener('webglcontextlost', resolve, { once: true }));
+  const lose = () => layer.getContext('webgl2')!.getExtension('WEBGL_lose_context')!.loseContext();
+  return { layer, lost, lose };
+}
+
+test('a chart whose WebGL context is lost draws its marks on the canvas', async () => {
+  const el = host();
+  plot(el, { ...frame, marks: [pile(30_000)] });
+  const { layer, lost, lose } = losing(el);
+  expect(pixel(el, 50, 50)).not.toEqual([255, 0, 0, 255]);
+  lose();
+  await lost;
+  expect(layer.style.display).toBe('none');
+  expect(pixel(el, 50, 50)).toEqual([255, 0, 0, 255]);
+});
+
+test('a paint after a WebGL context is lost and before the event arrives draws on the canvas', async () => {
+  for (const [change, x] of [
+    [{ dim: 0.5 }, 50],
+    [{ width: 120 }, 60],
+  ] as const) {
+    const el = host();
+    const chart = plot(el, { ...frame, marks: [pile(30_000)] });
+    const { lost, lose } = losing(el);
+    lose();
+    chart.update(change);
+    expect(pixel(el, x, 50)).toEqual([255, 0, 0, 255]);
+    await lost;
+    expect(pixel(el, x, 50)).toEqual([255, 0, 0, 255]);
+  }
+});
+
+test('a destroyed chart does not repaint when destroy() loses its WebGL context', async () => {
+  let paints = 0;
+  const counted: Mark = {
+    type: 'counted',
+    color: RED,
+    options: {},
+    points: 0,
+    channels: { x: [], y: [] },
+    prepare: () => ({ paint: () => paints++ }),
+  };
+  const el = host();
+  const chart = plot(el, { ...frame, marks: [pile(30_000), counted] });
+  const { lost } = losing(el);
+  paints = 0;
+  chart.destroy();
+  await lost;
+  expect(paints).toBe(0);
+});
+
+test('every one of many WebGL charts shows its marks, and charts destroyed make room for as many new ones', async () => {
+  const task = () => new Promise(resolve => setTimeout(resolve));
+  const make = (onLost: () => void) => {
+    const el = host();
+    const chart = plot(el, { ...frame, marks: [pile(30_000)] });
+    el.querySelectorAll('canvas')[1]!.addEventListener('webglcontextlost', onLost);
+    return { el, chart };
+  };
+  let lost = 0;
+  const charts: ReturnType<typeof make>[] = [];
+  while (!lost && charts.length < 40) {
+    charts.push(make(() => lost++));
+    await task();
+  }
+  expect(lost).toBeGreaterThan(0);
+  for (const { el, chart } of charts) {
+    const layer = el.querySelectorAll('canvas')[1]!;
+    if (layer.style.display === 'none') {
+      expect(pixel(el, 50, 50)).toEqual([255, 0, 0, 255]);
+      continue;
+    }
+    chart.update({ dim: 0.5 });
+    expect(pixel(el, 50, 50, layer.style.display === 'none' ? 0 : 1)).toEqual([255, 0, 0, 255]);
+  }
+
+  const fitted = charts.length - lost;
+  for (const { chart } of charts) chart.destroy();
+  let lostAgain = 0;
+  const again: ReturnType<typeof make>[] = [];
+  while (again.length < fitted) {
+    again.push(make(() => lostAgain++));
+    await task();
+  }
+  expect(lostAgain).toBe(0);
+  for (const { chart } of again) chart.destroy();
+});
+
 test('WebGL dots honour a colour with alpha', () => {
   const el = host();
   const n = 30_000;
