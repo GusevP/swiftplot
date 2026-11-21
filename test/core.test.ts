@@ -2798,26 +2798,31 @@ test('the tooltip names and colours the slice that was hit', () => {
   expect(row.style.color).toBe('rgb(0, 0, 255)');
 });
 
-test('a tooltip wider than half the chart stays inside it wherever the pointer is', () => {
-  const el = host();
-  const text = 'a tooltip of twenty';
-  const at = [0.1, 4.5, 5.5, 9.9];
-  plot(el, {
-    ...frame,
-    width: 200,
-    marks: [dots({ x: at, y: at.map(() => 0.5), r: at.map(() => 3), color: RED, label: 'A' })],
-    use: [tooltip({ mode: 'nearest', text: () => text })],
-  });
-  for (const x of at) {
-    const root = hover(el, x * 20, 50);
-    const box = root.getBoundingClientRect();
-    const tip = textOf(el, text).parentElement!.getBoundingClientRect();
-    expect(tip.width).toBeGreaterThan(box.width / 2);
-    expect(tip.width).toBeLessThan(box.width);
-    expect(tip.left).toBeGreaterThanOrEqual(box.left);
-    expect(tip.right).toBeLessThanOrEqual(box.right);
-  }
-});
+test.each(['none', 'scale(0.5)'])(
+  'a tooltip wider than half the chart stays inside it wherever the pointer is, transform %s',
+  transform => {
+    const el = host();
+    el.style.transform = transform;
+    el.style.transformOrigin = '0 0';
+    const text = 'a tooltip of twenty';
+    const at = [0.1, 4.5, 5.5, 9.9];
+    plot(el, {
+      ...frame,
+      width: 200,
+      marks: [dots({ x: at, y: at.map(() => 0.5), r: at.map(() => 3), color: RED, label: 'A' })],
+      use: [tooltip({ mode: 'nearest', text: () => text })],
+    });
+    for (const x of at) {
+      const root = hover(el, x * 20, 50);
+      const box = root.getBoundingClientRect();
+      const tip = textOf(el, text).parentElement!.getBoundingClientRect();
+      expect(tip.width).toBeGreaterThan(box.width / 2);
+      expect(tip.width).toBeLessThan(box.width);
+      expect(tip.left).toBeGreaterThanOrEqual(box.left);
+      expect(tip.right).toBeLessThanOrEqual(box.right);
+    }
+  },
+);
 
 test('the x tooltip samples each line at its own x, and gives a dash where a line has no sample', () => {
   const el = host();

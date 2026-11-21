@@ -37,7 +37,7 @@ export function tooltip(t: TooltipOptions): Feature {
       const fx = x > width / 2;
       const fy = y > height / 2;
       tip.style.display = '';
-      const w = tip.getBoundingClientRect().width;
+      const w = (tip.getBoundingClientRect().width * width) / root.getBoundingClientRect().width;
       const left = fx ? x - 12 - w : x + 12;
       tip.style.left = `${Math.max(0, Math.min(left, width - w))}px`;
       tip.style.top = `${y + (fy ? -12 : 12)}px`;
