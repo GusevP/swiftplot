@@ -60,8 +60,20 @@ function pixel(el: HTMLElement, x: number, y: number, nth = 0) {
 function hover(el: HTMLElement, x: number, y: number) {
   const root = el.firstElementChild as HTMLElement;
   const box = root.getBoundingClientRect();
-  root.dispatchEvent(new MouseEvent('mousemove', { clientX: box.left + x, clientY: box.top + y }));
+  root.dispatchEvent(
+    new PointerEvent('pointermove', { pointerType: 'mouse', clientX: box.left + x, clientY: box.top + y }),
+  );
   return root;
+}
+
+/** What a finger lifted from target sends: the leave reaches every element it was over. */
+function touch(target: Element, clientX = 0, clientY = 0) {
+  const init = { bubbles: true, pointerType: 'touch', clientX, clientY };
+  target.dispatchEvent(new PointerEvent('pointerdown', init));
+  target.dispatchEvent(new PointerEvent('pointerup', init));
+  for (let e: Element | null = target; e; e = e.parentElement) {
+    e.dispatchEvent(new PointerEvent('pointerleave', { ...init, bubbles: false }));
+  }
 }
 
 const flat = (y: number) => line({ x: [0, 10], y: [y, y], curve: 'step', color: RED, width: 4 });
@@ -362,6 +374,38 @@ test('the nearest tooltip names the point under the pointer and hides away from 
   expect(root.innerText).not.toContain('A at 5, 0.5');
 });
 
+test('a tapped tooltip stays after the finger lifts, until the touch is cancelled or the page is tapped elsewhere', () => {
+  const cases = [
+    {
+      marks: [dots({ x: [5], y: [0.5], r: [3], color: RED, label: 'A' })],
+      tip: tooltip({ mode: 'nearest', text: (label, x, y) => `${label} at ${x}, ${y}` }),
+      at: [55, 52],
+      text: 'A at 5, 0.5',
+    },
+    {
+      marks: [line({ x: [0, 5], y: [0.2, 0.8], curve: 'step', color: RED, label: 'S' })],
+      tip: tooltip({ mode: 'x', title: x => `x=${x.toFixed(0)}`, value: y => y.toFixed(1) }),
+      at: [70, 50],
+      text: 'x=7',
+    },
+  ];
+  for (const { marks, tip, at, text } of cases) {
+    const el = host();
+    plot(el, { ...frame, marks, use: [tip] });
+    const root = el.firstElementChild as HTMLElement;
+    const box = root.getBoundingClientRect();
+    const tap = () => touch(root, box.left + at[0]!, box.top + at[1]!);
+    tap();
+    expect(root.innerText).toContain(text);
+    root.dispatchEvent(new PointerEvent('pointercancel', { pointerType: 'touch' }));
+    expect(root.innerText).not.toContain(text);
+    tap();
+    expect(root.innerText).toContain(text);
+    host().dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerType: 'touch' }));
+    expect(root.innerText).not.toContain(text);
+  }
+});
+
 test('dots on WebGL land on the same pixels as on canvas, also after a resize', () => {
   const el = host();
   const n = 30_000;
@@ -449,7 +493,7 @@ test('focus dims the other groups and does not outlive its group or a dim of 1',
   chart.update({ marks: [dot(2, 'A'), dot(8, 'B')] });
   hover(el, 20, 45);
   chart.update({ dim: 1 });
-  root.dispatchEvent(new MouseEvent('mouseleave'));
+  root.dispatchEvent(new PointerEvent('pointerleave', { pointerType: 'mouse' }));
   chart.update({ dim: 0.3 });
   expect(pixel(el, 80, 45)).toEqual([255, 0, 0, 255]);
 });
@@ -464,7 +508,7 @@ test('the x tooltip lists the sample of each line at the pointer', () => {
   const root = hover(el, 70, 50);
   expect(root.innerText).toContain('x=7');
   expect(root.innerText).toContain('S: 0.8');
-  root.dispatchEvent(new MouseEvent('mouseleave'));
+  root.dispatchEvent(new PointerEvent('pointerleave', { pointerType: 'mouse' }));
   expect(root.innerText).not.toContain('x=7');
 });
 
@@ -1595,11 +1639,13 @@ test('the legend lists each labelled group once, makes room above the plot and f
   expect(chart.margin().top).toBe(24);
 
   const second = chart.yPx(0.75);
-  items[0]!.dispatchEvent(new MouseEvent('mousemove', { bubbles: true }));
+  items[0]!.dispatchEvent(new PointerEvent('pointermove', { pointerType: 'mouse', bubbles: true }));
   expect(pixel(el, 150, second)[3]).toBeLessThan(100);
-  items[0]!.firstElementChild!.dispatchEvent(new MouseEvent('mousemove', { bubbles: true }));
+  items[0]!.firstElementChild!.dispatchEvent(
+    new PointerEvent('pointermove', { pointerType: 'mouse', bubbles: true }),
+  );
   expect(pixel(el, 150, second)[3]).toBeLessThan(100);
-  el.firstElementChild!.dispatchEvent(new MouseEvent('mousemove'));
+  el.firstElementChild!.dispatchEvent(new PointerEvent('pointermove', { pointerType: 'mouse' }));
   expect(pixel(el, 150, second)).toEqual([0, 0, 255, 255]);
 });
 
@@ -1793,12 +1839,47 @@ test('the legend lets go of its focus when the hovered entry is taken away, and 
 
   const y = internals.yPx(0.25);
   expect(pixel(el, 150, y)).toEqual([255, 0, 0, 255]);
-  items[1]!.dispatchEvent(new MouseEvent('mousemove', { bubbles: true }));
+  items[1]!.dispatchEvent(new PointerEvent('pointermove', { pointerType: 'mouse', bubbles: true }));
   expect(pixel(el, 150, y)[3]).toBeLessThan(100);
   chart.update({
     marks: [named('a'), line({ x: [0, 10], y: [0.75, 0.75], color: RED, width: 4, group: 'b' })],
   });
   expect(pixel(el, 150, y)).toEqual([255, 0, 0, 255]);
+});
+
+test('a tapped legend entry keeps its series highlighted after the finger lifts, until the page is tapped elsewhere', () => {
+  const el = host();
+  let internals!: Internals;
+  plot(el, {
+    ...frame,
+    width: 300,
+    dim: 0.3,
+    marks: [
+      line({ x: [0, 10], y: [0.25, 0.25], color: RED, width: 4, label: 'aa' }),
+      line({ x: [0, 10], y: [0.75, 0.75], color: RED, width: 4, label: 'bb' }),
+    ],
+    use: [legend(), c => ((internals = c), { destroy() {} })],
+  });
+  const first = [...el.querySelectorAll('span')].find(s => s.children.length)!;
+  const spot = first.getBoundingClientRect();
+  touch(first, spot.left + spot.width / 2, spot.top + spot.height / 2);
+  expect(pixel(el, 150, internals.yPx(0.75))[3]).toBeLessThan(100);
+  expect(pixel(el, 150, internals.yPx(0.25))).toEqual([255, 0, 0, 255]);
+  host().dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerType: 'touch' }));
+  expect(pixel(el, 150, internals.yPx(0.75))).toEqual([255, 0, 0, 255]);
+});
+
+test('destroying a chart removes the document listeners its tooltip and legend added', () => {
+  const add = vi.spyOn(document, 'addEventListener');
+  const remove = vi.spyOn(document, 'removeEventListener');
+  const chart = plot(host(), {
+    ...frame,
+    marks: [line({ x: [0, 10], y: [0.5, 0.5], color: RED, label: 'a' })],
+    use: [legend(), tooltip({ mode: 'nearest', text: label => label })],
+  });
+  expect(add.mock.calls).toHaveLength(2);
+  chart.destroy();
+  expect(remove.mock.calls).toEqual(expect.arrayContaining(add.mock.calls));
 });
 
 test('the legend follows its entries when they move under a pointer at rest', () => {
@@ -1816,7 +1897,9 @@ test('the legend follows its entries when they move under a pointer at rest', ()
   const first = [...el.querySelectorAll('span')].find(s => s.children.length)!;
   const spot = first.getBoundingClientRect();
   const [x, y] = [spot.left + spot.width / 2, spot.top + spot.height / 2];
-  first.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: x, clientY: y }));
+  first.dispatchEvent(
+    new PointerEvent('pointermove', { pointerType: 'mouse', bubbles: true, clientX: x, clientY: y }),
+  );
   expect(pixel(el, 150, internals.yPx(0.75))[3]).toBeLessThan(100);
 
   chart.update({ marks: [b, a] });
@@ -2490,13 +2573,13 @@ test('the legend lists the slices and pointing at one picks it out, also after n
 
   const canvas = el.querySelector('canvas')!;
   const middle = (canvas.height / devicePixelRatio + 24) / 2;
-  items()[1]!.dispatchEvent(new MouseEvent('mousemove', { bubbles: true }));
+  items()[1]!.dispatchEvent(new PointerEvent('pointermove', { pointerType: 'mouse', bubbles: true }));
   expect(pixel(el, 80, middle)).toEqual([0, 0, 255, 255]);
   expect(pixel(el, 220, middle)[3]).toBeLessThan(100);
 
-  el.firstElementChild!.dispatchEvent(new MouseEvent('mousemove'));
+  el.firstElementChild!.dispatchEvent(new PointerEvent('pointermove', { pointerType: 'mouse' }));
   chart.update({ marks: [slices([3, 1])] });
-  items()[0]!.dispatchEvent(new MouseEvent('mousemove', { bubbles: true }));
+  items()[0]!.dispatchEvent(new PointerEvent('pointermove', { pointerType: 'mouse', bubbles: true }));
   expect(pixel(el, 220, middle)).toEqual([255, 0, 0, 255]);
   expect(pixel(el, 80, 60)[3]).toBeLessThan(100);
 });
@@ -2580,12 +2663,12 @@ test('pointing at a slice in the legend picks it out among other series too', ()
   const y = chart.yPx(0.5);
   const [right, left, centre] = [chart.xPx(0.9), chart.xPx(0.1), chart.xPx(0.5)];
 
-  items[1]!.dispatchEvent(new MouseEvent('mousemove', { bubbles: true }));
+  items[1]!.dispatchEvent(new PointerEvent('pointermove', { pointerType: 'mouse', bubbles: true }));
   expect(pixel(el, right, y)).toEqual([255, 0, 0, 255]);
   expect(pixel(el, left, y)[3]).toBeLessThan(100);
   expect(pixel(el, centre, y)[3]).toBeLessThan(100);
 
-  items[0]!.dispatchEvent(new MouseEvent('mousemove', { bubbles: true }));
+  items[0]!.dispatchEvent(new PointerEvent('pointermove', { pointerType: 'mouse', bubbles: true }));
   expect(pixel(el, centre, y)).toEqual([0, 255, 0, 255]);
   expect(pixel(el, right, y)[3]).toBeLessThan(100);
 });
@@ -2636,7 +2719,7 @@ test('the WebGL layer dims with the rest when a slice is picked out, and is swep
   const [x, y] = [chart.xPx(0.5), chart.yPx(0.5)];
   expect(pixel(el, x, y, 1)).toEqual([0, 255, 0, 255]);
   const right = [...el.querySelectorAll('span')].find(s => s.textContent === 'right')!;
-  right.dispatchEvent(new MouseEvent('mousemove', { bubbles: true }));
+  right.dispatchEvent(new PointerEvent('pointermove', { pointerType: 'mouse', bubbles: true }));
   expect(pixel(el, x, y, 1)[3]).toBeLessThan(100);
 });
 

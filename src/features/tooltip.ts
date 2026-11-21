@@ -95,7 +95,7 @@ export function tooltip(t: TooltipOptions): Feature {
       show(px, m.top, rows);
       chart.focus(group);
     };
-    const move = (e: MouseEvent) => {
+    const move = (e: PointerEvent) => {
       // Over another feature's layer, such as a legend, the focus is that feature's to set.
       if (e.target !== root) {
         at = null;
@@ -109,13 +109,26 @@ export function tooltip(t: TooltipOptions): Feature {
       at = null;
       hide();
     };
-    root.addEventListener('mouseleave', leave);
-    root.addEventListener('mousemove', move);
+    // A lifted finger leaves the chart, and a tapped tip is meant to stay until a tap elsewhere.
+    const lift = (e: PointerEvent) => {
+      if (e.pointerType !== 'touch') leave();
+    };
+    const away = (e: PointerEvent) => {
+      if (at && !root.contains(e.target as Node)) leave();
+    };
+    root.addEventListener('pointerdown', move);
+    root.addEventListener('pointermove', move);
+    root.addEventListener('pointerleave', lift);
+    root.addEventListener('pointercancel', leave);
+    document.addEventListener('pointerdown', away);
     return {
       update: place,
       destroy() {
-        root.removeEventListener('mouseleave', leave);
-        root.removeEventListener('mousemove', move);
+        root.removeEventListener('pointerdown', move);
+        root.removeEventListener('pointermove', move);
+        root.removeEventListener('pointerleave', lift);
+        root.removeEventListener('pointercancel', leave);
+        document.removeEventListener('pointerdown', away);
         cross.remove();
         tip.remove();
       },

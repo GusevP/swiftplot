@@ -119,15 +119,24 @@ export function legend(): Feature {
       point(item && shown.get(item));
       return item;
     };
-    const move = (e: MouseEvent) => {
+    const move = (e: PointerEvent) => {
       at = over(e.target as Node) && [e.clientX, e.clientY];
     };
     const leave = () => {
       at = undefined;
       point(undefined);
     };
-    root.addEventListener('mousemove', move, true);
-    root.addEventListener('mouseleave', leave);
+    const lift = (e: PointerEvent) => {
+      if (e.pointerType !== 'touch') leave();
+    };
+    const away = (e: PointerEvent) => {
+      if (!root.contains(e.target as Node)) leave();
+    };
+    root.addEventListener('pointerdown', move, true);
+    root.addEventListener('pointermove', move, true);
+    root.addEventListener('pointerleave', lift);
+    root.addEventListener('pointercancel', leave);
+    document.addEventListener('pointerdown', away);
 
     return {
       // The entries may have moved under a pointer at rest, so what it is over is looked up again.
@@ -135,8 +144,11 @@ export function legend(): Feature {
         if (at && !over(document.elementFromPoint(...at))) at = undefined;
       },
       destroy() {
-        root.removeEventListener('mousemove', move, true);
-        root.removeEventListener('mouseleave', leave);
+        root.removeEventListener('pointerdown', move, true);
+        root.removeEventListener('pointermove', move, true);
+        root.removeEventListener('pointerleave', lift);
+        root.removeEventListener('pointercancel', leave);
+        document.removeEventListener('pointerdown', away);
         box.remove();
       },
     };
