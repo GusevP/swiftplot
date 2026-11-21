@@ -1873,6 +1873,21 @@ test('a tapped legend entry keeps its series highlighted after the finger lifts,
   expect(pixel(el, 150, internals.yPx(0.75))).toEqual([255, 0, 0, 255]);
 });
 
+test('a chart taken out of the page after a legend entry is tapped still updates', () => {
+  const el = host();
+  const chart = plot(el, {
+    ...frame,
+    width: 300,
+    marks: [line({ x: [0, 10], y: [0.25, 0.25], color: RED, label: 'aa' })],
+    use: [legend()],
+  });
+  const first = [...el.querySelectorAll('span')].find(s => s.children.length)!;
+  const spot = first.getBoundingClientRect();
+  touch(first, spot.left + spot.width / 2, spot.top + spot.height / 2);
+  el.remove();
+  expect(() => chart.update({ height: 120 })).not.toThrow();
+});
+
 test.each(['open', 'closed'] as const)(
   'in a %s shadow root a tapped tooltip and legend entry stay after the finger lifts and a resize',
   mode => {
