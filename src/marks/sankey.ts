@@ -1,4 +1,5 @@
-import type { Col, Label, Mark } from '../types.js';
+import { glLayer, program, rgba } from '../gl.js';
+import type { Col, GlLayer, Label, Mark, Prepared, View } from '../types.js';
 
 /**
  * Nodes in columns with a ribbon for each link, as wide as the link's value, for a blank frame.
@@ -10,8 +11,8 @@ import type { Col, Label, Mark } from '../types.js';
  * and a cycle throw.
  * ponytail: a node sits one column after its furthest source, and each column is ordered by one
  * sweep forwards and one back; more sweeps or a relaxation when crossings matter. A pointer move
- * checks the bounds of every link, and painting fills every ribbon: about 0.2 s for 100,000 links.
- * An index, and ribbons drawn by WebGL, when a diagram has that many.
+ * checks the bounds of every link; an index when a diagram has millions. From 1,000 nodes and
+ * links together the diagram is drawn by WebGL, where one is as quick to paint as another.
  */
 export type SankeyOptions = {
   nodes: string[];
@@ -26,6 +27,22 @@ export type SankeyOptions = {
   label?: string;
   group?: string;
 };
+
+// Canvas fills a ribbon at a time, and from about here a hover takes longer than a frame.
+const GL_FROM = 1000;
+const SEGMENTS = 24;
+const programs = new WeakMap<WebGL2RenderingContext, ReturnType<typeof ribbonProgram>>();
+
+// An instance is a ribbon from (e.x, e.z) to (e.y, e.w), h tall, bent as the canvas bezier is. Each
+// pixel is as strong as the share of it the ribbon covers, so a ribbon under a pixel does not break up.
+function ribbonProgram(gl: WebGL2RenderingContext) {
+  const p = program(
+    gl,
+    `layout(location=0) in vec4 e;layout(location=1) in float h;layout(location=2) in vec4 c;layout(location=3) in float s;uniform vec2 size;out vec4 col;out vec2 v;void main(){float t=float(gl_VertexID>>1)/${SEGMENTS}.0;float side=float(gl_VertexID&1)*2.0-1.0;float w=1.0-t;float x=e.x*w*w*w+(e.x+e.y)*1.5*w*t+e.y*t*t*t;float r=h*0.5+0.5;float y=mix(e.z,e.w,t*t*(3.0-2.0*t))+h*0.5+side*r;gl_Position=vec4(x/size.x*2.0-1.0,1.0-y/size.y*2.0,0,1);col=vec4(c.rgb,1)*c.a*s;v=vec2(side*r,h*0.5);}`,
+    'precision highp float;in vec4 col;in vec2 v;out vec4 o;void main(){o=col*clamp(min(v.y,v.x+0.5)-max(-v.y,v.x-0.5),0.0,1.0);}',
+  );
+  return { p, size: gl.getUniformLocation(p, 'size') };
+}
 
 /** The columns sankey() takes, from links that name their ends. Nodes are listed as first met. */
 export function fromLinks(links: { source: string; target: string; value: number }[]) {
@@ -119,6 +136,10 @@ export function sankey(o: SankeyOptions): Mark {
   for (const c of columns) order(c, into, source);
   for (const c of [...columns].reverse()) order(c, outOf, target);
   const shade = (i: number) => colors[i % colors.length] ?? '#888';
+  const holds = new WeakMap<
+    WebGL2RenderingContext,
+    { vao: WebGLVertexArrayObject; buffers: WebGLBuffer[] }
+  >();
   // What lights up with a row: all that flows into it and all that flows out of it, however
   // many nodes away. For a link that is what feeds its source and what its target feeds.
   let lit: { row?: number; rows: Set<number> } = { rows: new Set() };
@@ -143,6 +164,194 @@ export function sankey(o: SankeyOptions): Mark {
     return rows;
   };
 
+  const strength = (k: number, row: number | undefined, rest: number, mine: number) =>
+    alpha * k * (row === undefined || along(row).has(mine) ? 1 : rest);
+  // Where everything sits in a view: what both the canvas and the WebGL painting draw and hit.
+  const lay = ({ ctx, dpr, left, top, width, height }: View) => {
+    // Nodes and the gaps between them give way before they crowd out the flows: a node is at
+    // most half its column's share of the width, and the gaps in the fullest column a third
+    // of the height.
+    const fullest = columns.reduce((most, c) => Math.max(most, c.length), 1);
+    const thick = Math.min(12 * dpr, width / (2 * Math.max(columns.length, 1)));
+    const gap = Math.min(10 * dpr, height / 3 / Math.max(fullest - 1, 1));
+    // One scale for every column: the tightest column decides it.
+    let scale = Infinity;
+    for (const c of columns) {
+      const total = c.reduce((sum, node) => sum + size[node]!, 0);
+      if (total) scale = Math.min(scale, Math.max(0, height - gap * (c.length - 1)) / total);
+    }
+    if (!Number.isFinite(scale)) scale = 0;
+    const step = columns.length > 1 ? (width - thick) / (columns.length - 1) : 0;
+    const [x, y] = [new Float64Array(n), new Float64Array(n)];
+    for (const [k, c] of columns.entries()) {
+      const used = c.reduce((sum, node) => sum + size[node]! * scale, 0) + gap * (c.length - 1);
+      let at = top + (height - used) / 2;
+      for (const node of c) {
+        [x[node], y[node]] = [left + k * step, at];
+        at += size[node]! * scale + gap;
+      }
+    }
+    // A node's links leave and arrive stacked in the order of the nodes at their other end.
+    const [leaves, arrives] = [new Float64Array(n), new Float64Array(n)];
+    const byEnds = Array.from({ length: links }, (_, i) => i).sort(
+      (a, b) => y[source[a]!]! - y[source[b]!]! || y[target[a]!]! - y[target[b]!]! || a - b,
+    );
+    // The top of each link's ribbon where it leaves and where it arrives.
+    const tops = new Float64Array(links * 2);
+    for (const i of byEnds) {
+      const [s, t, h] = [source[i]!, target[i]!, value[i]! * scale];
+      tops.set([y[s]! + leaves[s]!, y[t]! + arrives[t]!], i * 2);
+      leaves[s]! += h;
+      arrives[t]! += h;
+    }
+    const trace = (i: number) => {
+      const [x0, x1, h] = [x[source[i]!]! + thick, x[target[i]!]!, value[i]! * scale];
+      const [y0, y1, bend] = [tops[i * 2]!, tops[i * 2 + 1]!, (x0 + x1) / 2];
+      if (!h) return undefined;
+      const path = new Path2D();
+      path.moveTo(x0, y0);
+      path.bezierCurveTo(bend, y0, bend, y1, x1, y1);
+      path.lineTo(x1, y1 + h);
+      path.bezierCurveTo(bend, y1 + h, bend, y0 + h, x0, y0 + h);
+      path.closePath();
+      return path;
+    };
+    const labels: Label[] = [];
+    for (let i = 0; o.text !== false && i < n; i++) {
+      const last = column[i] === columns.length - 1 && columns.length > 1;
+      labels.push({
+        x: last ? x[i]! - 6 * dpr : x[i]! + thick + 6 * dpr,
+        y: y[i]! + (size[i]! * scale) / 2,
+        text: named(i),
+        align: last ? 'end' : 'start',
+        priority: size[i],
+      });
+    }
+    // A node with any flow keeps a pixel of height, and is drawn and hit as the same rectangle.
+    const tall = (i: number) => (size[i] ? Math.max(size[i]! * scale, 1) : 0);
+    const frac = (px: number, py: number) => ({ x: (px - left) / width, y: 1 - (py - top) / height });
+    // A node before a link; a link the pointer is in before one it is only near. A thin link
+    // answers from 3 px either side, since its true width may be less than a pixel.
+    const hit =
+      (shape: (i: number) => Path2D | undefined): Prepared['hit'] =>
+      (px, py, reach) => {
+        const [hx, hy] = [px * dpr, py * dpr];
+        if (hx < left || hx > left + width || hy < top || hy > top + height) return null;
+        for (let i = n - 1; i >= 0; i--) {
+          if (hx >= x[i]! && hx < x[i]! + thick && hy >= y[i]! && hy < y[i]! + tall(i)) {
+            return {
+              ...frac(x[i]! + thick / 2, y[i]! + (size[i]! * scale) / 2),
+              distance: reach,
+              row: i,
+              color: shade(i),
+            };
+          }
+        }
+        ctx.lineWidth = 6 * dpr;
+        for (const near of [0, 3 * dpr]) {
+          for (let i = links - 1; i >= 0; i--) {
+            // Only a ribbon whose bounds hold the pointer has its shape asked, which costs far more.
+            const [x0, x1, h] = [x[source[i]!]! + thick, x[target[i]!]!, value[i]! * scale];
+            const [y0, y1] = [tops[i * 2]!, tops[i * 2 + 1]!];
+            if (!h || hx < x0 - near || hx > x1 + near) continue;
+            if (hy < Math.min(y0, y1) - near || hy > Math.max(y0, y1) + h + near) continue;
+            const path = shape(i)!;
+            if (!(near ? ctx.isPointInStroke(path, hx, hy) : ctx.isPointInPath(path, hx, hy))) continue;
+            return {
+              ...frac((x0 + x1) / 2, (y0 + y1 + h) / 2),
+              distance: reach,
+              row: n + i,
+              color: shade(source[i]!),
+            };
+          }
+        }
+        return null;
+      };
+    return { x, y, thick, scale, tops, labels, tall, trace, hit };
+  };
+
+  // Every ribbon and node is one instance of a strip whose curve the vertex shader works out,
+  // so a view costs one small upload and a hover one float per instance.
+  const prepareGl = (view: View, { gl }: GlLayer): Prepared => {
+    const { x, y, thick, scale, tops, labels, tall, trace, hit } = lay(view);
+    const u = programs.get(gl) ?? ribbonProgram(gl);
+    programs.set(gl, u);
+    const count = links + n;
+    const place = new Float32Array(count * 5);
+    const tone = new Uint8Array(count * 4);
+    const tones = (colors.length ? colors : ['#888']).map(c =>
+      rgba(view.ctx, c).map(v => Math.round(v * 255)),
+    );
+    for (let i = 0; i < links; i++) {
+      place.set(
+        [x[source[i]!]! + thick, x[target[i]!]!, tops[i * 2]!, tops[i * 2 + 1]!, value[i]! * scale],
+        i * 5,
+      );
+      tone.set(tones[source[i]! % tones.length]!, i * 4);
+    }
+    for (let i = 0; i < n; i++) {
+      place.set([x[i]!, x[i]! + thick, y[i]!, y[i]!, tall(i)], (links + i) * 5);
+      tone.set(tones[i % tones.length]!, (links + i) * 4);
+    }
+    let held = holds.get(gl);
+    if (!held)
+      holds.set(
+        gl,
+        (held = { vao: gl.createVertexArray(), buffers: [0, 1, 2].map(() => gl.createBuffer()) }),
+      );
+    gl.bindVertexArray(held.vao);
+    const column = (
+      at: number,
+      buffer: WebGLBuffer,
+      data: ArrayBufferView,
+      parts: [number, number, number][],
+    ) => {
+      gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+      gl.bufferData(gl.ARRAY_BUFFER, data, gl.DYNAMIC_DRAW);
+      const float = data instanceof Float32Array;
+      const stride = parts.reduce((sum, p) => sum + p[1], 0) * (float ? 4 : 1);
+      for (const [slot, length, offset] of parts) {
+        gl.enableVertexAttribArray(at + slot);
+        gl.vertexAttribPointer(
+          at + slot,
+          length,
+          float ? gl.FLOAT : gl.UNSIGNED_BYTE,
+          !float,
+          stride,
+          offset,
+        );
+        gl.vertexAttribDivisor(at + slot, 1);
+      }
+    };
+    column(0, held.buffers[0]!, place, [
+      [0, 4, 0],
+      [1, 1, 16],
+    ]);
+    column(2, held.buffers[1]!, tone, [[0, 4, 0]]);
+    const strengths = new Float32Array(count);
+    column(3, held.buffers[2]!, strengths, [[0, 1, 0]]);
+    gl.bindVertexArray(null);
+    let drawn = '';
+    return {
+      labels,
+      paint(k, row, rest = 1) {
+        const { vao, buffers } = held;
+        if (drawn !== (drawn = `${k} ${row} ${rest}`)) {
+          for (let i = 0; i < links; i++) strengths[i] = strength(k, row, rest, n + i) * 0.45;
+          for (let i = 0; i < n; i++) strengths[links + i] = strength(k, row, rest, i);
+          gl.bindBuffer(gl.ARRAY_BUFFER, buffers[2]!);
+          gl.bufferSubData(gl.ARRAY_BUFFER, 0, strengths);
+        }
+        gl.useProgram(u.p);
+        gl.uniform2f(u.size, gl.canvas.width, gl.canvas.height);
+        gl.bindVertexArray(vao);
+        gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 2 * (SEGMENTS + 1), count);
+        gl.bindVertexArray(null);
+      },
+      hit: hit(trace),
+    };
+  };
+
   return {
     type: 'sankey',
     key: o.key,
@@ -152,79 +361,18 @@ export function sankey(o: SankeyOptions): Mark {
     options: o,
     points: n + links,
     channels: { x: [], y: [] },
-    prepare({ ctx, dpr, left, top, width, height }) {
-      // Nodes and the gaps between them give way before they crowd out the flows: a node is at
-      // most half its column's share of the width, and the gaps in the fullest column a third
-      // of the height.
-      const fullest = columns.reduce((most, c) => Math.max(most, c.length), 1);
-      const thick = Math.min(12 * dpr, width / (2 * Math.max(columns.length, 1)));
-      const gap = Math.min(10 * dpr, height / 3 / Math.max(fullest - 1, 1));
-      // One scale for every column: the tightest column decides it.
-      let scale = Infinity;
-      for (const c of columns) {
-        const total = c.reduce((sum, node) => sum + size[node]!, 0);
-        if (total) scale = Math.min(scale, Math.max(0, height - gap * (c.length - 1)) / total);
-      }
-      if (!Number.isFinite(scale)) scale = 0;
-      const step = columns.length > 1 ? (width - thick) / (columns.length - 1) : 0;
-      const [x, y] = [new Float64Array(n), new Float64Array(n)];
-      for (const [k, c] of columns.entries()) {
-        const used = c.reduce((sum, node) => sum + size[node]! * scale, 0) + gap * (c.length - 1);
-        let at = top + (height - used) / 2;
-        for (const node of c) {
-          [x[node], y[node]] = [left + k * step, at];
-          at += size[node]! * scale + gap;
-        }
-      }
-      // A node's links leave and arrive stacked in the order of the nodes at their other end.
-      const [leaves, arrives] = [new Float64Array(n), new Float64Array(n)];
-      const byEnds = Array.from({ length: links }, (_, i) => i).sort(
-        (a, b) => y[source[a]!]! - y[source[b]!]! || y[target[a]!]! - y[target[b]!]! || a - b,
-      );
-      const ribbons: (Path2D | undefined)[] = [];
-      const middle = new Float64Array(links * 2);
-      const tops = new Float64Array(links * 2);
-      for (const i of byEnds) {
-        const [s, t, h] = [source[i]!, target[i]!, value[i]! * scale];
-        const [x0, x1] = [x[s]! + thick, x[t]!];
-        const [y0, y1] = [y[s]! + leaves[s]!, y[t]! + arrives[t]!];
-        leaves[s]! += h;
-        arrives[t]! += h;
-        middle.set([(x0 + x1) / 2, (y0 + y1 + h) / 2], i * 2);
-        tops.set([y0, y1], i * 2);
-        if (!h) continue;
-        const bend = (x0 + x1) / 2;
-        const path = new Path2D();
-        path.moveTo(x0, y0);
-        path.bezierCurveTo(bend, y0, bend, y1, x1, y1);
-        path.lineTo(x1, y1 + h);
-        path.bezierCurveTo(bend, y1 + h, bend, y0 + h, x0, y0 + h);
-        path.closePath();
-        ribbons[i] = path;
-      }
-      const labels: Label[] = [];
-      for (let i = 0; o.text !== false && i < n; i++) {
-        const last = column[i] === columns.length - 1 && columns.length > 1;
-        labels.push({
-          x: last ? x[i]! - 6 * dpr : x[i]! + thick + 6 * dpr,
-          y: y[i]! + (size[i]! * scale) / 2,
-          text: named(i),
-          align: last ? 'end' : 'start',
-          priority: size[i],
-        });
-      }
-      // A node with any flow keeps a pixel of height, and is drawn and hit as the same rectangle.
-      const tall = (i: number) => (size[i] ? Math.max(size[i]! * scale, 1) : 0);
-      const strength = (k: number, row: number | undefined, rest: number, mine: number) =>
-        alpha * k * (row === undefined || along(row).has(mine) ? 1 : rest);
-      const frac = (px: number, py: number) => ({ x: (px - left) / width, y: 1 - (py - top) / height });
+    prepare(view) {
+      const { ctx } = view;
+      const { x, y, thick, labels, tall, trace, hit } = lay(view);
+      const ribbons = Array.from({ length: links }, (_, i) => trace(i));
       return {
         labels,
         paint(k, row, rest = 1) {
           ribbons.forEach((path, i) => {
+            if (!path) return;
             ctx.globalAlpha = strength(k, row, rest, n + i) * 0.45;
             ctx.fillStyle = shade(source[i]!);
-            ctx.fill(path!);
+            ctx.fill(path);
           });
           for (let i = 0; i < n; i++) {
             ctx.globalAlpha = strength(k, row, rest, i);
@@ -232,41 +380,16 @@ export function sankey(o: SankeyOptions): Mark {
             ctx.fillRect(x[i]!, y[i]!, thick, tall(i));
           }
         },
-        // A node before a link; a link the pointer is in before one it is only near. A thin link
-        // answers from 3 px either side, since its true width may be less than a pixel.
-        hit(px, py, reach) {
-          const [hx, hy] = [px * dpr, py * dpr];
-          if (hx < left || hx > left + width || hy < top || hy > top + height) return null;
-          for (let i = n - 1; i >= 0; i--) {
-            if (hx >= x[i]! && hx < x[i]! + thick && hy >= y[i]! && hy < y[i]! + tall(i)) {
-              return {
-                ...frac(x[i]! + thick / 2, y[i]! + (size[i]! * scale) / 2),
-                distance: reach,
-                row: i,
-                color: shade(i),
-              };
-            }
-          }
-          ctx.lineWidth = 6 * dpr;
-          for (const near of [0, 3 * dpr]) {
-            for (let i = links - 1; i >= 0; i--) {
-              const path = ribbons[i];
-              // Only a ribbon whose bounds hold the pointer has its shape asked, which costs far more.
-              const [y0, y1] = [tops[i * 2]!, tops[i * 2 + 1]!];
-              if (!path || hx < x[source[i]!]! + thick - near || hx > x[target[i]!]! + near) continue;
-              if (hy < Math.min(y0, y1) - near || hy > Math.max(y0, y1) + value[i]! * scale + near) continue;
-              if (!(near ? ctx.isPointInStroke(path, hx, hy) : ctx.isPointInPath(path, hx, hy))) continue;
-              return {
-                ...frac(middle[i * 2]!, middle[i * 2 + 1]!),
-                distance: reach,
-                row: n + i,
-                color: shade(source[i]!),
-              };
-            }
-          }
-          return null;
-        },
+        hit: hit(i => ribbons[i]),
       };
+    },
+    gl: { layer: glLayer, from: GL_FROM, prepare: prepareGl },
+    release(layer) {
+      const held = layer && holds.get(layer.gl);
+      if (!held) return;
+      layer.gl.deleteVertexArray(held.vao);
+      for (const buffer of held.buffers) layer.gl.deleteBuffer(buffer);
+      holds.delete(layer.gl);
     },
   };
 }

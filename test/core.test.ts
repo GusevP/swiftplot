@@ -3278,3 +3278,33 @@ test('a mark with more shapes than pixels fills a bounded number and still names
     fills.mockRestore();
   }
 });
+
+test('a sankey of thousands of links is drawn by WebGL as it is on the canvas, and dims off the path', () => {
+  const el = host();
+  const spare = Array.from({ length: 2000 }, () => 0);
+  plot(el, {
+    ...blank,
+    dim: 0.2,
+    marks: [
+      sankey({
+        nodes: ['a', 'b', 'c'],
+        source: [0, 0, ...spare],
+        target: [1, 2, ...spare.map(() => 1)],
+        value: [1, 1, ...spare],
+        colors: [RED, BLUE],
+      }),
+    ],
+    use: [tooltip({ mode: 'nearest', text: (_, _x, _y, row) => `row ${row}` })],
+  });
+  expect(pixel(el, 50, 25)).toEqual([0, 0, 0, 0]);
+  const [red, green, blue, strength] = pixel(el, 50, 75, 1);
+  expect([red, green, blue]).toEqual([255, 0, 0]);
+  expect(strength).toBeGreaterThan(105);
+  expect(strength).toBeLessThan(125);
+  expect(pixel(el, 5, 50, 1)).toEqual(RED_PIXEL);
+  expect(pixel(el, 95, 25, 1)).toEqual([0, 0, 255, 255]);
+  expect(labelsOf(el).map(label => label.textContent)).toContain('b');
+  expect(hover(el, 50, 25).innerText).toContain('row 3');
+  expect(pixel(el, 50, 25, 1)[3]).toBeGreaterThan(105);
+  expect(pixel(el, 50, 75, 1)[3]).toBeLessThan(35);
+});

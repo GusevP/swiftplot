@@ -1,4 +1,4 @@
-import { glLayer, program } from '../gl.js';
+import { glLayer, program, rgba } from '../gl.js';
 import type { Col, GlLayer, Mark, Prepared, View } from '../types.js';
 import { base } from './common.js';
 import type { Common } from './common.js';
@@ -20,13 +20,6 @@ function pointProgram(gl: WebGL2RenderingContext) {
   gl.enableVertexAttribArray(a);
   const uniform = (name: string) => gl.getUniformLocation(p, name);
   return { p, a, m: uniform('m'), dpr: uniform('dpr'), color: uniform('color') };
-}
-
-function painted(color: string) {
-  const c = new OffscreenCanvas(1, 1).getContext('2d')!;
-  c.fillStyle = color;
-  c.fillRect(0, 0, 1, 1);
-  return [...c.getImageData(0, 0, 1, 1).data].map(v => v / 255);
 }
 
 export function dots(o: DotsOptions): Mark {
@@ -73,12 +66,7 @@ export function dots(o: DotsOptions): Mark {
       buffers.set(gl, buffer);
     }
     const { ctx, kx, ox, ky, oy, dpr } = view;
-    ctx.fillStyle = color;
-    const css = ctx.fillStyle as string;
-    // An opaque sRGB colour comes back as #rrggbb; anything else is read from a painted pixel, which costs more.
-    const [red, green, blue, opacity = 1] = css.startsWith('#')
-      ? [1, 3, 5].map(i => parseInt(css.slice(i, i + 2), 16) / 255)
-      : painted(color);
+    const [red, green, blue, opacity = 1] = rgba(ctx, color);
     return {
       // The alpha argument is unused: dense points saturate, so the layer's fade() dims a group instead.
       paint() {

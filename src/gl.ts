@@ -44,3 +44,15 @@ export function glLayer(canvas: HTMLCanvasElement): GlLayer | null {
     },
   };
 }
+
+/** A CSS colour as red, green, blue and opacity from 0 to 1. */
+export function rgba(ctx: CanvasRenderingContext2D, color: string) {
+  ctx.fillStyle = color;
+  const css = ctx.fillStyle as string;
+  // An opaque sRGB colour comes back as #rrggbb; anything else is read from a painted pixel, which costs more.
+  if (css.startsWith('#')) return [1, 3, 5].map(i => parseInt(css.slice(i, i + 2), 16) / 255).concat(1);
+  const c = new OffscreenCanvas(1, 1).getContext('2d')!;
+  c.fillStyle = color;
+  c.fillRect(0, 0, 1, 1);
+  return [...c.getImageData(0, 0, 1, 1).data].map(v => v / 255);
+}

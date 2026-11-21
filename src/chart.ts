@@ -16,7 +16,7 @@ import type {
 } from './types.js';
 
 // ponytail: measured crossover is somewhere between 10k and 100k points; tune per device if it matters.
-const GL_FROM = 30_000;
+const GL_FROM = 10_000;
 
 const same = (a: object, b: object) => {
   const keys = Object.keys(a);
@@ -328,7 +328,11 @@ export function plot(el: HTMLElement, options: Options): Chart {
     // A backdrop stays on the canvas: the WebGL layer is dimmed as one when a group is focused.
     const make = makeGl ?? marks.find(k => k.gl && !k.backdrop)?.gl?.layer;
     const onLayer = (k: Mark) => !!k.gl && !k.backdrop && k.gl.layer === make;
-    let useGl = marks.reduce((n, k) => n + (onLayer(k) ? k.points : 0), 0) >= GL_FROM;
+    const from = marks.reduce(
+      (least, k) => (onLayer(k) ? Math.min(least, k.gl!.from ?? least) : least),
+      GL_FROM,
+    );
+    let useGl = marks.reduce((n, k) => n + (onLayer(k) ? k.points : 0), 0) >= from;
     if (useGl && gl === undefined) {
       makeGl = make!;
       glCanvas = layer('canvas', 'left:0;top:0');
