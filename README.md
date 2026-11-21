@@ -24,7 +24,7 @@ chart.destroy();
 ```
 
 - **Marks** are imported functions: `line`, `area`, `bar`, `box`, `errorBars`, `heatmap`, `ticks`, `dots`, `arcs`, `radar`, `radialBars`, `funnel`, `sankey`, `treemap`, `sunburst`. Only the ones you import are bundled.
-- **Lines and areas** are straight between points unless `curve: 'step'` or `curve: 'smooth'`, which curves through the points without overshooting them. `area({ x, y })` fills from zero; `area({ x, y1, y2 })` is a band.
+- **Lines and areas** are straight between points unless `curve: 'step'` or `curve: 'smooth'`, which curves through the points without overshooting them. `area({ x, y })` fills from zero; `area({ x, y1, y2 })` is a band. A `y` that is `NaN` or infinite leaves a gap: nothing is joined across it, and a lone point between two gaps draws nothing. `x` must be finite and ascending.
 - **Bars** have explicit bounds, `bar({ x1, x2, y1, y2 })`, so vertical, horizontal, grouped and stacked bars are the same mark. A single `y` (or `x`) starts at zero. On a category axis `const [x1, x2] = bands(7)` gives the bounds, and `bands(7, { slot: 0, of: 2 })` those of one series of a grouped chart.
 - **Box plots** take the five numbers as columns: `box({ x, ...fiveNumbers(groups), color })`. The whiskers go to the minimum and maximum; leave outliers out and draw them with `dots`.
 - **Heatmaps** are `heatmap({ values, columns, color: sequential({ stops }) })`, with cell (c, r) centred on x = c, y = r so it sits on band axes; `x` and `y` give the grid's outer edges instead. Create the colour scale once, outside the update, or every update repaints the grid.
@@ -47,13 +47,15 @@ chart.destroy();
 - **Accessibility:** the chart is exposed as an image with a label built from the axis labels and series names; set `description` to say what it shows. The data itself is not exposed yet.
 - **Margins** are sized from the tick labels; pass `margin: { left: 80 }` to set a side yourself.
 - **Legend** is a feature you import: `use: [legend()]` lists each labelled series above the plot and highlights it on hover.
-- **Histograms and stacks** are plain functions feeding the marks: `bar({ ...bin(values, 20), color })`, and `stack([a, b, c])` gives each series the `y1` and `y2` of its layer, for `bar` or `area`.
+- **Histograms and stacks** are plain functions feeding the marks: `bar({ ...bin(values, 20), color })`, and `stack([a, b, c])` gives each series the `y1` and `y2` of its layer, for `bar` or `area`. A `NaN` in a layer counts as zero: that layer has no thickness there.
 - **Hover** highlights the series under the pointer and dims the others (`dim`). Where a chart has only one series, the hovered bar is picked out from the other bars instead.
+- **Touch:** a tap shows the tooltip or highlights a legend entry, and it stays after the finger lifts until a tap elsewhere. A pen behaves as a mouse. The chart adds no listener that blocks the page from scrolling.
 - **Animation** is a feature you import: `use: [animate({ duration: 300 })]`. Marks are revealed from the left on the first paint (`enter: 'fade'` fades them in instead). When the data changes, bars move to their new values, row for row, and everything else cross-fades. It is skipped for a resize, with reduced motion, and while updates arrive faster than the duration.
 - **Axes** are linear by default: `{ domain: 'nice' | 'data' | [lo, hi], label }`. `time({ label })` takes millisecond timestamps and puts ticks on calendar boundaries, in UTC unless `utc: false`. `band({ label, categories })` puts category `i` at `x = i`, owning `i - 0.5` to `i + 0.5`.
 - **Columns** (`x`, `y`, `r`) are typed arrays or plain number arrays, one set per mark.
-- **Size**: leave out `width` or `height` and the chart follows its container, which must then have a size of its own (a container with no height gives an empty chart).
+- **Size**: leave out `width` or `height` and the chart follows its container, which must then have a size of its own (a container with no height gives an empty chart, which draws once the container gets a height).
 - **Updates**: a mark whose options are unchanged keeps its geometry, so passing a fresh `marks` array is cheap. Columns are compared by identity: after writing new values into the same array, pass a new array or view of it (`x.subarray(0)`).
+- **Without a DOM:** the package imports in Node, and marks and transforms such as `bin` and `stack` run there; `plot()` needs a browser.
 - **Your own mark** is an object with the `Mark` shape from the package's types.
 
 ## Why it is fast
@@ -64,7 +66,7 @@ Each point comes from profiling uPlot, the fastest of thirteen libraries in [cha
 - **Each mark has its own x column.** No aligned table, so no join step.
 - **Step lines and bands are reduced to one min/max per pixel column** before the path is built.
 - **Typed-array columns in, scale maths inlined** in the draw loops.
-- **Scatter, bars, error bars and box plots switch to WebGL2 at 10,000 points, and a sankey at 1,000 nodes and links together.** Raw WebGL2 set-up cost about 5 ms; Canvas 2D wins or ties below roughly 10k points.
+- **Scatter, bars, error bars and box plots switch to WebGL2 at 10,000 points, and a sankey at 1,000 nodes and links together.** Raw WebGL2 set-up cost about 5 ms; Canvas 2D wins or ties below roughly 10k points. When the browser takes a WebGL context away, as it does with many WebGL charts on one page, that chart falls back to Canvas 2D.
 - **Paths and GPU buffers are kept,** so a hover repaint never touches the data again.
 
 ## Measured
@@ -102,6 +104,7 @@ Time until the chart's own code has finished, which leaves out the wait for the 
 pnpm install
 pnpm exec playwright install chromium   # once, for the tests
 pnpm build
+pnpm test:import # imports the built dist/ in Node, after pnpm build
 pnpm test        # Vitest in a real browser
 pnpm typecheck
 pnpm lint        # oxlint, type-aware
