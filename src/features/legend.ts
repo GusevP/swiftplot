@@ -119,9 +119,7 @@ export function legend(): Feature {
       point(item && shown.get(item));
       return item;
     };
-    let seen: Event | undefined;
     const move = (e: PointerEvent) => {
-      seen = e;
       at = over(e.target as Node) && [e.clientX, e.clientY];
     };
     const leave = () => {
@@ -131,26 +129,24 @@ export function legend(): Feature {
     const lift = (e: PointerEvent) => {
       if (e.pointerType !== 'touch') leave();
     };
-    const away = (e: PointerEvent) => {
-      if (e !== seen) leave();
-    };
     root.addEventListener('pointerdown', move, true);
     root.addEventListener('pointermove', move, true);
     root.addEventListener('pointerleave', lift);
     root.addEventListener('pointercancel', leave);
-    document.addEventListener('pointerdown', away);
+    document.addEventListener('pointerdown', leave, true);
 
     return {
       // The entries may have moved under a pointer at rest, so what it is over is looked up again.
       update() {
-        if (at && !over(document.elementFromPoint(...at))) at = undefined;
+        if (at && !over((root.getRootNode() as Document | ShadowRoot).elementFromPoint(...at)))
+          at = undefined;
       },
       destroy() {
         root.removeEventListener('pointerdown', move, true);
         root.removeEventListener('pointermove', move, true);
         root.removeEventListener('pointerleave', lift);
         root.removeEventListener('pointercancel', leave);
-        document.removeEventListener('pointerdown', away);
+        document.removeEventListener('pointerdown', leave, true);
         box.remove();
       },
     };

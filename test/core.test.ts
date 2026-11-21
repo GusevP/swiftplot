@@ -401,7 +401,9 @@ test('a tapped tooltip stays after the finger lifts, until the touch is cancelle
     expect(root.innerText).not.toContain(text);
     tap();
     expect(root.innerText).toContain(text);
-    host().dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerType: 'touch' }));
+    const control = host();
+    control.addEventListener('pointerdown', e => e.stopPropagation());
+    control.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerType: 'touch' }));
     expect(root.innerText).not.toContain(text);
   }
 });
@@ -1865,16 +1867,18 @@ test('a tapped legend entry keeps its series highlighted after the finger lifts,
   touch(first, spot.left + spot.width / 2, spot.top + spot.height / 2);
   expect(pixel(el, 150, internals.yPx(0.75))[3]).toBeLessThan(100);
   expect(pixel(el, 150, internals.yPx(0.25))).toEqual([255, 0, 0, 255]);
-  host().dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerType: 'touch' }));
+  const control = host();
+  control.addEventListener('pointerdown', e => e.stopPropagation());
+  control.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerType: 'touch' }));
   expect(pixel(el, 150, internals.yPx(0.75))).toEqual([255, 0, 0, 255]);
 });
 
 test.each(['open', 'closed'] as const)(
-  'in a %s shadow root a tapped tooltip and legend entry stay after the finger lifts',
+  'in a %s shadow root a tapped tooltip and legend entry stay after the finger lifts and a resize',
   mode => {
     const el = host().attachShadow({ mode }).appendChild(document.createElement('div'));
     let internals!: Internals;
-    plot(el, {
+    const chart = plot(el, {
       ...frame,
       width: 300,
       dim: 0.3,
@@ -1895,6 +1899,8 @@ test.each(['open', 'closed'] as const)(
     const entry = [...el.querySelectorAll('span')].find(s => s.children.length)!;
     const spot = entry.getBoundingClientRect();
     touch(entry, spot.left + spot.width / 2, spot.top + spot.height / 2);
+    expect(pixel(el, 150, internals.yPx(0.25))[3]).toBeLessThan(100);
+    chart.update({ height: 120 });
     expect(pixel(el, 150, internals.yPx(0.25))[3]).toBeLessThan(100);
   },
 );

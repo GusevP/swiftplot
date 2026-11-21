@@ -95,9 +95,7 @@ export function tooltip(t: TooltipOptions): Feature {
       show(px, m.top, rows);
       chart.focus(group);
     };
-    let seen: Event | undefined;
     const move = (e: PointerEvent) => {
-      seen = e;
       // Over another feature's layer, such as a legend, the focus is that feature's to set.
       if (e.target !== root) {
         at = null;
@@ -115,14 +113,15 @@ export function tooltip(t: TooltipOptions): Feature {
     const lift = (e: PointerEvent) => {
       if (e.pointerType !== 'touch') leave();
     };
-    const away = (e: PointerEvent) => {
-      if (at && e !== seen) leave();
+    // Capturing, so a control that stops the tap still dismisses, and a tap on the chart sets its own state after.
+    const away = () => {
+      if (at) leave();
     };
     root.addEventListener('pointerdown', move);
     root.addEventListener('pointermove', move);
     root.addEventListener('pointerleave', lift);
     root.addEventListener('pointercancel', leave);
-    document.addEventListener('pointerdown', away);
+    document.addEventListener('pointerdown', away, true);
     return {
       update: place,
       destroy() {
@@ -130,7 +129,7 @@ export function tooltip(t: TooltipOptions): Feature {
         root.removeEventListener('pointermove', move);
         root.removeEventListener('pointerleave', lift);
         root.removeEventListener('pointercancel', leave);
-        document.removeEventListener('pointerdown', away);
+        document.removeEventListener('pointerdown', away, true);
         cross.remove();
         tip.remove();
       },
