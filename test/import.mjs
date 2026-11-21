@@ -1,10 +1,14 @@
 // Runs in Node, which has no DOM, against the built library that ships.
+import { deepStrictEqual } from 'node:assert/strict';
 import * as lib from '../dist/index.js';
 
 const failures = [];
 const check = (what, actual, expected) => {
-  const [a, e] = [JSON.stringify(actual), JSON.stringify(expected)];
-  if (a !== e) failures.push(`${what}: got ${a}, expected ${e}`);
+  try {
+    deepStrictEqual(actual, expected);
+  } catch (e) {
+    failures.push(`${what}: ${e.message}`);
+  }
 };
 
 check(
@@ -82,19 +86,15 @@ const flows = lib.fromLinks([
 ]);
 check('fromLinks', flows, { nodes: ['a', 'b', 'c'], source: [0, 1], target: [1, 2], value: [2, 1] });
 
-const [x, y, colors] = [
-  [0, 1, 2],
-  [1, 3, 2],
-  ['#e15759', '#4e79a7'],
-];
+const [x, y, colors, color] = [[0, 1, 2], [1, 3, 2], ['#e15759', '#4e79a7'], '#4e79a7'];
 const marks = [
-  lib.line({ x, y, fill: lib.gradient(0.4, 0) }),
-  lib.area({ x, ...low }),
-  lib.bar({ ...binned }),
-  lib.dots({ x, y, r: [2, 3, 4] }),
-  lib.ticks({ x, y, size: 4 }),
-  lib.errorBars({ x, y1: low.y1, y2: low.y2 }),
-  lib.box({ x: [0], ...stats }),
+  lib.line({ x, y, color, fill: lib.gradient(0.4, 0) }),
+  lib.area({ x: [0, 1], ...low, color }),
+  lib.bar({ ...binned, color }),
+  lib.dots({ x, y, color, r: [2, 3, 4] }),
+  lib.ticks({ x, y, color, size: 4 }),
+  lib.errorBars({ x: [0, 1], y1: low.y1, y2: low.y2, color }),
+  lib.box({ x: [0], ...stats, color }),
   lib.heatmap({ values: [1, 2, 3, 4], columns: 2 }),
   lib.arcs({ values: [1, 2], colors }),
   lib.funnel({ values: [3, 1], colors }),
