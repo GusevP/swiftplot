@@ -185,6 +185,83 @@ test('a chart in a container with no height stays empty, and draws once the cont
   expect(pixel(el, 150, 100)).toEqual([255, 0, 0, 255]);
 });
 
+test('a chart created inside display: none draws once its container is shown', async () => {
+  const el = host();
+  el.style.cssText = 'display:none;width:300px;height:200px';
+  const { width: _w, height: _h, ...rest } = frame;
+  let chart!: Internals;
+  plot(el, { ...rest, margin: undefined, marks: [flat(0.5)], use: [c => ((chart = c), { destroy() {} })] });
+  const root = el.firstElementChild as HTMLElement;
+  expect(el.querySelector('canvas')!.width).toBe(0);
+  expect(root.style.visibility).toBe('hidden');
+  el.style.display = '';
+  await expect.poll(() => root.style.visibility).toBe('');
+  expect(pixel(el, Math.round(chart.xPx(5)), Math.round(chart.yPx(0.5)))).toEqual([255, 0, 0, 255]);
+  expect([...root.children[1]!.children].map(d => d.textContent)).toContain('10');
+});
+
+test('a chart hidden and shown again keeps its marks, labels and tooltip', async () => {
+  const el = host();
+  el.style.cssText = 'width:300px;height:200px';
+  const { width: _w, height: _h, ...rest } = frame;
+  let chart!: Internals;
+  plot(el, {
+    ...rest,
+    margin: undefined,
+    marks: [flat(0.25), dots({ x: [5], y: [0.5], r: [3], color: RED, label: 'A' })],
+    use: [tooltip({ mode: 'nearest', text: label => `tip ${label}` }), c => ((chart = c), { destroy() {} })],
+  });
+  const canvas = el.querySelector('canvas')!;
+  const ticks = el.firstElementChild!.children[1]!;
+  const labels = () => [...ticks.children].map(d => [d.textContent, (d as HTMLElement).style.cssText]);
+  const [x, line, dot] = [chart.xPx(5), chart.yPx(0.25), chart.yPx(0.5)].map(Math.round) as [
+    number,
+    number,
+    number,
+  ];
+  const before = labels();
+  expect(before.map(([text]) => text)).toContain('10');
+  expect(pixel(el, x, line)).toEqual([255, 0, 0, 255]);
+
+  el.style.display = 'none';
+  await expect.poll(() => canvas.width).toBe(0);
+  el.style.display = '';
+  await expect.poll(() => canvas.width).toBeGreaterThan(0);
+  expect(pixel(el, x, line)).toEqual([255, 0, 0, 255]);
+  expect(pixel(el, x, dot)).toEqual([255, 0, 0, 255]);
+  expect(labels()).toEqual(before);
+  expect(hover(el, x, dot).innerText).toContain('tip A');
+});
+
+test('a chart with no room for its tick labels is hidden and draws nothing, and draws once enlarged', () => {
+  const long = 'a very long tick label';
+  const el = host();
+  let chart!: Internals;
+  const c = plot(el, {
+    ...frame,
+    width: 40,
+    height: 40,
+    margin: undefined,
+    marks: [flat(0.5)],
+    y: { domain: [0, 1], label: '', scale: () => ({ lo: 0, hi: 1, ticks: [{ value: 0.5, label: long }] }) },
+    use: [c => ((chart = c), { destroy() {} })],
+  });
+  const root = el.firstElementChild as HTMLElement;
+  const canvas = el.querySelector('canvas')!;
+  expect(chart.margin().left + chart.margin().right).toBeGreaterThanOrEqual(40);
+  expect(root.style.visibility).toBe('hidden');
+  expect(
+    canvas
+      .getContext('2d')!
+      .getImageData(0, 0, canvas.width, canvas.height)
+      .data.every(v => v === 0),
+  ).toBe(true);
+
+  c.update({ width: 400, height: 300 });
+  expect(root.style.visibility).toBe('');
+  expect(pixel(el, Math.round(chart.xPx(5)), Math.round(chart.yPx(0.5)))).toEqual([255, 0, 0, 255]);
+});
+
 test('at a fractional pixel density the canvas is rounded, not truncated, to whole device pixels', () => {
   const was = devicePixelRatio;
   try {
