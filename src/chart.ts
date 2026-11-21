@@ -70,6 +70,8 @@ export function plot(el: HTMLElement, options: Options): Chart {
   let cache = new Map<Mark, { p: Prepared; gl: boolean }>();
   let flat: [Mark, Prepared][] = [];
   let onGl: [Mark, Prepared][] = [];
+  // What holds buffers on the layer: a mark keeps them while hidden or moved to the canvas, until released.
+  const placed = new Set<Mark>();
   let focused: string | null = null;
   let m: Margin = { top: 0, right: 0, bottom: 0, left: 0 };
   let above: Parameters<Internals['reserve']>[0] | undefined;
@@ -330,7 +332,8 @@ export function plot(el: HTMLElement, options: Options): Chart {
   // The browser takes a context away when too many are open, so a lost layer gives its marks back to the canvas.
   const dropLost = () => {
     if (!gl?.gl.isContextLost()) return false;
-    for (const k of new Set(onGl.map(([k]) => k))) k.release?.(gl);
+    for (const k of placed) k.release?.(gl);
+    placed.clear();
     gl.destroy();
     gl = null;
     return true;
@@ -382,6 +385,7 @@ export function plot(el: HTMLElement, options: Options): Chart {
       const changed = !e;
       if (!e || viewChanged || e.gl !== g) {
         e = { p: g ? k.gl!.prepare(view, gl!) : k.prepare(view, replaced.get(k)), gl: g };
+        if (g) placed.add(k);
       }
       if (changed && e.p.morph && replaced.has(k)) morphs.push(e.p);
       else if (changed) all = false;
@@ -609,6 +613,7 @@ export function plot(el: HTMLElement, options: Options): Chart {
           settle();
           cache.delete(k);
           k.release?.(gl ?? null);
+          placed.delete(k);
         }
       }
       // The focused row follows its mark into the mark that replaced it, so a pointer at rest

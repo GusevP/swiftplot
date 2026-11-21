@@ -406,11 +406,93 @@ test('a tapped tooltip stays after the finger lifts, until the touch is cancelle
     expect(root.innerText).toContain(text);
     chart.update({ width: 200 });
     expect(root.innerText).toContain(text);
+    chart.update({ height: 40 });
+    expect(root.innerText).toContain(text);
     const control = host();
     control.addEventListener('pointerdown', e => e.stopPropagation());
     control.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerType: 'touch' }));
     expect(root.innerText).not.toContain(text);
   }
+});
+
+test('a tapped tooltip follows its datum when the shape of the plot changes', () => {
+  const cases = [
+    {
+      options: {
+        ...pie,
+        marks: [arcs({ values: [1, 1], colors: [RED, BLUE], labels: ['right', 'left'] })],
+      },
+      at: [80, 50],
+      change: { width: 300 },
+    },
+    {
+      options: {
+        ...frame,
+        y: { domain: [-1, 1], label: '' },
+        marks: [bar({ x1: [4], x2: [6], y: [-0.5], color: RED, label: 'right' })],
+      },
+      at: [50, 60],
+      change: { width: 200 },
+    },
+  ] satisfies { options: Options; at: number[]; change: Partial<Options> }[];
+  for (const { options, at, change } of cases) {
+    const el = host();
+    const chart = plot(el, {
+      ...options,
+      use: [tooltip({ mode: 'nearest', text: label => `tip ${label}` })],
+    });
+    const root = el.firstElementChild as HTMLElement;
+    const box = root.getBoundingClientRect();
+    touch(root, box.left + at[0]!, box.top + at[1]!);
+    expect(root.innerText).toContain('tip right');
+    chart.update(change);
+    expect(root.innerText).toContain('tip right');
+  }
+});
+
+test('a tapped x tooltip keeps the line it focused when the y domain changes', () => {
+  const el = host();
+  let internals!: Internals;
+  const chart = plot(el, {
+    ...frame,
+    dim: 0.3,
+    marks: [
+      line({ x: [0, 10], y: [0.25, 0.25], color: RED, width: 4, label: 'aa' }),
+      line({ x: [0, 10], y: [0.75, 0.75], color: RED, width: 4, label: 'bb' }),
+    ],
+    use: [
+      tooltip({ mode: 'x', title: x => `x=${x.toFixed(0)}`, value: y => y.toFixed(1) }),
+      c => ((internals = c), { destroy() {} }),
+    ],
+  });
+  const root = el.firstElementChild as HTMLElement;
+  const box = root.getBoundingClientRect();
+  touch(root, box.left + 30, box.top + internals.yPx(0.75));
+  expect(pixel(el, 50, internals.yPx(0.25))[3]).toBeLessThan(100);
+  chart.update({ y: { domain: [0, 2], label: '' } });
+  expect(root.innerText).toContain('x=3');
+  expect(pixel(el, 50, internals.yPx(0.25))[3]).toBeLessThan(100);
+  expect(pixel(el, 50, internals.yPx(0.75))).toEqual([255, 0, 0, 255]);
+});
+
+test('a tapped tooltip lets go when its datum is gone, and does not come back for another', () => {
+  const tip = tooltip({ mode: 'nearest', text: (label, x) => `${label} at ${x}` });
+  const dot = (x: number[], label = 'A') =>
+    dots({ x, y: x.map(() => 0.5), r: x.map(() => 3), color: RED, label });
+  const el = host();
+  const chart = plot(el, { ...frame, marks: [dot([5, 5.1])], use: [tip] });
+  const root = el.firstElementChild as HTMLElement;
+  const box = root.getBoundingClientRect();
+  touch(root, box.left + 50, box.top + 50);
+  expect(root.innerText).toContain('A at 5');
+  chart.update({ marks: [dot([5.1])] });
+  expect(root.innerText).not.toContain('A at');
+  chart.update({ marks: [dot([5, 5.1])] });
+  expect(root.innerText).not.toContain('A at');
+  touch(root, box.left + 50, box.top + 50);
+  chart.update({ marks: [] });
+  chart.update({ marks: [dot([5], 'B')] });
+  expect(root.innerText).not.toContain('B at');
 });
 
 test('dots on WebGL land on the same pixels as on canvas, also after a resize', () => {
@@ -570,6 +652,23 @@ test('a lost WebGL context releases only the marks that were on it, each once', 
   expect(released).toEqual(['piled']);
   chart.destroy();
   expect(released).toEqual(['piled', 'piled', 'kept']);
+});
+
+test('a lost WebGL context releases the marks that hold buffers on it, also when they are not drawn there', async () => {
+  for (const hidden of [true, false]) {
+    const released: string[] = [];
+    const piled = pile(30_000);
+    const free = piled.release!.bind(piled);
+    piled.release = layer => (released.push(layer ? 'layer' : 'none'), free(layer));
+    const el = host();
+    const chart = plot(el, { ...frame, marks: [piled] });
+    const { lost, lose } = losing(el);
+    if (hidden) chart.update({ width: 0 });
+    lose();
+    if (!hidden) chart.update({ marks: [] });
+    await lost;
+    expect(released).toEqual(['layer']);
+  }
 });
 
 test('a paint after a WebGL context is lost and before the event arrives draws on the canvas', async () => {
@@ -2055,6 +2154,26 @@ test('a tapped legend entry keeps its series highlighted after the finger lifts,
   expect(pixel(el, 150, internals.yPx(0.75))).toEqual([255, 0, 0, 255]);
 });
 
+test('a tapped legend entry lets go when its slice is taken away, and does not pass to the next', () => {
+  const el = host();
+  let internals!: Internals;
+  const slices = (labels: string[], colors: string[]) =>
+    arcs({ values: labels.map(() => 1), colors, labels });
+  const chart = plot(el, {
+    ...pie,
+    dim: 0.3,
+    marks: [slices(['A', 'B', 'C'], [RED, BLUE, GREEN])],
+    use: [legend(), c => ((internals = c), { destroy() {} })],
+  });
+  const b = [...el.querySelectorAll('span')].find(s => s.textContent === 'B')!;
+  const spot = b.getBoundingClientRect();
+  touch(b, spot.left + spot.width / 2, spot.top + spot.height / 2);
+  const right = () => pixel(el, internals.xPx(0.75), internals.yPx(0.5));
+  expect(right()[3]).toBeLessThan(255);
+  chart.update({ marks: [slices(['A', 'C'], [RED, GREEN])] });
+  expect(right()).toEqual([255, 0, 0, 255]);
+});
+
 test('a pen lifted off the chart leaves no tooltip or legend highlight behind', () => {
   const el = host();
   let internals!: Internals;
@@ -2902,6 +3021,21 @@ test('a tooltip with text wider than the chart wraps inside it at either edge, e
     expect(tip.bottom).toBeLessThanOrEqual(box.bottom);
     expect(row.scrollWidth).toBeLessThanOrEqual(row.clientWidth);
   }
+});
+
+test('a tooltip taller than the chart is cut off at its bottom', () => {
+  const el = host();
+  plot(el, {
+    ...frame,
+    marks: Array.from({ length: 12 }, (_, i) =>
+      line({ x: [0, 10], y: [i / 12, i / 12], color: RED, label: `series ${i}` }),
+    ),
+    use: [tooltip({ mode: 'x', title: x => `x=${x.toFixed(0)}`, value: y => y.toFixed(1) })],
+  });
+  const box = hover(el, 50, 50).getBoundingClientRect();
+  const tip = textOf(el, 'x=5').parentElement!.getBoundingClientRect();
+  expect(tip.top).toBeGreaterThanOrEqual(box.top);
+  expect(tip.bottom).toBeLessThanOrEqual(box.bottom);
 });
 
 test('the x tooltip samples each line at its own x, and gives a dash where a line has no sample', () => {

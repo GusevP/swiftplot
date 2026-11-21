@@ -106,7 +106,7 @@ export function legend(): Feature {
 
     // The mark is looked up when pointed at: after an update that kept the entries as they were,
     // the list is not rebuilt, but the mark at that place is a new one.
-    const idOf = (e: Entry) => JSON.stringify([e.group, e.part]);
+    const idOf = (e: Entry) => JSON.stringify([e.group, e.part, e.label]);
     const point = (e: Entry | undefined) => {
       const id = e && idOf(e);
       if (id === hovered) return;
