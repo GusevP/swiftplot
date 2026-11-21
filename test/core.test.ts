@@ -13,6 +13,7 @@ import {
   errorBars,
   fiveNumbers,
   fromLinks,
+  fromTree,
   funnel,
   heatmap,
   legend,
@@ -23,8 +24,10 @@ import {
   sankey,
   sequential,
   stack,
+  sunburst,
   time,
   tooltip,
+  treemap,
 } from '../src/index.js';
 import type { Axis, Internals, Mark, Options } from '../src/index.js';
 import { columns } from '../src/marks/common.js';
@@ -2886,4 +2889,269 @@ test('a sankey path does not pass through a link that carries nothing', () => {
   chart.focus(null, { mark: chart.marks()[0]!, row: chart.hit(...start, 0)!.row! });
   expect(pixel(el, ...first)[3]).toBe(before[0]);
   expect(pixel(el, ...last)[3]).toBeLessThan(before[1]!);
+});
+
+const twigs = fromTree([
+  {
+    name: 'A',
+    value: 99,
+    children: [
+      { name: 'a1', value: 2 },
+      { name: 'a2', value: 2 },
+    ],
+  },
+  { name: 'B', value: 4 },
+]);
+const rowOf = tooltip({ mode: 'nearest', text: (_l, _x, _y, row) => `row ${row}` });
+
+test('a tree is given in columns, keeps nodes of one name apart and refuses what is not a tree', () => {
+  expect(twigs).toEqual({ nodes: ['A', 'a1', 'a2', 'B'], parent: [-1, 0, 0, -1], value: [99, 2, 2, 4] });
+  const others = fromTree({
+    name: 'All',
+    children: ['X', 'Y'].map(name => ({ name, children: [{ name: 'Other', value: 1 }] })),
+  });
+  expect(others.nodes).toEqual(['All', 'X', 'Other', 'Y', 'Other']);
+  expect(others.parent).toEqual([-1, 0, 1, 0, 3]);
+
+  const nodes = ['A', 'B', 'C'];
+  for (const mark of [treemap, sunburst]) {
+    expect(() => mark({ nodes, parent: [-1, 5, 0], value: [1, 1, 1], colors: [RED] })).toThrow(
+      /B has parent 5/,
+    );
+    expect(() => mark({ nodes, parent: [-1, 0.5, 0], value: [1, 1, 1], colors: [RED] })).toThrow(
+      /B has parent 0.5/,
+    );
+    expect(() => mark({ nodes, parent: [-1, 1, 0], value: [1, 1, 1], colors: [RED] })).toThrow(
+      /B is its own parent/,
+    );
+    expect(() => mark({ nodes, parent: [-1, 2, 1], value: [1, 1, 1], colors: [RED] })).toThrow(
+      /circle through (B, C|C, B)$/,
+    );
+    for (const frameOf of [blank, pie]) {
+      expect(() =>
+        plot(host(), { ...frameOf, marks: [mark({ nodes: [], parent: [], value: [], colors: [] })] }),
+      ).not.toThrow();
+      expect(() =>
+        plot(host(), {
+          ...frameOf,
+          marks: [mark({ nodes, parent: [-1, 0, 0], value: [1, NaN, -Infinity], colors: [RED] })],
+        }),
+      ).not.toThrow();
+    }
+    // A chain 10,000 deep: nothing may recurse per level.
+    const deep = Array.from({ length: 10_000 }, (_, i) => i);
+    const chain = {
+      nodes: deep.map(String),
+      parent: deep.map(i => i - 1),
+      value: deep.map(() => 1),
+      colors: [RED],
+    };
+    expect(() => plot(host(), { ...blank, marks: [mark(chain)] })).not.toThrow();
+  }
+});
+
+test('a treemap packs leaves inside their parents, by value, and is hit where it is painted', () => {
+  const el = host();
+  let chart!: Internals;
+  plot(el, {
+    ...blank,
+    dim: 0.2,
+    marks: [treemap({ ...twigs, colors: [RED, BLUE] })],
+    use: [rowOf, c => ((chart = c), { destroy() {} })],
+  });
+  // A's own 99 is ignored, so A and B are halves: A above with a pixel round its two leaves,
+  // which meet at x = 50, and B below from y = 50. Every leaf loses half a pixel all round.
+  expect(pixel(el, 25, 25)).toEqual(RED_PIXEL);
+  expect(pixel(el, 75, 25)).toEqual(RED_PIXEL);
+  expect(pixel(el, 50, 75)).toEqual([0, 0, 255, 255]);
+  expect(pixel(el, 25, 49)[3]).toBe(0);
+  expect(pixel(el, 25, 0)[3]).toBe(0);
+  expect(pixel(el, 25, 2)).toEqual(RED_PIXEL);
+  expect(pixel(el, 25, 47)).toEqual(RED_PIXEL);
+  expect(pixel(el, 25, 51)).toEqual([0, 0, 255, 255]);
+  expect(chart.hit(48, 25, 0)!.row).toBe(1);
+  expect(chart.hit(50, 25, 0)).toBeNull();
+  expect(chart.hit(52, 25, 0)!.row).toBe(2);
+  expect(chart.hit(25, 48, 0)!.row).toBe(1);
+  expect(chart.hit(25, 49.5, 0)).toBeNull();
+  expect(chart.hit(25, 51, 0)!.row).toBe(3);
+  expect(
+    labelsOf(el)
+      .map(d => d.textContent)
+      .sort(),
+  ).toEqual(['B', 'a1', 'a2']);
+
+  expect(hover(el, 25, 25).innerText).toContain('row 1');
+  expect(pixel(el, 25, 25)).toEqual(RED_PIXEL);
+  expect(pixel(el, 75, 25)[3]).toBeLessThan(80);
+  expect(pixel(el, 50, 75)[3]).toBeLessThan(80);
+
+  // Four equal leaves in a square are its four quarters.
+  const four = host();
+  plot(four, {
+    ...blank,
+    marks: [
+      treemap({
+        nodes: ['a', 'b', 'c', 'd'],
+        parent: [-1, -1, -1, -1],
+        value: [1, 1, 1, 1],
+        colors: [RED, BLUE],
+      }),
+    ],
+    use: [c => ((chart = c), { destroy() {} })],
+  });
+  expect(
+    [
+      chart.hit(25, 25, 0)!.row,
+      chart.hit(25, 75, 0)!.row,
+      chart.hit(75, 25, 0)!.row,
+      chart.hit(75, 75, 0)!.row,
+    ].sort((a, b) => a! - b!),
+  ).toEqual([0, 1, 2, 3]);
+});
+
+test('a sunburst rings children round their parents, and is hit where it is painted', () => {
+  const el = host();
+  let chart!: Internals;
+  plot(el, {
+    ...pie,
+    width: 200,
+    height: 200,
+    dim: 0.2,
+    marks: [sunburst({ ...twigs, colors: [RED, BLUE] })],
+    use: [rowOf, c => ((chart = c), { destroy() {} })],
+  });
+  // Two rings of 50 px. A is the right half of the inner one and B the left; a1 and a2 are the
+  // upper and lower right quarters of the outer one, and nothing is outside B.
+  expect(pixel(el, 125, 100)).toEqual(RED_PIXEL);
+  expect(pixel(el, 75, 100)).toEqual([0, 0, 255, 255]);
+  const outer = pixel(el, 153, 47);
+  expect(outer[0]).toBe(255);
+  expect(outer[3]).toBeGreaterThan(150);
+  expect(outer[3]).toBeLessThan(210);
+  expect(pixel(el, 25, 100)[3]).toBe(0);
+  expect(chart.hit(125, 100, 0)!.row).toBe(0);
+  expect(chart.hit(75, 100, 0)!.row).toBe(3);
+  expect(chart.hit(25, 100, 0)).toBeNull();
+  expect(chart.hit(5, 5, 0)).toBeNull();
+  expect(chart.hit(175, 98, 0)!.row).toBe(1);
+  expect(chart.hit(175, 100, 0)).toBeNull();
+  expect(chart.hit(175, 102, 0)!.row).toBe(2);
+  // Either side of the 50 px ring edge, 45 degrees round: 48 px out and 54 px out.
+  expect(chart.hit(134, 66, 0)!.row).toBe(0);
+  expect(chart.hit(138, 62, 0)!.row).toBe(1);
+  expect(
+    labelsOf(el)
+      .map(d => d.textContent)
+      .sort(),
+  ).toEqual(['A', 'B', 'a1', 'a2']);
+
+  // The node pointed at stays whole, the one it sits under fades half-way, the rest all the way.
+  expect(hover(el, 153, 47).innerText).toContain('row 1');
+  expect(pixel(el, 153, 47)).toEqual(outer);
+  const under = pixel(el, 125, 100)[3]!;
+  expect(under).toBeGreaterThan(120);
+  expect(under).toBeLessThan(200);
+  expect(pixel(el, 75, 100)[3]).toBeLessThan(80);
+  expect(pixel(el, 153, 153)[3]).toBeLessThan(80);
+
+  // A single root is a grey disc in the middle with its children round it in their colours.
+  const one = host();
+  plot(one, {
+    ...pie,
+    width: 200,
+    height: 200,
+    marks: [
+      sunburst({
+        ...fromTree({
+          name: 'All',
+          children: [
+            { name: 'x', value: 1 },
+            { name: 'y', value: 1 },
+          ],
+        }),
+        colors: [RED, BLUE],
+      }),
+    ],
+    use: [c => ((chart = c), { destroy() {} })],
+  });
+  expect(chart.hit(100, 100, 0)!.row).toBe(0);
+  expect(chart.hit(100, 80, 0)!.row).toBe(0);
+  expect(chart.hit(180, 100, 0)!.row).toBe(1);
+  expect(chart.hit(20, 100, 0)!.row).toBe(2);
+  expect(pixel(one, 100, 80)[0]).toBe(pixel(one, 100, 80)[2]);
+  expect(pixel(one, 180, 100)[0]).toBe(255);
+  expect(pixel(one, 20, 100)[2]).toBe(255);
+  expect(labelsOf(one).map(d => d.textContent)).toContain('All');
+});
+
+test('trees cope with a nested object inside itself, an only child, an empty branch and an empty last child', () => {
+  const loop: { name: string; children: unknown[] } = { name: 'L', children: [] };
+  loop.children.push(loop);
+  expect(() => fromTree(loop as Parameters<typeof fromTree>[0])).toThrow(/L is among its own children/);
+  const shared = { name: 's', value: 1 };
+  expect(fromTree(['a', 'b'].map(name => ({ name, children: [shared] }))).nodes).toEqual([
+    'a',
+    's',
+    'b',
+    's',
+  ]);
+
+  // An only child takes all of its parent's room, so the leaf of a long chain fills the plot.
+  let chart!: Internals;
+  const spy: Options['use'] = [c => ((chart = c), { destroy() {} })];
+  const deep = Array.from({ length: 10_000 }, (_, i) => i);
+  const chain = {
+    nodes: deep.map(String),
+    parent: deep.map(i => i - 1),
+    value: deep.map(() => 1),
+    colors: [RED],
+  };
+  const el = host();
+  plot(el, { ...blank, marks: [treemap(chain)], use: spy });
+  expect(pixel(el, 50, 50)).toEqual(RED_PIXEL);
+  expect(pixel(el, 2, 2)).toEqual(RED_PIXEL);
+  expect(chart.hit(50, 50, 0)!.row).toBe(9999);
+
+  // A branch of no size, however deep, takes no ring: the fixture's outer ring stays 50 px wide.
+  const empty = Array.from({ length: 1000 }, (_, i) => i);
+  const withEmpty = {
+    nodes: [...twigs.nodes, ...empty.map(i => `z${i}`)],
+    parent: [...twigs.parent, ...empty.map(i => (i ? 3 + i : -1))],
+    value: [...twigs.value, ...empty.map(() => 0)],
+  };
+  const rings = host();
+  plot(rings, {
+    ...pie,
+    width: 200,
+    height: 200,
+    marks: [sunburst({ ...withEmpty, colors: [RED, BLUE] })],
+    use: spy,
+  });
+  expect(pixel(rings, 153, 47)[0]).toBe(255);
+  expect(pixel(rings, 153, 47)[3]).toBeGreaterThan(150);
+  expect(chart.hit(153, 47, 0)!.row).toBe(1);
+  expect(chart.hit(125, 100, 0)!.row).toBe(0);
+
+  // Six equal nodes and one of no size: the sixth ends the turn and the seventh is not there.
+  const asked: number[] = [];
+  const seven = host();
+  plot(seven, {
+    ...pie,
+    width: 200,
+    height: 200,
+    marks: [
+      sunburst({
+        nodes: ['a', 'b', 'c', 'd', 'e', 'f', 'g'],
+        parent: [-1, -1, -1, -1, -1, -1, -1],
+        value: [1, 1, 1, 1, 1, 1, 0],
+        colors: [RED],
+        text: row => (asked.push(row), ''),
+      }),
+    ],
+    use: spy,
+  });
+  expect(asked.sort((a, b) => a - b)).toEqual([0, 1, 2, 3, 4, 5]);
+  expect(chart.hit(98, 20, 0)!.row).toBe(5);
+  expect(chart.hit(102, 20, 0)!.row).toBe(0);
 });

@@ -19,6 +19,34 @@ export type Curve = 'linear' | 'step';
 export const TURN = 2 * Math.PI;
 
 /** How far round the clock from twelve the point (dx, dy) from the centre is, from 0 up to 1. */
+/**
+ * Whether level text w by h, centred at (x, y), lies inside the part of a ring round (cx, cy)
+ * between two radii and two shares of the turn: its nearest and furthest points between the
+ * radii, and its corners between the two edges.
+ */
+export function inRing(
+  [cx, cy, inner, outer, from, to]: readonly number[],
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+) {
+  const [l, t, r, b] = [x - w / 2 - cx!, y - h / 2 - cy!, x + w / 2 - cx!, y + h / 2 - cy!];
+  const near = Math.hypot(Math.max(l, 0, -r), Math.max(t, 0, -b));
+  const far = Math.hypot(Math.max(-l, r), Math.max(-t, b));
+  if (near < inner! || far > outer!) return false;
+  if (to! - from! >= 1) return true;
+  return [
+    [l, t],
+    [r, t],
+    [r, b],
+    [l, b],
+  ].every(([px, py]) => {
+    const share = turnAt(px!, py!);
+    return share >= from! && share < to!;
+  });
+}
+
 export const turnAt = (dx: number, dy: number) => ((((Math.atan2(dy, dx) + TURN / 4) / TURN) % 1) + 1) % 1;
 
 /**

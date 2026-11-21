@@ -1,5 +1,5 @@
 import type { Col, Mark } from '../types.js';
-import { TURN, turnAt } from './common.js';
+import { inRing, TURN, turnAt } from './common.js';
 
 /**
  * Slices of a pie, or of a ring when `inner` (the hole's share of the radius) is above 0, for a
@@ -68,25 +68,8 @@ export function arcs(o: ArcsOptions): Mark {
         return [cx + Math.cos(middle) * far, cy + Math.sin(middle) * far] as const;
       };
       const said = o.text === true ? (_: number, share: number) => `${Math.round(share * 100)}%` : o.text;
-      // Text is level, so its box must lie inside the slice: between the hole and the rim at its
-      // nearest and furthest points, and between the slice's two edges at its corners.
-      const within = (i: number, x: number, y: number, w: number, h: number) => {
-        const [l, t, r, b] = [x - w / 2 - cx, y - h / 2 - cy, x + w / 2 - cx, y + h / 2 - cy];
-        const near = Math.hypot(Math.max(l, 0, -r), Math.max(t, 0, -b));
-        const far = Math.hypot(Math.max(-l, r), Math.max(-t, b));
-        if (near < hole || far > outer) return false;
-        const [from, to] = [ends[i - 1] ?? 0, ends[i]!];
-        if (to - from >= 1) return true;
-        return [
-          [l, t],
-          [r, t],
-          [r, b],
-          [l, b],
-        ].every(([px, py]) => {
-          const share = turnAt(px!, py!);
-          return share >= from && share < to;
-        });
-      };
+      const within = (i: number, x: number, y: number, w: number, h: number) =>
+        inRing([cx, cy, hole, outer, ends[i - 1] ?? 0, ends[i]!], x, y, w, h);
       const labels = !said
         ? undefined
         : Array.from(ends, (end, i) => {
