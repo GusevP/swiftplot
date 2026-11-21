@@ -1778,6 +1778,27 @@ test('a pointer at rest on a bar does not cut the bar short when its data change
   expect(pixel(el, 30, 35)[3]).toBe(0);
 });
 
+test('a tapped bar lets go of its focus without cutting the bar short when its data changes', () => {
+  fakeClock();
+  const el = host();
+  const chart = plot(el, {
+    ...frame,
+    dim: 0.3,
+    marks: [column(0.2)],
+    use: [tooltip({ mode: 'nearest', text: () => 'tip' }), animate({ duration: 600 })],
+  });
+  vi.advanceTimersByTime(700);
+  const root = el.firstElementChild as HTMLElement;
+  const box = root.getBoundingClientRect();
+  touch(root, box.left + 30, box.top + 85);
+  expect(root.innerText).toContain('tip');
+  chart.update({ marks: [column(0.8)] });
+  expect(root.innerText).not.toContain('tip');
+  vi.advanceTimersByTime(150);
+  expect(pixel(el, 30, 55)).toEqual(RED_PIXEL);
+  expect(pixel(el, 30, 35)[3]).toBe(0);
+});
+
 test('moving between bars of the focused series does not cut their move short', () => {
   fakeClock();
   const el = host();
@@ -2128,6 +2149,42 @@ test('a pen lifted off the chart leaves no tooltip or legend highlight behind', 
   const spot = first.getBoundingClientRect();
   touch(first, spot.left + spot.width / 2, spot.top + spot.height / 2, 'pen');
   expect(pixel(el, 150, internals.yPx(0.75))).toEqual([255, 0, 0, 255]);
+});
+
+test('a tap on the plot does not let a pen that came straight onto a legend entry lose its highlight on an update', () => {
+  const el = host();
+  let internals!: Internals;
+  const chart = plot(el, {
+    ...frame,
+    width: 300,
+    dim: 0.3,
+    marks: [
+      line({ x: [0, 10], y: [0.25, 0.25], color: RED, width: 4, label: 'aa' }),
+      line({ x: [0, 10], y: [0.75, 0.75], color: RED, width: 4, label: 'bb' }),
+    ],
+    use: [
+      legend(),
+      tooltip({ mode: 'x', title: x => `x=${x.toFixed(0)}`, value: y => y.toFixed(1) }),
+      c => ((internals = c), { destroy() {} }),
+    ],
+  });
+  const root = el.firstElementChild as HTMLElement;
+  const box = root.getBoundingClientRect();
+  touch(root, box.left + 210, box.top + internals.yPx(0.5));
+  expect(root.innerText).toContain('x=7');
+  const first = [...el.querySelectorAll('span')].find(s => s.children.length)!;
+  const spot = first.getBoundingClientRect();
+  const init = {
+    bubbles: true,
+    pointerType: 'pen',
+    clientX: spot.left + spot.width / 2,
+    clientY: spot.top + spot.height / 2,
+  };
+  first.dispatchEvent(new PointerEvent('pointermove', init));
+  expect(pixel(el, 150, internals.yPx(0.75))[3]).toBeLessThan(100);
+  chart.update({ dim: 0.2 });
+  expect(pixel(el, 150, internals.yPx(0.75))[3]).toBeLessThan(100);
+  expect(pixel(el, 150, internals.yPx(0.25))).toEqual([255, 0, 0, 255]);
 });
 
 test('a chart taken out of the page after a legend entry is tapped still updates', () => {

@@ -142,10 +142,10 @@ export function legend(): Feature {
     return {
       // The entries may have moved under a pointer at rest, so what it is over is looked up again.
       update() {
-        if (held) return leave();
         const doc = root.isConnected && (root.getRootNode() as Document | ShadowRoot);
         if (at && !over(doc ? doc.elementFromPoint(...at) : null)) at = undefined;
       },
+      letGo: () => held && leave(),
       destroy() {
         root.removeEventListener('pointerdown', move, true);
         root.removeEventListener('pointermove', move, true);

@@ -236,5 +236,8 @@ export type Internals = {
   focus(group: string | null, row?: { mark: Mark; row: number }): void;
 };
 
-/** update() runs after the chart changed under a resting pointer: new options or a new size. */
-export type Feature = (chart: Internals) => { update?(): void; destroy(): void };
+/**
+ * update() runs after the chart changed under a resting pointer: new options or a new size.
+ * letGo() runs before the chart repaints for either, so a focus dropped there does not cut a data animation short.
+ */
+export type Feature = (chart: Internals) => { update?(): void; letGo?(): void; destroy(): void };

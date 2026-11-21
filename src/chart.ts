@@ -550,7 +550,13 @@ export function plot(el: HTMLElement, options: Options): Chart {
   const sync = () => {
     for (const f of features) f.update?.();
   };
-  const observer = new ResizeObserver(() => refresh(false, measure() ? 'size' : undefined) && sync());
+  const letGo = () => {
+    for (const f of features) f.letGo?.();
+  };
+  const observer = new ResizeObserver(() => {
+    letGo();
+    if (refresh(false, measure() ? 'size' : undefined)) sync();
+  });
   let observing = false;
   const observe = () => {
     const auto = o.width === undefined || o.height === undefined;
@@ -567,6 +573,7 @@ export function plot(el: HTMLElement, options: Options): Chart {
     fit(canvas);
     if (glCanvas) fit(glCanvas);
     watch();
+    letGo();
     if (refresh(false, 'size')) sync();
   };
   const watch = () => {
@@ -577,6 +584,7 @@ export function plot(el: HTMLElement, options: Options): Chart {
 
   return {
     update(partial) {
+      letGo();
       const prev = o;
       o = { ...o, ...partial };
       let data = !sameAxis(axisOf(o, 'x'), axisOf(prev, 'x')) || !sameAxis(axisOf(o, 'y'), axisOf(prev, 'y'));

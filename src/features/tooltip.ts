@@ -100,6 +100,7 @@ export function tooltip(t: TooltipOptions): Feature {
       // Over another feature's layer, such as a legend, the focus is that feature's to set.
       if (e.target !== root) {
         at = null;
+        held = false;
         cross.style.display = tip.style.display = 'none';
         return;
       }
@@ -127,8 +128,9 @@ export function tooltip(t: TooltipOptions): Feature {
     root.addEventListener('pointercancel', leave);
     document.addEventListener('pointerdown', away, true);
     return {
+      update: place,
       // A lifted finger is no longer anywhere on the chart, so what it tapped is let go.
-      update: () => (held ? leave() : place()),
+      letGo: () => held && leave(),
       destroy() {
         root.removeEventListener('pointerdown', move);
         root.removeEventListener('pointermove', move);
