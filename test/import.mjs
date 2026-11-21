@@ -2,17 +2,7 @@
 import { deepStrictEqual } from 'node:assert/strict';
 import * as lib from '../dist/index.js';
 
-const failures = [];
-const check = (what, actual, expected) => {
-  try {
-    deepStrictEqual(actual, expected);
-  } catch (e) {
-    failures.push(`${what}: ${e.message}`);
-  }
-};
-
-check(
-  'exports',
+deepStrictEqual(
   Object.keys(lib).sort(),
   [
     'animate',
@@ -48,16 +38,16 @@ check(
     'tooltip',
     'treemap',
   ].sort(),
+  'exports',
 );
 
 const binned = lib.bin([1, 2, 3, 4, 5, 6, 7, 8]);
-check('bin', [...binned.y2], [2, 2, 2, 2]);
+deepStrictEqual([...binned.y2], [2, 2, 2, 2], 'bin');
 const [low, high] = lib.stack([
   [1, -2],
   [3, 4],
 ]);
-check(
-  'stack',
+deepStrictEqual(
   [[...low.y1], [...low.y2], [...high.y1], [...high.y2]],
   [
     [0, 0],
@@ -65,12 +55,13 @@ check(
     [1, 0],
     [4, 4],
   ],
+  'stack',
 );
 const stats = lib.fiveNumbers([[5, 1, 3, 2, 4, NaN]]);
-check(
-  'fiveNumbers',
+deepStrictEqual(
   [stats.min[0], stats.q1[0], stats.median[0], stats.q3[0], stats.max[0]],
   [1, 2, 3, 4, 5],
+  'fiveNumbers',
 );
 const tree = lib.fromTree({
   name: 'all',
@@ -79,12 +70,16 @@ const tree = lib.fromTree({
     { name: 'b', value: 3 },
   ],
 });
-check('fromTree', tree, { nodes: ['all', 'a', 'b'], parent: [-1, 0, 0], value: [0, 2, 3] });
+deepStrictEqual(tree, { nodes: ['all', 'a', 'b'], parent: [-1, 0, 0], value: [0, 2, 3] }, 'fromTree');
 const flows = lib.fromLinks([
   { source: 'a', target: 'b', value: 2 },
   { source: 'b', target: 'c', value: 1 },
 ]);
-check('fromLinks', flows, { nodes: ['a', 'b', 'c'], source: [0, 1], target: [1, 2], value: [2, 1] });
+deepStrictEqual(
+  flows,
+  { nodes: ['a', 'b', 'c'], source: [0, 1], target: [1, 2], value: [2, 1] },
+  'fromLinks',
+);
 
 const [x, y, colors, color] = [[0, 1, 2], [1, 3, 2], ['#e15759', '#4e79a7'], '#4e79a7'];
 const marks = [
@@ -104,13 +99,6 @@ const marks = [
   lib.treemap({ ...tree, colors }),
   lib.sunburst({ ...tree, colors }),
 ];
-check(
-  'marks',
-  marks.map(m => typeof m.prepare),
-  marks.map(() => 'function'),
-);
-
-if (failures.length) {
-  console.error(failures.join('\n'));
-  process.exitCode = 1;
+for (const [i, mark] of marks.entries()) {
+  deepStrictEqual(typeof mark.prepare, 'function', `marks[${i}].prepare`);
 }
