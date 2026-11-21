@@ -377,7 +377,7 @@ test('the nearest tooltip names the point under the pointer and hides away from 
   expect(root.innerText).not.toContain('A at 5, 0.5');
 });
 
-test('a tapped tooltip stays after the finger lifts, until the touch is cancelled or the page is tapped elsewhere', () => {
+test('a tapped tooltip stays after the finger lifts, until the touch is cancelled, the page is tapped elsewhere or the chart updates', () => {
   const cases = [
     {
       marks: [dots({ x: [5], y: [0.5], r: [3], color: RED, label: 'A' })],
@@ -404,53 +404,22 @@ test('a tapped tooltip stays after the finger lifts, until the touch is cancelle
     expect(root.innerText).not.toContain(text);
     tap();
     expect(root.innerText).toContain(text);
-    chart.update({ width: 200 });
-    expect(root.innerText).toContain(text);
-    chart.update({ height: 40 });
+    chart.update({ dim: 0.5 });
+    expect(root.innerText).not.toContain(text);
+    tap();
     expect(root.innerText).toContain(text);
     const control = host();
     control.addEventListener('pointerdown', e => e.stopPropagation());
     control.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerType: 'touch' }));
     expect(root.innerText).not.toContain(text);
+    tap();
+    expect(root.innerText).toContain(text);
+    chart.update({ width: 200 });
+    expect(root.innerText).not.toContain(text);
   }
 });
 
-test('a tapped tooltip follows its datum when the shape of the plot changes', () => {
-  const cases = [
-    {
-      options: {
-        ...pie,
-        marks: [arcs({ values: [1, 1], colors: [RED, BLUE], labels: ['right', 'left'] })],
-      },
-      at: [80, 50],
-      change: { width: 300 },
-    },
-    {
-      options: {
-        ...frame,
-        y: { domain: [-1, 1], label: '' },
-        marks: [bar({ x1: [4], x2: [6], y: [-0.5], color: RED, label: 'right' })],
-      },
-      at: [50, 60],
-      change: { width: 200 },
-    },
-  ] satisfies { options: Options; at: number[]; change: Partial<Options> }[];
-  for (const { options, at, change } of cases) {
-    const el = host();
-    const chart = plot(el, {
-      ...options,
-      use: [tooltip({ mode: 'nearest', text: label => `tip ${label}` })],
-    });
-    const root = el.firstElementChild as HTMLElement;
-    const box = root.getBoundingClientRect();
-    touch(root, box.left + at[0]!, box.top + at[1]!);
-    expect(root.innerText).toContain('tip right');
-    chart.update(change);
-    expect(root.innerText).toContain('tip right');
-  }
-});
-
-test('a tapped x tooltip keeps the line it focused when the y domain changes', () => {
+test('a tapped x tooltip lets go of the line it focused when the y domain changes', () => {
   const el = host();
   let internals!: Internals;
   const chart = plot(el, {
@@ -470,29 +439,8 @@ test('a tapped x tooltip keeps the line it focused when the y domain changes', (
   touch(root, box.left + 30, box.top + internals.yPx(0.75));
   expect(pixel(el, 50, internals.yPx(0.25))[3]).toBeLessThan(100);
   chart.update({ y: { domain: [0, 2], label: '' } });
-  expect(root.innerText).toContain('x=3');
-  expect(pixel(el, 50, internals.yPx(0.25))[3]).toBeLessThan(100);
-  expect(pixel(el, 50, internals.yPx(0.75))).toEqual([255, 0, 0, 255]);
-});
-
-test('a tapped tooltip lets go when its datum is gone, and does not come back for another', () => {
-  const tip = tooltip({ mode: 'nearest', text: (label, x) => `${label} at ${x}` });
-  const dot = (x: number[], label = 'A') =>
-    dots({ x, y: x.map(() => 0.5), r: x.map(() => 3), color: RED, label });
-  const el = host();
-  const chart = plot(el, { ...frame, marks: [dot([5, 5.1])], use: [tip] });
-  const root = el.firstElementChild as HTMLElement;
-  const box = root.getBoundingClientRect();
-  touch(root, box.left + 50, box.top + 50);
-  expect(root.innerText).toContain('A at 5');
-  chart.update({ marks: [dot([5.1])] });
-  expect(root.innerText).not.toContain('A at');
-  chart.update({ marks: [dot([5, 5.1])] });
-  expect(root.innerText).not.toContain('A at');
-  touch(root, box.left + 50, box.top + 50);
-  chart.update({ marks: [] });
-  chart.update({ marks: [dot([5], 'B')] });
-  expect(root.innerText).not.toContain('B at');
+  expect(root.innerText).not.toContain('x=3');
+  expect(pixel(el, 50, internals.yPx(0.25))).toEqual([255, 0, 0, 255]);
 });
 
 test('dots on WebGL land on the same pixels as on canvas, also after a resize', () => {
@@ -2127,7 +2075,7 @@ test('the legend lets go of its focus when the hovered entry is taken away, and 
   expect(pixel(el, 150, y)).toEqual([255, 0, 0, 255]);
 });
 
-test('a tapped legend entry keeps its series highlighted after the finger lifts, until the page is tapped elsewhere', () => {
+test('a tapped legend entry keeps its series highlighted after the finger lifts, until the page is tapped elsewhere or the chart updates', () => {
   const el = host();
   let internals!: Internals;
   const chart = plot(el, {
@@ -2145,33 +2093,14 @@ test('a tapped legend entry keeps its series highlighted after the finger lifts,
   touch(first, spot.left + spot.width / 2, spot.top + spot.height / 2);
   expect(pixel(el, 150, internals.yPx(0.75))[3]).toBeLessThan(100);
   expect(pixel(el, 150, internals.yPx(0.25))).toEqual([255, 0, 0, 255]);
-  el.style.marginTop = '200px';
   chart.update({ dim: 0.2 });
+  expect(pixel(el, 150, internals.yPx(0.75))).toEqual([255, 0, 0, 255]);
+  touch(first, spot.left + spot.width / 2, spot.top + spot.height / 2);
   expect(pixel(el, 150, internals.yPx(0.75))[3]).toBeLessThan(100);
   const control = host();
   control.addEventListener('pointerdown', e => e.stopPropagation());
   control.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerType: 'touch' }));
   expect(pixel(el, 150, internals.yPx(0.75))).toEqual([255, 0, 0, 255]);
-});
-
-test('a tapped legend entry lets go when its slice is taken away, and does not pass to the next', () => {
-  const el = host();
-  let internals!: Internals;
-  const slices = (labels: string[], colors: string[]) =>
-    arcs({ values: labels.map(() => 1), colors, labels });
-  const chart = plot(el, {
-    ...pie,
-    dim: 0.3,
-    marks: [slices(['A', 'B', 'C'], [RED, BLUE, GREEN])],
-    use: [legend(), c => ((internals = c), { destroy() {} })],
-  });
-  const b = [...el.querySelectorAll('span')].find(s => s.textContent === 'B')!;
-  const spot = b.getBoundingClientRect();
-  touch(b, spot.left + spot.width / 2, spot.top + spot.height / 2);
-  const right = () => pixel(el, internals.xPx(0.75), internals.yPx(0.5));
-  expect(right()[3]).toBeLessThan(255);
-  chart.update({ marks: [slices(['A', 'C'], [RED, GREEN])] });
-  expect(right()).toEqual([255, 0, 0, 255]);
 });
 
 test('a pen lifted off the chart leaves no tooltip or legend highlight behind', () => {
@@ -2217,7 +2146,7 @@ test('a chart taken out of the page after a legend entry is tapped still updates
 });
 
 test.each(['open', 'closed'] as const)(
-  'in a %s shadow root a tapped tooltip and legend entry stay after the finger lifts and a resize',
+  'in a %s shadow root a tapped tooltip and legend entry stay after the finger lifts and are let go on a resize',
   mode => {
     const el = host().attachShadow({ mode }).appendChild(document.createElement('div'));
     let internals!: Internals;
@@ -2244,7 +2173,7 @@ test.each(['open', 'closed'] as const)(
     touch(entry, spot.left + spot.width / 2, spot.top + spot.height / 2);
     expect(pixel(el, 150, internals.yPx(0.25))[3]).toBeLessThan(100);
     chart.update({ height: 120 });
-    expect(pixel(el, 150, internals.yPx(0.25))[3]).toBeLessThan(100);
+    expect(pixel(el, 150, internals.yPx(0.25))).toEqual([255, 0, 0, 255]);
   },
 );
 

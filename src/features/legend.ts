@@ -106,9 +106,8 @@ export function legend(): Feature {
 
     // The mark is looked up when pointed at: after an update that kept the entries as they were,
     // the list is not rebuilt, but the mark at that place is a new one.
-    const idOf = (e: Entry) => JSON.stringify([e.group, e.part, e.label]);
     const point = (e: Entry | undefined) => {
-      const id = e && idOf(e);
+      const id = e && JSON.stringify([e.group, e.part]);
       if (id === hovered) return;
       hovered = id;
       const mark = e?.part && chart.marks()[e.part[0]];
@@ -143,11 +142,7 @@ export function legend(): Feature {
     return {
       // The entries may have moved under a pointer at rest, so what it is over is looked up again.
       update() {
-        // A lifted finger is no longer at its point on the screen, so the tapped entry is kept while it is listed.
-        if (held) {
-          if (![...shown.values()].some(e => idOf(e) === hovered)) leave();
-          return;
-        }
+        if (held) return leave();
         const doc = root.isConnected && (root.getRootNode() as Document | ShadowRoot);
         if (at && !over(doc ? doc.elementFromPoint(...at) : null)) at = undefined;
       },
