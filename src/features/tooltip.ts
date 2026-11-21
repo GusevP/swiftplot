@@ -17,7 +17,7 @@ export function tooltip(t: TooltipOptions): Feature {
     const cross = chart.layer('div', 'display:none;border-left:1px dashed #888');
     const tip = chart.layer(
       'div',
-      'display:none;background:#fff;border:1px solid #ccc;padding:4px 8px;box-sizing:border-box;width:max-content;max-width:100%;overflow-wrap:anywhere;z-index:100',
+      'display:none;background:#fff;border:1px solid #ccc;padding:4px 8px;box-sizing:border-box;width:max-content;max-width:100%;white-space:normal;overflow-wrap:anywhere;z-index:100',
     );
     let at: [number, number] | null = null;
     const hide = () => {

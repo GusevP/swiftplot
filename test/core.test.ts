@@ -2825,8 +2825,9 @@ test.each(['none', 'scale(0.5)'])(
   },
 );
 
-test('a tooltip with text wider than the chart wraps inside it at either edge', () => {
+test('a tooltip with text wider than the chart wraps inside it at either edge, even under nowrap', () => {
   const el = host();
+  el.style.whiteSpace = 'nowrap';
   const text = 'a tooltip whose text is far wider than this narrow chart';
   plot(el, {
     ...frame,
@@ -2835,9 +2836,11 @@ test('a tooltip with text wider than the chart wraps inside it at either edge', 
   });
   for (const px of [1, 99]) {
     const box = hover(el, px, 50).getBoundingClientRect();
-    const tip = textOf(el, text).parentElement!.getBoundingClientRect();
+    const row = textOf(el, text);
+    const tip = row.parentElement!.getBoundingClientRect();
     expect(tip.left).toBeGreaterThanOrEqual(box.left);
     expect(tip.right).toBeLessThanOrEqual(box.right);
+    expect(row.scrollWidth).toBeLessThanOrEqual(row.clientWidth);
   }
 });
 
