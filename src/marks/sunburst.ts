@@ -1,6 +1,6 @@
 import type { Label, Mark } from '../types.js';
 import { inRing, TURN, turnAt } from './common.js';
-import { grow, type TreeColumns } from './tree.js';
+import { first, grow, type TreeColumns } from './tree.js';
 
 /**
  * A tree as rings round a centre, for a polar frame: the roots innermost, each node's children
@@ -44,9 +44,7 @@ export function sunburst(o: SunburstOptions): Mark {
   const drawn = order.filter(i => to[i]! > from[i]!);
   // Rings are counted over what is drawn: a branch of no size takes no room, however deep.
   const rings = drawn.reduce((most, i) => Math.max(most, depth[i]! + 1), 0);
-  const largest = [...drawn]
-    .sort((a, b) => size[b]! / 2 ** depth[b]! - size[a]! / 2 ** depth[a]! || a - b)
-    .slice(0, 200);
+  const largest = first(drawn, 200, (a, b) => size[b]! / 2 ** depth[b]! - size[a]! / 2 ** depth[a]! || a - b);
   let above: { row?: number; rows: Set<number> } = { rows: new Set() };
   const over = (row: number) => {
     if (above.row !== row) {
@@ -75,18 +73,36 @@ export function sunburst(o: SunburstOptions): Mark {
         return [d * thick + (d ? Math.min(dpr, thick / 4) : 0), (d + 1) * thick] as const;
       };
       const whole = (i: number) => to[i]! - from[i]! >= 1;
-      const shapes = new Map(
-        drawn.map(i => {
+      // Siblings are gathered until they are a device pixel wide at their rim, and drawn as one in
+      // the colour of the widest among them: more shapes than pixels cost time and show nothing.
+      // ponytail: each parent with a size still has a shape of its own children, however thin;
+      // skip what lies under a gathered node when trees of millions of branches matter.
+      const shapes: { path: Path2D; lead: number }[] = [];
+      const part = new Int32Array(n).fill(-1);
+      const gather = (list: number[]) => {
+        let [lead, start, open] = [-1, 0, false];
+        const last = list.findLast(i => to[i]! > from[i]!);
+        for (const i of list) {
+          if (!(to[i]! > from[i]!)) continue;
+          if (!open) [lead, start, open] = [i, from[i]!, true];
+          if (to[i]! - from[i]! > to[lead]! - from[lead]!) lead = i;
+          part[i] = shapes.length;
           const [near, far] = reach(i);
-          const gap = whole(i) || !outer ? 0 : Math.min(0.5 / far, ((to[i]! - from[i]!) * TURN) / 4);
-          const [a, b] = [from[i]! * TURN - TURN / 4 + gap, to[i]! * TURN - TURN / 4 - gap];
+          const span = to[i]! - start;
+          if (span * TURN * far < 1 && i !== last) continue;
+          const gap = span >= 1 || !outer ? 0 : Math.min(0.5 / far, (span * TURN) / 4);
+          const [a, b] = [start * TURN - TURN / 4 + gap, to[i]! * TURN - TURN / 4 - gap];
           const path = new Path2D();
           path.arc(cx, cy, far, a, b);
           path.arc(cx, cy, near, b, a, true);
           path.closePath();
-          return [i, path] as const;
-        }),
-      );
+          shapes.push({ path, lead });
+          open = false;
+        }
+      };
+      gather(roots);
+      for (const node of order) if (to[node]! > from[node]!) gather(kids[node]!);
+      const faded = (ring: number) => 0.4 + 0.6 * (1 - ring / rings);
       // Half-way round the node and half-way out; a disc is named at its centre.
       const anchor = (i: number) => {
         const [near, far] = reach(i);
@@ -108,12 +124,17 @@ export function sunburst(o: SunburstOptions): Mark {
       return {
         labels,
         paint(k, row, rest = 1) {
-          for (const [i, path] of shapes) {
-            const lit = row === undefined || row === i ? 1 : over(row).has(i) ? (1 + rest) / 2 : rest;
-            ctx.globalAlpha = alpha * k * lit * (0.4 + 0.6 * (1 - depth[i]! / rings));
-            ctx.fillStyle = shade(i);
-            ctx.fill(path);
+          const lit = new Map<number, number>();
+          if (row !== undefined && row < n) {
+            for (const above of over(row)) lit.set(part[above]!, (1 + rest) / 2);
+            lit.set(part[row]!, 1);
           }
+          shapes.forEach(({ path, lead }, at) => {
+            ctx.globalAlpha =
+              alpha * k * (row === undefined ? 1 : (lit.get(at) ?? rest)) * faded(depth[lead]!);
+            ctx.fillStyle = shade(lead);
+            ctx.fill(path);
+          });
         },
         // The ring from the distance, then down from the roots by the share of the turn, and
         // last the painted shape itself, which leaves out the gaps between neighbours.
@@ -135,8 +156,11 @@ export function sunburst(o: SunburstOptions): Mark {
           };
           let node = holding(roots);
           while (node !== undefined && depth[node]! < ring) node = holding(kids[node]!);
-          const shape = node === undefined ? undefined : shapes.get(node);
-          if (node === undefined || !shape || !ctx.isPointInPath(shape, hx, hy)) return null;
+          const shape = node === undefined ? undefined : shapes[part[node]!];
+          if (node === undefined || !shape) return null;
+          // A node gathered with its neighbours answers from the gaps round them too.
+          const wide = (to[node]! - from[node]!) * TURN * reach(node)[1] >= 1;
+          if (wide && !ctx.isPointInPath(shape.path, hx, hy)) return null;
           const [x, y] = anchor(node);
           return {
             x: (x - left) / width,

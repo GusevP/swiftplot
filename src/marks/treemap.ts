@@ -1,10 +1,11 @@
 import type { Label, Mark } from '../types.js';
-import { grow, type TreeColumns } from './tree.js';
+import { first, grow, type TreeColumns } from './tree.js';
 
 /**
  * Rectangles as large as their values, packed as near to square as they go, for a blank frame.
  * Only nodes without children are drawn, inside the room of their parents; see TreeColumns for
- * the input and fromTree() for nested objects. Each root has a colour, or each child of a single
+ * the input and fromTree() for nested objects. A parent with more children than it has pixels is
+ * drawn as one rectangle, and is then the row a hit reports. Each root has a colour, or each child of a single
  * root, and everything below it shares that colour. A hit's row is the node's place in `nodes`.
  * ponytail: a pointer move looks through the siblings at each level, which is fine for
  * thousands; the rows the packing made would index them when a level holds many more.
@@ -28,7 +29,7 @@ export function treemap(o: TreemapOptions): Mark {
   const sorted = (list: number[]) =>
     list.filter(i => size[i]! > 0).sort((a, b) => size[b]! - size[a]! || a - b);
   const leaves = order.filter(i => !kids[i]!.length && size[i]! > 0);
-  const largest = [...leaves].sort((a, b) => size[b]! - size[a]! || a - b).slice(0, 200);
+  const largest = first(leaves, 200, (a, b) => size[b]! - size[a]! || a - b);
   return {
     type: 'treemap',
     key: o.key,
@@ -72,9 +73,18 @@ export function treemap(o: TreemapOptions): Mark {
       pack(sorted(roots), left, top, width, height);
       // A parent keeps a pixel round its children, which is what sets branches apart; an only
       // child has no branch beside it and takes all the room, however long the chain.
+      // A parent whose children would average under a device pixel each is drawn, and hit, as
+      // one rectangle itself: more rectangles than pixels cost time and show nothing.
+      const solid = new Uint8Array(n);
+      const shown: number[] = [];
       for (const node of order) {
-        if (!kids[node]!.length) continue;
         const [x, y, w, h] = room.subarray(node * 4, node * 4 + 4);
+        if (!(w! > 0 && h! > 0)) continue;
+        if (!kids[node]!.length || (w! * h! < kids[node]!.length && tint[node]! >= 0)) {
+          solid[node] = 1;
+          shown.push(node);
+          continue;
+        }
         const some = sorted(kids[node]!);
         const [px, py] = some.length > 1 ? [Math.min(dpr, w! / 4), Math.min(dpr, h! / 4)] : [0, 0];
         pack(some, x! + px, y! + py, w! - 2 * px, h! - 2 * py);
@@ -86,6 +96,12 @@ export function treemap(o: TreemapOptions): Mark {
         const [gx, gy] = [Math.min(dpr / 2, w! / 4), Math.min(dpr / 2, h! / 4)];
         return [x! + gx, y! + gy, w! - 2 * gx, h! - 2 * gy] as const;
       };
+      // One shape per colour, since no two rectangles overlap: a fill each would cost far more.
+      const sheets = new Map<string, Path2D>();
+      for (const i of shown) {
+        if (!sheets.has(shade(i))) sheets.set(shade(i), new Path2D());
+        sheets.get(shade(i))!.rect(...box(i));
+      }
       const labels: Label[] = [];
       for (const i of o.text === false ? [] : largest) {
         const text = o.text ? o.text(i) : named(i);
@@ -103,11 +119,23 @@ export function treemap(o: TreemapOptions): Mark {
       return {
         labels,
         paint(k, row, rest = 1) {
-          for (const i of leaves) {
-            ctx.globalAlpha = alpha * k * (row === undefined || row === i ? 1 : rest);
-            ctx.fillStyle = shade(i);
-            ctx.fillRect(...box(i));
+          ctx.save();
+          if (row !== undefined && solid[row]) {
+            ctx.globalAlpha = alpha * k;
+            ctx.fillStyle = shade(row);
+            ctx.fillRect(...box(row));
+            // The rest is drawn through a hole where that rectangle is, so it is not painted twice.
+            const around = new Path2D();
+            around.rect(...box(row));
+            around.rect(0, 0, ctx.canvas.width, ctx.canvas.height);
+            ctx.clip(around, 'evenodd');
           }
+          ctx.globalAlpha = alpha * k * (row === undefined ? 1 : rest);
+          for (const [color, sheet] of sheets) {
+            ctx.fillStyle = color;
+            ctx.fill(sheet);
+          }
+          ctx.restore();
         },
         // Down from the roots through the rooms the pointer is in, to a leaf's painted box.
         hit(px, py, max) {
@@ -122,7 +150,7 @@ export function treemap(o: TreemapOptions): Mark {
             );
           };
           let node = roots.find(holds);
-          while (node !== undefined && kids[node]!.length) node = kids[node]!.find(holds);
+          while (node !== undefined && !solid[node]) node = kids[node]!.find(holds);
           if (node === undefined) return null;
           const [x, y, w, h] = box(node);
           if (hx < x || hx >= x + w || hy < y || hy >= y + h) return null;

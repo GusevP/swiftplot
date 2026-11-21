@@ -36,6 +36,23 @@ export function fromTree(tree: Nested | Nested[]) {
   return { nodes, parent, value };
 }
 
+/** The `count` first of `list` in the order `before` gives, without sorting all of it. */
+export function first(list: number[], count: number, before: (a: number, b: number) => number) {
+  const best: number[] = [];
+  for (const i of list) {
+    if (best.length === count && before(i, best[count - 1]!) > 0) continue;
+    let [at, end] = [0, best.length];
+    while (at < end) {
+      const mid = (at + end) >> 1;
+      if (before(i, best[mid]!) < 0) end = mid;
+      else at = mid + 1;
+    }
+    best.splice(at, 0, i);
+    if (best.length > count) best.pop();
+  }
+  return best;
+}
+
 /**
  * What both tree marks lay out. Sizes are shares of the largest value, so that sums of them
  * cannot overflow. `tint` numbers the branches that get a colour each: the roots, or the

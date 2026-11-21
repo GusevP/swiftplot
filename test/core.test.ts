@@ -3193,3 +3193,88 @@ test('the nearest tooltip takes the colour of the node it names', () => {
   expect(tipColor(75)).toBe(painted(75));
   expect(tipColor(25)).not.toBe(tipColor(75));
 });
+
+test('a mark with more shapes than pixels fills a bounded number and still names the row pointed at', () => {
+  const many = 10_000;
+  const ones = new Float64Array(many).fill(1);
+  const twigs = Array.from({ length: many * 2 }, (_, i) => `t${i}`);
+  const cases: [
+    name: string,
+    options: Partial<Options>,
+    x: number,
+    y: number,
+    rows: number[],
+    far?: [number, number],
+  ][] = [
+    ['pie', { ...pie, marks: [arcs({ values: ones, colors: [RED, BLUE] })] }, 75, 50, [2499, 2500]],
+    [
+      'funnel',
+      { ...blank, marks: [funnel({ values: ones.map((_, i) => many - i), colors: [RED, BLUE] })] },
+      50,
+      50,
+      [5000],
+      [50, 10],
+    ],
+    [
+      'radial bars',
+      { ...pie, marks: [radialBars({ values: ones, max: 1, colors: [RED, BLUE] })] },
+      82,
+      50,
+      [5142, 5143],
+    ],
+    [
+      'sunburst',
+      {
+        ...pie,
+        marks: [
+          sunburst({
+            nodes: twigs.slice(0, many),
+            parent: ones.map(() => -1),
+            value: ones,
+            colors: [RED, BLUE],
+          }),
+        ],
+      },
+      90,
+      50,
+      [2499, 2500],
+    ],
+    [
+      'treemap',
+      {
+        ...blank,
+        marks: [
+          treemap({
+            nodes: ['a', 'b', ...twigs],
+            parent: [-1, -1, ...twigs.map((_, i) => i % 2)],
+            value: [0, 0, ...twigs.map(() => 1)],
+            colors: [RED, BLUE],
+          }),
+        ],
+      },
+      25,
+      25,
+      [0, 1],
+    ],
+  ];
+  for (const [name, options, x, y, rows, [fx, fy] = [100 - x, 100 - y]] of cases) {
+    const fills = vi.spyOn(CanvasRenderingContext2D.prototype, 'fill');
+    const el = host();
+    plot(el, {
+      ...options,
+      width: 100,
+      height: 100,
+      dim: 0.2,
+      use: [tooltip({ mode: 'nearest', text: (_, _x, _y, row) => `row ${row}` })],
+    } as Options);
+    expect(fills.mock.calls.length, name).toBeLessThan(1000);
+    const before = pixel(el, fx, fy)[3]!;
+    expect(
+      rows.map(row => `row ${row}`),
+      name,
+    ).toContain(hover(el, x, y).innerText.trim());
+    expect(pixel(el, x, y)[3], name).toBeGreaterThan(pixel(el, fx, fy)[3]!);
+    expect(pixel(el, fx, fy)[3], name).toBeLessThan(before);
+    fills.mockRestore();
+  }
+});

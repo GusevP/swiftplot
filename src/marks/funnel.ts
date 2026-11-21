@@ -74,11 +74,22 @@ export function funnel(o: FunnelOptions): Mark {
           lean(i + 1) * uu * back
         );
       };
-      const stages = Array.from({ length: n }, (_, i) => {
-        const [y0, y1] = span(i);
+      // Stages less than a device pixel tall are drawn several to a straight-sided band a pixel
+      // tall, in its first stage's colour: more shapes than pixels cost time and show nothing.
+      const per = tall && tall < 1 ? Math.ceil(1 / tall) : 1;
+      const stages: { path: Path2D; from: number; to: number }[] = [];
+      for (let i = 0; i < n; i += per) {
+        const to = Math.min(i + per, n);
+        const [y0, y1] = [span(i)[0], span(to - 1)[1]];
         const path = new Path2D();
+        stages.push({ path, from: i, to });
         path.moveTo(cx - half(i), y0);
         path.lineTo(cx + half(i), y0);
+        if (per > 1) {
+          path.lineTo(cx + half(to), y1);
+          path.lineTo(cx - half(to), y1);
+          continue;
+        }
         // Control points a third and two thirds of the way down make the curve exactly reach().
         const [a, b] = [y0 + (y1 - y0) / 3, y1 - (y1 - y0) / 3];
         const [out, into] = [half(i) + lean(i) / 3, half(i + 1) - lean(i + 1) / 3];
@@ -86,14 +97,14 @@ export function funnel(o: FunnelOptions): Mark {
         path.lineTo(cx - half(i + 1), y1);
         path.bezierCurveTo(cx - into, b, cx - out, a, cx - half(i), y0);
         path.closePath();
-        return path;
-      });
+      }
       const labels: Label[] = [];
       for (let i = 0; said && i < n && most; i++) {
-        const text = said(i, share(i));
         const [y0, y1] = span(i);
         const y = (y0 + y1) / 2;
-        if (!text || y1 - y0 < 16 * dpr) continue;
+        if (y1 - y0 < 16 * dpr) continue;
+        const text = said(i, share(i));
+        if (!text) continue;
         // The stage's half-width at the top and at the bottom of the text. Inside where even the
         // narrower leaves room; otherwise to the right of the wider, clear of the slanted side.
         const [above, below] = [reach(i, y - 8 * dpr), reach(i, y + 8 * dpr)];
@@ -106,11 +117,11 @@ export function funnel(o: FunnelOptions): Mark {
       return {
         labels,
         paint(k, row, rest = 1) {
-          stages.forEach((path, i) => {
-            ctx.globalAlpha = alpha * k * (row === undefined || row === i ? 1 : rest);
-            ctx.fillStyle = shade(i);
+          for (const { path, from, to } of stages) {
+            ctx.globalAlpha = alpha * k * (row === undefined || (row >= from && row < to) ? 1 : rest);
+            ctx.fillStyle = shade(from);
             ctx.fill(path);
-          });
+          }
         },
         // The stage whose band the pointer is in, if it is within the stage's slanted sides.
         hit(px, py, max) {

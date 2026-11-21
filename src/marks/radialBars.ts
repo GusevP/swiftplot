@@ -50,11 +50,12 @@ export function radialBars(o: RadialBarsOptions): Mark {
       const outer = Math.max(0, Math.min(width, height) / 2);
       const hole = outer * Math.max(0, Math.min(inner, 1));
       const thick = (outer - hole) / (n || 1);
-      const gap = Math.min(2 * dpr, thick / 4);
+      // Rings thinner than a device pixel have no gap between them: see the bands below.
+      const gap = thick < 1 ? 0 : Math.min(2 * dpr, thick / 4);
       // Ring i between its two radii, from twelve o'clock round to a share of the turn.
       const reach = (i: number) => [outer - (i + 1) * thick + gap, outer - i * thick] as const;
-      const bent = (i: number, share: number) => {
-        const [near, far] = reach(i);
+      const bent = (first: number, last: number, share: number) => {
+        const [near, far] = [reach(last)[0], reach(first)[1]];
         const [a, b] = [-TURN / 4, share * TURN - TURN / 4];
         const path = new Path2D();
         path.arc(cx, cy, far, a, b);
@@ -62,9 +63,19 @@ export function radialBars(o: RadialBarsOptions): Mark {
         path.closePath();
         return path;
       };
+      // Rings thinner than a device pixel are drawn several to a band a pixel thick, which is as
+      // long as its longest bar and has that bar's colour: more shapes than pixels cost time and show nothing.
+      const per = thick && thick < 1 ? Math.ceil(1 / thick) : 1;
       const tracks = new Path2D();
-      for (let i = 0; i < n && thick; i++) tracks.addPath(bent(i, SWEEP));
-      const bars = Array.from(round, (share, i) => (share && thick ? bent(i, share) : undefined));
+      if (per > 1) tracks.addPath(bent(0, n - 1, SWEEP));
+      else for (let i = 0; i < n && thick; i++) tracks.addPath(bent(i, i, SWEEP));
+      const bars: { path: Path2D; from: number; to: number; lead: number }[] = [];
+      for (let from = 0; from < n && thick; from += per) {
+        const to = Math.min(from + per, n);
+        let lead = from;
+        for (let i = from; i < to; i++) if (round[i]! > round[lead]!) lead = i;
+        if (round[lead]) bars.push({ path: bent(from, to - 1, round[lead]!), from, to, lead });
+      }
       const anchor = (i: number) => {
         const angle = (round[i]! / 2) * TURN - TURN / 4;
         const far = (reach(i)[0] + reach(i)[1]) / 2;
@@ -86,18 +97,17 @@ export function radialBars(o: RadialBarsOptions): Mark {
           ctx.globalAlpha = alpha * k * 0.06;
           ctx.fillStyle = '#000';
           ctx.fill(tracks);
-          bars.forEach((path, i) => {
-            if (!path) return;
-            ctx.globalAlpha = alpha * k * (row === undefined || row === i ? 1 : rest);
-            ctx.fillStyle = shade(i);
+          for (const { path, from, to, lead } of bars) {
+            ctx.globalAlpha = alpha * k * (row === undefined || (row >= from && row < to) ? 1 : rest);
+            ctx.fillStyle = shade(lead);
             ctx.fill(path);
-          });
+          }
         },
         // The bar the pointer is on, not its empty track. Reported at the middle of the bar.
         hit(px, py, max) {
           const [dx, dy] = [px * dpr - cx, py * dpr - cy];
           const row = Math.floor((outer - Math.hypot(dx, dy)) / (thick || 1));
-          if (!(row >= 0 && row < n) || !bars[row]) return null;
+          if (!(row >= 0 && row < n) || !round[row] || !thick) return null;
           if (Math.hypot(dx, dy) < reach(row)[0] || turnAt(dx, dy) >= round[row]!) return null;
           const [x, y] = anchor(row);
           return { x: (x - left) / width, y: 1 - (y - top) / height, distance: max, row };

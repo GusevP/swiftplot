@@ -50,17 +50,26 @@ export function arcs(o: ArcsOptions): Mark {
       const outer = Math.max(0, Math.min(width, height) / 2);
       const hole = outer * Math.max(0, Math.min(inner, 1));
       // A gap of a device pixel between neighbours, which shows whatever is behind the chart.
-      const slices = Array.from(ends, (end, i) => {
-        const from = ends[i - 1] ?? 0;
-        if (!(end > from) || !outer) return undefined;
-        const gap = wide > 1 ? Math.min(0.5 / outer, ((end - from) * TURN) / 4) : 0;
-        const [a, b] = [from * TURN - TURN / 4 + gap, end * TURN - TURN / 4 - gap];
-        const path = new Path2D();
-        path.arc(cx, cy, outer, a, b);
-        path.arc(cx, cy, hole, b, a, true);
-        path.closePath();
-        return path;
-      });
+      // Slices are gathered until they are a device pixel wide at the rim, and drawn as one in
+      // the colour of the widest among them: more shapes than pixels cost time and show nothing.
+      const slices: { path: Path2D; from: number; to: number; lead: number }[] = [];
+      const width1 = (i: number) => ends[i]! - (ends[i - 1] ?? 0);
+      let [first, lead, start] = [0, 0, 0];
+      for (let i = 0; i < n && outer; i++) {
+        if (width1(i) > width1(lead) || lead < first) lead = i;
+        const end = ends[i]!;
+        if (end - start < 1 / (outer * TURN) && i < n - 1) continue;
+        if (end > start) {
+          const gap = wide > 1 ? Math.min(0.5 / outer, ((end - start) * TURN) / 4) : 0;
+          const [a, b] = [start * TURN - TURN / 4 + gap, end * TURN - TURN / 4 - gap];
+          const path = new Path2D();
+          path.arc(cx, cy, outer, a, b);
+          path.arc(cx, cy, hole, b, a, true);
+          path.closePath();
+          slices.push({ path, from: first, to: i + 1, lead });
+        }
+        [first, start] = [i + 1, end];
+      }
       // Where a slice's label and its tooltip sit: half-way round it and half-way out.
       const anchor = (i: number) => {
         const middle = (((ends[i - 1] ?? 0) + ends[i]!) / 2) * TURN - TURN / 4;
@@ -74,7 +83,8 @@ export function arcs(o: ArcsOptions): Mark {
         ? undefined
         : Array.from(ends, (end, i) => {
             const share = end - (ends[i - 1] ?? 0);
-            const text = slices[i] ? said(i, share) : '';
+            // A slice narrower at the rim than one character has no room, so it is not asked.
+            const text = share * TURN * outer >= 7 * dpr ? said(i, share) : '';
             const [x, y] = anchor(i);
             if (!text || !within(i, x, y, text.length * 7 * dpr, 16 * dpr)) return undefined;
             return { x, y, text, color: '#fff', priority: share };
@@ -82,12 +92,11 @@ export function arcs(o: ArcsOptions): Mark {
       return {
         labels,
         paint(k, row, rest = 1) {
-          slices.forEach((path, i) => {
-            if (!path) return;
-            ctx.globalAlpha = alpha * k * (row === undefined || row === i ? 1 : rest);
-            ctx.fillStyle = shade(i);
+          for (const { path, from, to, lead } of slices) {
+            ctx.globalAlpha = alpha * k * (row === undefined || (row >= from && row < to) ? 1 : rest);
+            ctx.fillStyle = shade(lead);
             ctx.fill(path);
-          });
+          }
         },
         // A slice holds its starting edge and not its ending one. Reported at the slice's middle.
         hit(px, py, reach) {
@@ -95,8 +104,14 @@ export function arcs(o: ArcsOptions): Mark {
           const far = Math.hypot(dx, dy);
           if (far < hole || far > outer || !outer) return null;
           const share = turnAt(dx, dy);
-          const row = ends.findIndex((end, i) => share < end && end > (ends[i - 1] ?? 0));
-          if (row < 0) return null;
+          // The first slice to end past the pointer, which is one with a width.
+          let [row, past] = [0, n];
+          while (row < past) {
+            const mid = (row + past) >> 1;
+            if (ends[mid]! > share) past = mid;
+            else row = mid + 1;
+          }
+          if (row >= n) return null;
           const [x, y] = anchor(row);
           return {
             x: (x - left) / width,
