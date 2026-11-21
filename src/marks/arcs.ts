@@ -1,4 +1,5 @@
 import type { Col, Mark } from '../types.js';
+import { TURN, turnAt } from './common.js';
 
 /**
  * Slices of a pie, or of a ring when `inner` (the hole's share of the radius) is above 0, for a
@@ -18,8 +19,6 @@ export type ArcsOptions = {
   label?: string;
   group?: string;
 };
-
-const TURN = 2 * Math.PI;
 
 export function arcs(o: ArcsOptions): Mark {
   const { values, colors, inner = 0, alpha = 1 } = o;
@@ -84,7 +83,7 @@ export function arcs(o: ArcsOptions): Mark {
           [r, b],
           [l, b],
         ].every(([px, py]) => {
-          const share = ((((Math.atan2(py!, px!) + TURN / 4) / TURN) % 1) + 1) % 1;
+          const share = turnAt(px!, py!);
           return share >= from && share < to;
         });
       };
@@ -112,7 +111,7 @@ export function arcs(o: ArcsOptions): Mark {
           const [dx, dy] = [px * dpr - cx, py * dpr - cy];
           const far = Math.hypot(dx, dy);
           if (far < hole || far > outer || !outer) return null;
-          const share = ((((Math.atan2(dy, dx) + TURN / 4) / TURN) % 1) + 1) % 1;
+          const share = turnAt(dx, dy);
           const row = ends.findIndex((end, i) => share < end && end > (ends[i - 1] ?? 0));
           if (row < 0) return null;
           const [x, y] = anchor(row);

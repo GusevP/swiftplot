@@ -18,6 +18,8 @@ import {
   legend,
   line,
   plot,
+  radar,
+  radialBars,
   sankey,
   sequential,
   stack,
@@ -2654,9 +2656,14 @@ test('a funnel is hit where it is painted, and keeps text off its sloping sides'
   expect(beside.map(d => [d.textContent, d.style.color])).toEqual([['Carts step', '']]);
   // The second stage runs from y = 40 to 79 and from a half-width of 45 down to 7.5; the text is
   // 16 px tall about its middle, and must start to the right of the stage's edge at its top.
-  const edgeAtTop = 150 + 45 - 37.5 * ((59.5 - 8 - 40) / 39);
-  expect(parseFloat(beside[0]!.style.left)).toBeGreaterThan(edgeAtTop);
-  expect(parseFloat(beside[0]!.style.left)).toBeLessThan(edgeAtTop + 12);
+  // The half-widths are 150, 45 and 7.5, so the side leans by the harmonic mean of -105 and
+  // -37.5 where the stage starts and is upright where it ends; a straight side would be 5 px out.
+  const u = (59.5 - 8 - 40) / 39;
+  const lean = (2 * 105 * 37.5) / -(105 + 37.5);
+  const edgeAtTop =
+    150 + 45 * (1 + 2 * u) * (1 - u) ** 2 + lean * u * (1 - u) ** 2 + 7.5 * u * u * (3 - 2 * u);
+  expect(parseFloat(beside[0]!.style.left)).toBeGreaterThan(edgeAtTop + 7);
+  expect(parseFloat(beside[0]!.style.left)).toBeLessThan(edgeAtTop + 9);
 
   const cramped = host();
   plot(cramped, {
@@ -2681,4 +2688,202 @@ test('the ends of a colour strip are told apart however close they are', () => {
   });
   const strip = [...el.querySelectorAll('span')].find(s => s.style.backgroundImage)!;
   expect(strip.parentElement!.textContent).toBe('10001001');
+});
+
+test('a radar draws rings and spokes once, a shape per series, and answers at its corners', () => {
+  const el = host();
+  let chart!: Internals;
+  const axes = ['A', 'B', 'C', 'D'];
+  const spy: Options['use'] = [c => ((chart = c), { destroy() {} })];
+  plot(el, {
+    ...pie,
+    marks: radar({ axes, max: 1, series: [{ values: [1, 1, 1, 1], color: RED, label: 'a' }] }),
+    use: spy,
+  });
+  // Names take 19 px at the sides and 22 px above and below, so the rim is 28 px out.
+  expect(pixel(el, 50, 22)).toEqual(RED_PIXEL);
+  const filled = pixel(el, 57, 56);
+  expect(filled[0]).toBeGreaterThan(200);
+  expect(filled[3]).toBeGreaterThan(20);
+  expect(filled[3]).toBeLessThan(60);
+  expect(pixel(el, 70, 30)[3]).toBe(0);
+  expect(labelsOf(el).map(d => d.textContent)).toEqual(expect.arrayContaining([...axes, '1']));
+  expect(chart.hit(78, 50, 5)).toMatchObject({ row: 1, mark: { label: 'a' } });
+  expect(chart.hit(60, 60, 5)).toBeNull();
+
+  const empty = host();
+  plot(empty, { ...pie, marks: radar({ axes: [], series: [{ values: [], color: RED }] }) });
+  expect(labelsOf(empty)).toHaveLength(0);
+  expect(() =>
+    plot(host(), {
+      ...pie,
+      marks: radar({ axes, series: [{ values: [NaN, -1, Infinity, 1e308], color: RED }] }),
+    }),
+  ).not.toThrow();
+});
+
+test('a radar keeps its grid while a series is dimmed, and moves every series when the rim changes', () => {
+  const el = host();
+  let chart!: Internals;
+  const axes = ['A', 'B', 'C', 'D'];
+  const a = { values: [0.5, 0.5, 0.5, 0.5], color: RED, label: 'a' };
+  const b = { values: [0.25, 0.25, 0.25, 0.25], color: BLUE, label: 'b' };
+  const drawn = plot(el, {
+    ...pie,
+    dim: 0.2,
+    marks: radar({ axes, max: 1, series: [a, b] }),
+    use: [
+      tooltip({ mode: 'nearest', text: (label, _x, _y, row) => `${label} ${row}` }),
+      c => ((chart = c), { destroy() {} }),
+    ],
+  });
+  const spoke = pixel(el, 50, 30);
+  expect(spoke[3]).toBeGreaterThan(0);
+  expect(pixel(el, 57, 50)).toEqual([0, 0, 255, 255]);
+  expect(hover(el, 64, 50).innerText).toContain('a 1');
+  expect(pixel(el, 50, 30)).toEqual(spoke);
+  expect(pixel(el, 57, 50)).not.toEqual([0, 0, 255, 255]);
+
+  drawn.update({ marks: radar({ axes, series: [a, { ...b, values: [2, 2, 2, 2] }] }) });
+  expect(chart.hit(64, 50, 3)).toBeNull();
+  expect(chart.hit(57, 50, 3)).toMatchObject({ row: 1, mark: { label: 'a' } });
+  expect(chart.hit(78, 50, 3)).toMatchObject({ row: 1, mark: { label: 'b' } });
+});
+
+test('radial bars bend each value round its own ring and leave the last quarter for names', () => {
+  const el = host();
+  let chart!: Internals;
+  plot(el, {
+    ...pie,
+    width: 200,
+    height: 200,
+    dim: 0.2,
+    marks: [radialBars({ values: [1, 0.5], max: 1, colors: [RED, BLUE], labels: ['x', 'y'] })],
+    use: [
+      tooltip({ mode: 'nearest', text: (label, _x, _y, row) => `${label} ${row}` }),
+      c => ((chart = c), { destroy() {} }),
+    ],
+  });
+  // Rings of 67 to 100 px and 32 to 65 px from the centre.
+  expect(pixel(el, 183, 100)).toEqual(RED_PIXEL);
+  expect(pixel(el, 100, 183)).toEqual(RED_PIXEL);
+  expect(pixel(el, 40, 40)[3]).toBe(0);
+  expect(pixel(el, 148, 100)).toEqual([0, 0, 255, 255]);
+  const track = pixel(el, 100, 148);
+  expect(track[3]).toBeGreaterThan(0);
+  expect(track[3]).toBeLessThan(40);
+  expect(labelsOf(el).map(d => d.textContent)).toEqual(['x', 'y']);
+  expect(chart.hit(100, 148, 5)).toBeNull();
+  expect(chart.hit(40, 40, 5)).toBeNull();
+  expect(hover(el, 183, 100).innerText).toContain('x 0');
+  expect(pixel(el, 183, 100)).toEqual(RED_PIXEL);
+  expect(pixel(el, 148, 100)[3]).toBeLessThan(80);
+
+  expect(() => plot(host(), { ...pie, marks: [radialBars({ values: [], colors: [] })] })).not.toThrow();
+  expect(() =>
+    plot(host(), { ...pie, marks: [radialBars({ values: [NaN, -1, Infinity, 1e308, 0], colors: [RED] })] }),
+  ).not.toThrow();
+});
+
+test('a radar and radial bars put the largest and the smallest numbers there are on the rim', () => {
+  for (const v of [1.79e308, 1e-110, Number.MIN_VALUE]) {
+    const el = host();
+    let chart!: Internals;
+    plot(el, {
+      ...pie,
+      marks: radar({ axes: ['A', 'B', 'C', 'D'], series: [{ values: [v, v, v, v], color: RED }] }),
+      use: [c => ((chart = c), { destroy() {} })],
+    });
+    expect(pixel(el, 50, 22)).toEqual(RED_PIXEL);
+    expect(chart.hit(50, 22, 3)!.row).toBe(0);
+
+    // The bar ends within 2 degrees of three quarters of a turn: there at 265 degrees, gone at 272.
+    const bars = host();
+    plot(bars, {
+      ...pie,
+      width: 200,
+      height: 200,
+      marks: [radialBars({ values: [v], colors: [RED] })],
+      use: [c => ((chart = c), { destroy() {} })],
+    });
+    const round = (degrees: number) => {
+      const angle = ((degrees - 90) * Math.PI) / 180;
+      return [Math.round(100 + 83 * Math.cos(angle)), Math.round(100 + 83 * Math.sin(angle))] as const;
+    };
+    expect(pixel(bars, ...round(265))).toEqual(RED_PIXEL);
+    expect(chart.hit(...round(265), 3)!.row).toBe(0);
+    expect(pixel(bars, ...round(272))[3]).toBe(0);
+    expect(chart.hit(...round(272), 3)).toBeNull();
+  }
+});
+
+test('a radar with one long name keeps its shape, and is hit where its corner is painted', () => {
+  for (const axes of [['Thirteen chars'], ['Thirteen chars', 'Another long one']]) {
+    const el = host();
+    let chart!: Internals;
+    plot(el, {
+      ...pie,
+      width: 200,
+      height: 200,
+      marks: radar({ axes, max: 1, series: [{ values: [1, 1], color: RED }] }),
+      use: [c => ((chart = c), { destroy() {} })],
+    });
+    // Upright spokes need 22 px above and below, whatever the length of their names.
+    expect(pixel(el, 100, 22)).toEqual(RED_PIXEL);
+    expect(chart.hit(100, 22, 3)!.row).toBe(0);
+    expect(labelsOf(el).map(d => d.textContent)).toEqual(expect.arrayContaining(axes));
+  }
+});
+
+test('a backdrop that could go on WebGL stays on the canvas and is not dimmed', () => {
+  const el = host();
+  let chart!: Internals;
+  plot(el, {
+    ...frame,
+    dim: 0.2,
+    marks: [
+      { ...pile(30_000), backdrop: true },
+      { ...flat(0.2), group: 'a' },
+      { ...flat(0.8), group: 'b' },
+    ],
+    use: [c => ((chart = c), { destroy() {} })],
+  });
+  expect(el.querySelectorAll('canvas')).toHaveLength(1);
+  expect(pixel(el, 50, 50)).toEqual(RED_PIXEL);
+  const line = pixel(el, 30, 20);
+  chart.focus('a');
+  expect(pixel(el, 50, 50)).toEqual(RED_PIXEL);
+  expect(pixel(el, 30, 20)[3]).toBeLessThan(line[3]!);
+});
+
+test('a sankey path does not pass through a link that carries nothing', () => {
+  const el = host();
+  let chart!: Internals;
+  plot(el, {
+    ...blank,
+    width: 300,
+    height: 100,
+    dim: 0.2,
+    marks: [
+      sankey({
+        nodes: ['A', 'B', 'C', 'D'],
+        source: [0, 1, 2],
+        target: [1, 2, 3],
+        value: [1, 0, 1],
+        colors: [RED],
+        text: false,
+      }),
+    ],
+    use: [c => ((chart = c), { destroy() {} })],
+  });
+  const find = (row: number) => {
+    for (let y = 1; y < 100; y += 2)
+      for (let x = 1; x < 300; x += 2) if (chart.hit(x, y, 0)?.row === row) return [x, y] as const;
+    throw new Error(`row ${row} is nowhere`);
+  };
+  const [first, last, start] = [find(4), find(6), find(0)];
+  const before = [pixel(el, ...first)[3]!, pixel(el, ...last)[3]!];
+  chart.focus(null, { mark: chart.marks()[0]!, row: chart.hit(...start, 0)!.row! });
+  expect(pixel(el, ...first)[3]).toBe(before[0]);
+  expect(pixel(el, ...last)[3]).toBeLessThan(before[1]!);
 });

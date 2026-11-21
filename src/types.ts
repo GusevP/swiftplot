@@ -110,6 +110,8 @@ export type Mark = {
    * values that get the first and the last of them. A legend draws it as a strip.
    */
   ramp?(): { table: Uint32Array; lo: number; hi: number };
+  /** Drawn at full strength whatever is focused, and always on the canvas: a grid behind other marks, say. */
+  backdrop?: true;
   /** A reveal uncovers the chart downwards when a mark asks for it; otherwise from the left. */
   reveal?: 'down';
   /**

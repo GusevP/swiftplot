@@ -2,7 +2,7 @@
 
 Small, fast charts on Canvas 2D and WebGL2. MIT, TypeScript, ESM only, no dependencies.
 
-**Status: prototype.** It draws lines and areas (straight or stepped), bars, box plots, error bars, heatmaps, tick marks and scatter dots on linear, time and category axes, and pies, donuts, funnels and sankey diagrams, with a hover tooltip, dim-the-others on hover and optional animation. A chart can be updated and follows its container when no size is given. There is a legend; there is no zoom or pan yet.
+**Status: prototype.** It draws lines and areas (straight or stepped), bars, box plots, error bars, heatmaps, tick marks and scatter dots on linear, time and category axes, and pies, donuts, radars, radial bars, funnels and sankey diagrams, with a hover tooltip, dim-the-others on hover and optional animation. A chart can be updated and follows its container when no size is given. There is a legend; there is no zoom or pan yet.
 
 ## Use
 
@@ -23,12 +23,14 @@ chart.update({ marks: [dots({ x, y: y2, r, color: '#2563eb', label: 'Group 1' })
 chart.destroy();
 ```
 
-- **Marks** are imported functions: `line`, `area`, `bar`, `box`, `errorBars`, `heatmap`, `ticks`, `dots`, `arcs`, `funnel`, `sankey`. Only the ones you import are bundled.
+- **Marks** are imported functions: `line`, `area`, `bar`, `box`, `errorBars`, `heatmap`, `ticks`, `dots`, `arcs`, `radar`, `radialBars`, `funnel`, `sankey`. Only the ones you import are bundled.
 - **Lines and areas** are straight between points unless `curve: 'step'`. `area({ x, y })` fills from zero; `area({ x, y1, y2 })` is a band.
 - **Bars** have explicit bounds, `bar({ x1, x2, y1, y2 })`, so vertical, horizontal, grouped and stacked bars are the same mark. A single `y` (or `x`) starts at zero. On a category axis `const [x1, x2] = bands(7)` gives the bounds, and `bands(7, { slot: 0, of: 2 })` those of one series of a grouped chart.
 - **Box plots** take the five numbers as columns: `box({ x, ...fiveNumbers(groups), color })`. The whiskers go to the minimum and maximum; leave outliers out and draw them with `dots`.
 - **Heatmaps** are `heatmap({ values, columns, color: sequential({ stops }) })`, with cell (c, r) centred on x = c, y = r so it sits on band axes; `x` and `y` give the grid's outer edges instead. Create the colour scale once, outside the update, or every update repaints the grid.
 - **Pies and donuts** are `plot(el, { frame: 'polar', marks: [arcs({ values, colors, labels, inner: 0.6, text: true })] })`. A polar frame has no axes; slices start at twelve o'clock and run clockwise. `labels` give the legend one entry per slice, and `text` writes each slice's share on it where there is room. With `animate()` a pie is revealed by a sweep round the clock.
+- **Radars** are `plot(el, { frame: 'polar', marks: radar({ axes, series: [{ values, color, label }] }) })`. `radar()` returns several marks: the rings and spokes, then one per series, so series are named in a legend and dimmed like lines, and a hit's row is the spoke. The rim is `max`, or the largest value rounded up.
+- **Radial bars** are `plot(el, { frame: 'polar', marks: [radialBars({ values, max, colors, labels })] })`: one bar per value on its own ring, from twelve o'clock clockwise. Three quarters of a turn stand for `max`; the last quarter holds the names.
 - **Funnels** are `plot(el, { frame: 'blank', marks: [funnel({ values, colors, labels, text: true })] })`: equally tall stages, each as wide as its value against the largest.
 - **Sankey diagrams** are `sankey({ ...fromLinks(links), colors })` in a blank frame, where `links` is a list of `{ source, target, value }`. A cycle, a link to itself or a link to an unknown node throws. A hit's row is the node, or `nodes.length` plus the link.
 - **Labels on shapes** (slices, stages, nodes) are drawn where they fit and left out where they would overlap or run off the chart.

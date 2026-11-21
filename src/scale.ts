@@ -37,8 +37,10 @@ export function scale(domain: Axis['domain'], of: [number, number], room?: Room)
     hi += pad;
   }
   // The bounds are rounded to this step whatever the room, so they hold still when the chart is resized.
-  const step = niceStep(hi - lo);
-  if (domain === 'nice') [lo, hi] = [Math.floor(lo / step) * step, Math.ceil(hi / step) * step];
+  // A span too small to divide is its own step, and a bound rounded past the largest number stays on it.
+  const step = niceStep(hi - lo) || hi - lo;
+  const held = (v: number) => Math.max(-Number.MAX_VALUE, Math.min(Number.MAX_VALUE, v));
+  if (domain === 'nice') [lo, hi] = [held(Math.floor(lo / step) * step), held(Math.ceil(hi / step) * step)];
   const at = (tick: number) => {
     const digits = Math.max(0, -Math.floor(Math.log10(tick)));
     const first = Math.ceil(lo / tick);
@@ -46,7 +48,8 @@ export function scale(domain: Axis['domain'], of: [number, number], room?: Room)
     // Counted, not run until past hi: beyond 2^53 a step no longer changes the value, and a loop
     // on the value would never end. Equal neighbours are what such a step leaves behind.
     for (let k = 0; k < 1000 && (first + k) * tick <= hi; k++) {
-      const v = +((first + k) * tick).toFixed(digits);
+      // toFixed takes at most 100 decimals; a smaller tick is cleaned to 15 significant digits.
+      const v = +(digits > 100 ? ((first + k) * tick).toPrecision(15) : ((first + k) * tick).toFixed(digits));
       if (v !== ticks.at(-1)) ticks.push(v);
     }
     return ticks;

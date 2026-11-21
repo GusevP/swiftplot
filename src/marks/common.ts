@@ -16,6 +16,11 @@ export const base = (type: string, o: Common, x: Col[], y: Col[]) =>
 
 export type Curve = 'linear' | 'step';
 
+export const TURN = 2 * Math.PI;
+
+/** How far round the clock from twelve the point (dx, dy) from the centre is, from 0 up to 1. */
+export const turnAt = (dx: number, dy: number) => ((((Math.atan2(dy, dx) + TURN / 4) / TURN) % 1) + 1) % 1;
+
 /**
  * One min, max and last y per device-pixel column. x must be ascending.
  * `first` (each column's first y) and `at` (its exact x) are kept only with `straight`;

@@ -6,7 +6,7 @@ import type { Col, Label, Mark } from '../types.js';
  * name. A node is as tall as the larger of what flows in and what flows out. A link whose value
  * is negative or not a number counts as 0. Rows are the nodes first, then the links, so a hit on
  * link i has the row nodes.length + i. Pointing at a node or a link also picks out all that flows
- * into it and out of it. A link to an unknown node, a link from a node to itself,
+ * into it and out of it, through links that carry something. A link to an unknown node, a link from a node to itself,
  * and a cycle throw.
  * ponytail: a node sits one column after its furthest source, and each column is ordered by one
  * sweep forwards and one back; more sweeps or a relaxation when crossings matter. A pointer move
@@ -129,6 +129,7 @@ export function sankey(o: SankeyOptions): Mark {
       rows.add(from);
       for (let node = todo.pop(); node !== undefined; node = todo.pop()) {
         for (const i of near[node]!) {
+          if (!value[i]) continue;
           rows.add(n + i);
           if (!rows.has(far[i]!)) todo.push(far[i]!);
           rows.add(far[i]!);

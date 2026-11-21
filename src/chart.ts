@@ -320,8 +320,9 @@ export function plot(el: HTMLElement, options: Options): Chart {
   };
 
   const prepare = (viewChanged: boolean) => {
-    const make = makeGl ?? marks.find(k => k.gl)?.gl?.layer;
-    const onLayer = (k: Mark) => !!k.gl && k.gl.layer === make;
+    // A backdrop stays on the canvas: the WebGL layer is dimmed as one when a group is focused.
+    const make = makeGl ?? marks.find(k => k.gl && !k.backdrop)?.gl?.layer;
+    const onLayer = (k: Mark) => !!k.gl && !k.backdrop && k.gl.layer === make;
     let useGl = marks.reduce((n, k) => n + (onLayer(k) ? k.points : 0), 0) >= GL_FROM;
     if (useGl && gl === undefined) {
       makeGl = make!;
@@ -404,7 +405,7 @@ export function plot(el: HTMLElement, options: Options): Chart {
     const others = lit !== null || (only && several) ? dim : 1;
     for (const [k, p] of flat) {
       if (k === only?.mark) p.paint(1, only.row, dim);
-      else if (k.group !== lit) p.paint(others);
+      else if (k.group !== lit) p.paint(k.backdrop ? 1 : others);
     }
     for (const [k, p] of flat) if (k.group === lit) p.paint(1);
     ctx.restore();
