@@ -91,6 +91,29 @@ test('columns keeps the min, max and last y of each pixel column', () => {
   ]);
 });
 
+test('columns ends a run at a value that is not finite, splitting the pixel column it falls in', () => {
+  const x = [0, 0.1, 0.2, 1, 1.1, 1.2, 2, 2.1, 3, 3.1, 4];
+  const y = [NaN, 9, 4, 5, NaN, 7, 3, NaN, Infinity, NaN, 2];
+  const c = columns(x, y, 0, 1, 10, 1, true);
+  expect(c.n).toBe(5);
+  expect(c.runs).toEqual([
+    [0, 2],
+    [2, 4],
+    [4, 5],
+  ]);
+  expect(c.real).toBe(6);
+  expect([...c.col.subarray(0, 5)]).toEqual([0, 1, 1, 2, 4]);
+  expect([...c.lo.subarray(0, 5)]).toEqual([1, 5, 3, 7, 8]);
+  expect([...c.hi.subarray(0, 5)]).toEqual([6, 5, 3, 7, 8]);
+  expect([...c.first.subarray(0, 5)]).toEqual([1, 5, 3, 7, 8]);
+  expect([...c.last.subarray(0, 5)]).toEqual([6, 5, 3, 7, 8]);
+  expect(columns([0, 1, 2], [1, 1, 1], 0, 1, 10, 1, false, [0, NaN, 0]).runs).toEqual([
+    [0, 1],
+    [1, 2],
+  ]);
+  expect(columns([0, 1], [NaN, NaN], 0, 1, 10, 1)).toMatchObject({ n: 0, runs: [], real: 0 });
+});
+
 test('a nice domain widens to whole steps and an explicit one is kept', () => {
   expect(scale('nice', [3, 97])).toEqual({
     lo: 0,
@@ -890,6 +913,142 @@ test('a histogram is the bins handed to the bar mark', () => {
 const RED_PIXEL = [255, 0, 0, 255];
 const fakeClock = () =>
   vi.useFakeTimers({ toFake: ['requestAnimationFrame', 'cancelAnimationFrame', 'performance'] });
+
+const CURVES = ['linear', 'step', 'smooth'] as const;
+const GAP_X = [0, 2, 4, 5, 6, 8, 10];
+const clear = { ...frame, x: bare([0, 10]), y: bare([0, 1]) };
+const gapped = (v: number, missing = NaN) => [v, v, v, missing, v, v, v];
+
+test('a value that is not finite leaves a gap in a line, whatever its curve', () => {
+  for (const curve of CURVES) {
+    for (const missing of [NaN, Infinity, -Infinity]) {
+      const el = host();
+      plot(el, {
+        ...clear,
+        marks: [line({ x: GAP_X, y: gapped(0.5, missing), curve, color: RED, width: 4 })],
+      });
+      expect(pixel(el, 20, 50), curve).toEqual(RED_PIXEL);
+      expect(pixel(el, 80, 50), curve).toEqual(RED_PIXEL);
+      expect(pixel(el, 50, 50)[3], `${curve} ${missing}`).toBe(0);
+    }
+
+    const ends = host();
+    plot(ends, {
+      ...clear,
+      marks: [line({ x: [0, 2, 8, 10], y: [NaN, 0.5, 0.5, NaN], curve, color: RED, width: 4 })],
+    });
+    expect(pixel(ends, 50, 50), curve).toEqual(RED_PIXEL);
+
+    const lone = host();
+    plot(lone, {
+      ...clear,
+      marks: [line({ x: [0, 2, 5, 8, 10], y: [0.5, NaN, 0.5, NaN, 0.5], curve, color: RED, width: 4 })],
+    });
+    for (const at of [1, 30, 50, 70, 99]) expect(pixel(lone, at, 50)[3], `${curve} ${at}`).toBe(0);
+  }
+});
+
+test('a smooth line curves each run between gaps on its own', () => {
+  const el = host();
+  plot(el, {
+    ...clear,
+    width: 400,
+    marks: [line({ x: GAP_X, y: [0, 1, 0, NaN, 0, 1, 0], curve: 'smooth', color: RED, width: 4 })],
+  });
+  for (const at of [40, 120, 280, 360]) {
+    expect(pixel(el, at, 50), `straight at ${at}`).toEqual([0, 0, 0, 0]);
+    expect(pixel(el, at, 38), `curved at ${at}`).toEqual(RED_PIXEL);
+  }
+  expect(pixel(el, 200, 99)[3]).toBe(0);
+});
+
+test('a value missing from an area, or from either of its bounds, leaves it empty there', () => {
+  for (const curve of CURVES) {
+    for (const o of [
+      { y: gapped(0.5) },
+      { y1: gapped(0.2), y2: gapped(0.8, 0.8) },
+      { y1: gapped(0.2, 0.2), y2: gapped(0.8) },
+    ]) {
+      const el = host();
+      plot(el, { ...clear, marks: [area({ x: GAP_X, ...o, curve, color: RED })] });
+      expect(pixel(el, 20, 60), curve).toEqual(RED_PIXEL);
+      expect(pixel(el, 80, 60), curve).toEqual(RED_PIXEL);
+      expect(pixel(el, 50, 60)[3], `${curve} ${Object.keys(o).join()}`).toBe(0);
+    }
+  }
+});
+
+test('a shade under a line and a blended area close one shape per run around a gap', () => {
+  const shaded = host();
+  plot(shaded, { ...clear, marks: [line({ x: GAP_X, y: gapped(0.8), color: RED, width: 2, fill: true })] });
+  expect(pixel(shaded, 20, 60)[3]).toBeGreaterThan(0);
+  expect(pixel(shaded, 80, 60)[3]).toBeGreaterThan(0);
+  expect(pixel(shaded, 50, 60)[3]).toBe(0);
+
+  const blended = host();
+  plot(blended, {
+    ...clear,
+    marks: [area({ x: GAP_X, y: gapped(0.8), color: RED, fill: gradient(0.4, 0) })],
+  });
+  expect(pixel(blended, 20, 30)[3]).toBeGreaterThan(0);
+  expect(pixel(blended, 80, 30)[3]).toBeGreaterThan(0);
+  expect(pixel(blended, 50, 30)[3]).toBe(0);
+
+  const missing = host();
+  plot(missing, {
+    ...clear,
+    marks: [area({ x: [0, 10], y1: [NaN, NaN], y2: [NaN, NaN], color: RED, fill: gradient(0.4, 0) })],
+  });
+  expect(pixel(missing, 50, 50)[3]).toBe(0);
+});
+
+test('with more points than pixels, a pixel inside a run of missing values is empty', () => {
+  const x = Float64Array.from({ length: 10_000 }, (_, i) => i / 1000);
+  const y = Float64Array.from(x, v => ((v >= 4 && v < 6) || (v >= 7 && v < 8) ? NaN : 0.5));
+  const el = host();
+  plot(el, { ...clear, marks: [line({ x, y, color: RED, width: 4 })] });
+  expect(pixel(el, 20, 50)).toEqual(RED_PIXEL);
+  expect(pixel(el, 65, 50)).toEqual(RED_PIXEL);
+  expect(pixel(el, 50, 50)[3]).toBe(0);
+  expect(pixel(el, 75, 50)[3]).toBe(0);
+});
+
+test('a stacked layer with a missing value has no thickness there, and the layer above still sits on it', () => {
+  const x = [0, 5, 10];
+  const [bottom, top] = stack([
+    [0.3, NaN, 0.3],
+    [0.4, 0.4, 0.4],
+  ]);
+  expect(bottom!.y2[1]).toBe(bottom!.y1[1]);
+  expect(top!.y1[1]).toBe(bottom!.y2[1]);
+  const el = host();
+  plot(el, {
+    ...clear,
+    marks: [area({ x, ...bottom!, color: RED }), area({ x, ...top!, color: BLUE })],
+  });
+  expect(pixel(el, 50, 80)).toEqual([0, 0, 255, 255]);
+  expect(pixel(el, 2, 85)).toEqual(RED_PIXEL);
+  expect(pixel(el, 2, 50)).toEqual([0, 0, 255, 255]);
+});
+
+test('the x tooltip shows a dash for a line or an area at a gap', () => {
+  const el = host();
+  const x = [0, 4, 5, 6, 10];
+  plot(el, {
+    ...frame,
+    marks: [
+      line({ x, y: [0.5, 0.5, NaN, 0.5, 0.5], color: RED, label: 'L' }),
+      area({ x, y: [0.3, 0.3, NaN, 0.3, 0.3], color: RED, label: 'A' }),
+      area({ x, y1: [0, 0, NaN, 0, 0], y2: [0.2, 0.2, 0.2, 0.2, 0.2], color: RED, label: 'B' }),
+    ],
+    use: [tooltip({ mode: 'x', title: () => 'at', value: String })],
+  });
+  const root = hover(el, 45, 50);
+  for (const label of ['L', 'A', 'B']) expect(root.innerText).toContain(`${label}: –`);
+  hover(el, 20, 50);
+  expect(root.innerText).toContain('L: 0.5');
+  expect(root.innerText).toContain('B: 0.2');
+});
 
 test("with enter: 'fade' marks appear together, over a grid that is there from the start", () => {
   fakeClock();

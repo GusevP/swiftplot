@@ -25,35 +25,39 @@ export function line(o: LineOptions): Mark {
     overhang: width / 2,
     prepare({ ctx, dpr, ox, kx, oy, ky, left, top, width: wide, height }) {
       const c = columns(x, y, ox, kx, oy, ky, !step);
-      const path = new Path2D();
-      const curved = curve === 'smooth' && c.n === x.length && c.n > 1;
-      if (curved) {
-        path.moveTo(c.at[0]!, c.first[0]!);
-        smooth(path, c.at, c.first, c.n);
-      }
-      const ink = painter(ctx, o.stroke, color)([left, top, left + wide, top + height]);
-      for (let i = 0; i < c.n && !curved; i++) {
-        const px = step ? c.col[i]! : c.at[i]!;
-        if (!i) path.moveTo(px, step ? c.last[0]! : c.first[0]!);
-        else path.lineTo(px, step ? c.last[i - 1]! : c.first[i]!);
-        if (c.lo[i] !== c.hi[i]) {
-          path.lineTo(px, c.lo[i]!);
-          path.lineTo(px, c.hi[i]!);
+      const cx = step ? c.col : c.at;
+      const curved = curve === 'smooth' && c.n === c.real;
+      const trace = (path: Path2D, a: number, b: number) => {
+        if (curved) {
+          path.moveTo(c.at[a]!, c.first[a]!);
+          smooth(path, c.at.subarray(a, b), c.first.subarray(a, b), b - a);
+          return;
         }
-        path.lineTo(px, c.last[i]!);
-      }
+        for (let i = a; i < b; i++) {
+          const px = cx[i]!;
+          if (i === a) path.moveTo(px, step ? c.last[i]! : c.first[i]!);
+          else path.lineTo(px, step ? c.last[i - 1]! : c.first[i]!);
+          if (c.lo[i] !== c.hi[i]) {
+            path.lineTo(px, c.lo[i]!);
+            path.lineTo(px, c.hi[i]!);
+          }
+          path.lineTo(px, c.last[i]!);
+        }
+      };
+      const path = new Path2D();
+      for (const [a, b] of c.runs) trace(path, a, b);
+      const ink = painter(ctx, o.stroke, color)([left, top, left + wide, top + height]);
       let under: Path2D | undefined;
       let shade: string | CanvasGradient = color;
       if (o.fill && c.n) {
-        const [from, to, floor] = [
-          step ? c.col[0]! : c.at[0]!,
-          step ? c.col[c.n - 1]! : c.at[c.n - 1]!,
-          top + height,
-        ];
-        under = new Path2D(path);
-        under.lineTo(to, floor);
-        under.lineTo(from, floor);
-        under.closePath();
+        const floor = top + height;
+        under = new Path2D();
+        for (const [a, b] of c.runs) {
+          trace(under, a, b);
+          under.lineTo(cx[b - 1]!, floor);
+          under.lineTo(cx[a]!, floor);
+          under.closePath();
+        }
         let high = floor;
         for (let i = 0; i < c.n; i++) high = Math.min(high, c.lo[i]!);
         shade = painter(

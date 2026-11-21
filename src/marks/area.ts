@@ -25,53 +25,55 @@ export function area(o: AreaOptions): Mark {
       // A step line holds its last value, but the fill ends at the last x.
       if (v > x[x.length - 1]!) return undefined;
       const top = sampleAt(x, y2, v, step);
-      if (top === undefined) return undefined;
-      const bottom = y1 ? sampleAt(x, y1, v, step)! : 0;
+      const bottom = y1 ? sampleAt(x, y1, v, step) : 0;
+      if (top === undefined || bottom === undefined) return undefined;
       return { value: top - bottom, y1: bottom, y2: top };
     },
     prepare({ ctx, ox, kx, oy, ky, left, width }) {
-      const u = columns(x, y2, ox, kx, oy, ky, !step);
+      // Both outlines break where either value is missing, so their runs share their columns.
+      const u = columns(x, y2, ox, kx, oy, ky, !step, y1);
+      const l = y1 && columns(x, y1, ox, kx, oy, ky, !step, y2);
       const ux = step ? u.col : u.at;
+      const lx = l && (step ? l.col : l.at);
+      const curved = curve === 'smooth' && u.n === u.real;
       const path = new Path2D();
-      const l = y1 && columns(x, y1, ox, kx, oy, ky, !step);
-      const curved = curve === 'smooth' && u.n === x.length && u.n > 1 && (!l || l.n === u.n);
-      if (curved) {
-        path.moveTo(u.at[0]!, u.first[0]!);
-        smooth(path, u.at, u.first, u.n);
-        if (l) {
-          path.lineTo(l.at[l.n - 1]!, l.first[l.n - 1]!);
-          smooth(path, l.at, l.first, l.n, true);
+      for (const [a, b] of u.runs) {
+        if (curved) {
+          path.moveTo(u.at[a]!, u.first[a]!);
+          smooth(path, u.at.subarray(a, b), u.first.subarray(a, b), b - a);
+          if (l) {
+            path.lineTo(l.at[b - 1]!, l.first[b - 1]!);
+            smooth(path, l.at.subarray(a, b), l.first.subarray(a, b), b - a, true);
+          }
         } else {
-          path.lineTo(u.at[u.n - 1]!, oy);
-          path.lineTo(u.at[0]!, oy);
+          for (let i = a; i < b; i++) {
+            const px = ux[i]!;
+            if (i === a) path.moveTo(px, step ? u.lo[i]! : u.first[i]!);
+            else path.lineTo(px, step ? u.last[i - 1]! : u.first[i]!);
+            path.lineTo(px, u.lo[i]!);
+            path.lineTo(px, u.last[i]!);
+          }
+          for (let i = b - 1; l && i >= a; i--) {
+            const px = lx![i]!;
+            path.lineTo(px, l.last[i]!);
+            path.lineTo(px, l.hi[i]!);
+            if (!step || i > a) path.lineTo(px, step ? l.last[i - 1]! : l.first[i]!);
+          }
         }
+        if (!l) {
+          path.lineTo(ux[b - 1]!, oy);
+          path.lineTo(ux[a]!, oy);
+        }
+        path.closePath();
       }
       // How far up and down the area reaches, for a blend to run across.
       let [high, low] = l ? [Infinity, -Infinity] : [oy, oy];
       for (const c of l ? [u, l] : [u]) {
         for (let i = 0; i < c.n; i++) [high, low] = [Math.min(high, c.lo[i]!), Math.max(low, c.hi[i]!)];
       }
-      const ink = painter(ctx, o.fill, color)([left, high, left + width, low], l ? undefined : oy);
-      for (let i = 0; i < u.n && !curved; i++) {
-        const px = ux[i]!;
-        if (!step || i) path.lineTo(px, step ? u.last[i - 1]! : u.first[i]!);
-        path.lineTo(px, u.lo[i]!);
-        path.lineTo(px, u.last[i]!);
-      }
-      if (!curved && !l) {
-        if (u.n) {
-          path.lineTo(ux[u.n - 1]!, oy);
-          path.lineTo(ux[0]!, oy);
-        }
-      } else if (!curved && l) {
-        const lx = step ? l.col : l.at;
-        for (let i = l.n - 1; i >= 0; i--) {
-          const px = lx[i]!;
-          path.lineTo(px, l.last[i]!);
-          path.lineTo(px, l.hi[i]!);
-          if (!step || i) path.lineTo(px, step ? l.last[i - 1]! : l.first[i]!);
-        }
-      }
+      const ink = u.n
+        ? painter(ctx, o.fill, color)([left, high, left + width, low], l ? undefined : oy)
+        : color;
       return {
         paint(a) {
           ctx.globalAlpha = alpha * a;

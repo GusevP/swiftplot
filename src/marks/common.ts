@@ -1,6 +1,12 @@
 import type { Col, Mark } from '../types.js';
 
-export type Common = { key?: string; label?: string; group?: string; color: string; alpha?: number };
+export type Common = {
+  key?: string;
+  label?: string;
+  group?: string;
+  color: string;
+  alpha?: number;
+};
 
 export const base = (type: string, o: Common, x: Col[], y: Col[]) =>
   ({
@@ -74,8 +80,20 @@ export const turnAt = (dx: number, dy: number) => ((((Math.atan2(dy, dx) + TURN 
  * One min, max and last y per device-pixel column. x must be ascending.
  * `first` (each column's first y) and `at` (its exact x) are kept only with `straight`;
  * without it they alias `lo` and must not be read.
+ * A y that is not finite, or a value of `also` at the same row that is not, ends a run: `runs`
+ * holds each run's first column and the column after its last, and a pixel column a run ends in
+ * is split. `real` counts the values kept.
  */
-export function columns(x: Col, y: Col, ox: number, kx: number, oy: number, ky: number, straight = false) {
+export function columns(
+  x: Col,
+  y: Col,
+  ox: number,
+  kx: number,
+  oy: number,
+  ky: number,
+  straight = false,
+  also?: Col,
+) {
   const n = x.length;
   const col = new Int32Array(n);
   const lo = new Float64Array(n);
@@ -83,13 +101,24 @@ export function columns(x: Col, y: Col, ox: number, kx: number, oy: number, ky: 
   const last = new Float64Array(n);
   const first = straight ? new Float64Array(n) : lo;
   const at = straight ? new Float64Array(n) : lo;
+  const runs: [number, number][] = [];
+  let cut = true;
+  let real = 0;
   let k = -1;
   for (let i = 0; i < n; i++) {
     const p = ox + x[i]! * kx;
     const c = Math.round(p);
     const v = oy - y[i]! * ky;
-    if (k < 0 || c !== col[k]) {
+    if (!Number.isFinite(v) || (also && !Number.isFinite(also[i]!))) {
+      cut = true;
+      continue;
+    }
+    real++;
+    if (cut || c !== col[k]) {
       k++;
+      if (cut) runs.push([k, k + 1]);
+      else runs[runs.length - 1]![1] = k + 1;
+      cut = false;
       col[k] = c;
       at[k] = p;
       first[k] = lo[k] = hi[k] = v;
@@ -97,7 +126,7 @@ export function columns(x: Col, y: Col, ox: number, kx: number, oy: number, ky: 
     else if (v > hi[k]!) hi[k] = v;
     last[k] = v;
   }
-  return { n: k + 1, col, lo, hi, last, first, at };
+  return { n: k + 1, col, lo, hi, last, first, at, runs, real };
 }
 
 /** y at v: the held sample of a step, the interpolated value of a straight line. */
@@ -112,6 +141,9 @@ export function sampleAt(x: Col, y: Col, v: number, step: boolean) {
   if (!a) return undefined;
   const x0 = x[a - 1]!;
   const y0 = y[a - 1]!;
-  if (step || x0 === v) return y0;
+  if (!Number.isFinite(y0)) return undefined;
+  if (x0 === v) return y0;
+  if (a < x.length && !Number.isFinite(y[a]!)) return undefined;
+  if (step) return y0;
   return a < x.length ? y0 + ((y[a]! - y0) * (v - x0)) / (x[a]! - x0) : undefined;
 }
