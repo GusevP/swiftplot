@@ -95,7 +95,9 @@ export function tooltip(t: TooltipOptions): Feature {
       show(px, m.top, rows);
       chart.focus(group);
     };
+    let seen: Event | undefined;
     const move = (e: PointerEvent) => {
+      seen = e;
       // Over another feature's layer, such as a legend, the focus is that feature's to set.
       if (e.target !== root) {
         at = null;
@@ -114,7 +116,7 @@ export function tooltip(t: TooltipOptions): Feature {
       if (e.pointerType !== 'touch') leave();
     };
     const away = (e: PointerEvent) => {
-      if (at && !e.composedPath().includes(root)) leave();
+      if (at && e !== seen) leave();
     };
     root.addEventListener('pointerdown', move);
     root.addEventListener('pointermove', move);

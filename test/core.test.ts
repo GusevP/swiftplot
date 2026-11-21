@@ -1869,32 +1869,35 @@ test('a tapped legend entry keeps its series highlighted after the finger lifts,
   expect(pixel(el, 150, internals.yPx(0.75))).toEqual([255, 0, 0, 255]);
 });
 
-test('in a shadow root a tapped tooltip and legend entry stay after the finger lifts', () => {
-  const el = host().attachShadow({ mode: 'open' }).appendChild(document.createElement('div'));
-  let internals!: Internals;
-  plot(el, {
-    ...frame,
-    width: 300,
-    dim: 0.3,
-    marks: [
-      dots({ x: [5], y: [0.5], r: [3], color: RED, label: 'A' }),
-      line({ x: [0, 10], y: [0.25, 0.25], color: RED, width: 4, label: 'bb' }),
-    ],
-    use: [
-      legend(),
-      tooltip({ mode: 'nearest', text: label => `tip ${label}` }),
-      c => ((internals = c), { destroy() {} }),
-    ],
-  });
-  const root = el.firstElementChild as HTMLElement;
-  const box = root.getBoundingClientRect();
-  touch(root, box.left + internals.xPx(5), box.top + internals.yPx(0.5));
-  expect(root.innerText).toContain('tip A');
-  const entry = [...el.querySelectorAll('span')].find(s => s.children.length)!;
-  const spot = entry.getBoundingClientRect();
-  touch(entry, spot.left + spot.width / 2, spot.top + spot.height / 2);
-  expect(pixel(el, 150, internals.yPx(0.25))[3]).toBeLessThan(100);
-});
+test.each(['open', 'closed'] as const)(
+  'in a %s shadow root a tapped tooltip and legend entry stay after the finger lifts',
+  mode => {
+    const el = host().attachShadow({ mode }).appendChild(document.createElement('div'));
+    let internals!: Internals;
+    plot(el, {
+      ...frame,
+      width: 300,
+      dim: 0.3,
+      marks: [
+        dots({ x: [5], y: [0.5], r: [3], color: RED, label: 'A' }),
+        line({ x: [0, 10], y: [0.25, 0.25], color: RED, width: 4, label: 'bb' }),
+      ],
+      use: [
+        legend(),
+        tooltip({ mode: 'nearest', text: label => `tip ${label}` }),
+        c => ((internals = c), { destroy() {} }),
+      ],
+    });
+    const root = el.firstElementChild as HTMLElement;
+    const box = root.getBoundingClientRect();
+    touch(root, box.left + internals.xPx(5), box.top + internals.yPx(0.5));
+    expect(root.innerText).toContain('tip A');
+    const entry = [...el.querySelectorAll('span')].find(s => s.children.length)!;
+    const spot = entry.getBoundingClientRect();
+    touch(entry, spot.left + spot.width / 2, spot.top + spot.height / 2);
+    expect(pixel(el, 150, internals.yPx(0.25))[3]).toBeLessThan(100);
+  },
+);
 
 test('destroying a chart removes the document listeners its tooltip and legend added', () => {
   const add = vi.spyOn(document, 'addEventListener');

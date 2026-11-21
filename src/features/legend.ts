@@ -119,7 +119,9 @@ export function legend(): Feature {
       point(item && shown.get(item));
       return item;
     };
+    let seen: Event | undefined;
     const move = (e: PointerEvent) => {
+      seen = e;
       at = over(e.target as Node) && [e.clientX, e.clientY];
     };
     const leave = () => {
@@ -130,7 +132,7 @@ export function legend(): Feature {
       if (e.pointerType !== 'touch') leave();
     };
     const away = (e: PointerEvent) => {
-      if (!e.composedPath().includes(root)) leave();
+      if (e !== seen) leave();
     };
     root.addEventListener('pointerdown', move, true);
     root.addEventListener('pointermove', move, true);
