@@ -1639,9 +1639,11 @@ test('twelve legend entries stay inside a 400 px chart, on as many rows as they 
     expect(box.left).toBeGreaterThanOrEqual(root.left);
     expect(box.right).toBeLessThanOrEqual(root.left + 400);
   }
-  const rows = new Set(items.map(i => i.parentElement)).size;
-  expect(rows).toBe(3);
-  expect(chart.margin().top).toBe(rows * 20 + 4);
+  const tops = [...new Set(items.map(i => i.getBoundingClientRect().top))].sort((a, b) => a - b);
+  expect(tops.slice(1).map((t, i) => t - tops[i]!)).toEqual([20, 20]);
+  const first = items[0]!.parentElement!.getBoundingClientRect();
+  const last = items.at(-1)!.parentElement!.getBoundingClientRect();
+  expect(chart.margin().top).toBe(last.bottom - first.top + 4);
 });
 
 test('y tick labels of twelve characters get a left margin of 14 plus 7 a character', () => {
