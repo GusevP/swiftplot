@@ -77,7 +77,9 @@ export function arcs(o: ArcsOptions): Mark {
         [first, start] = [i + 1, end];
       }
       // One paint for every slice: round the clock, each from faint at its start to full at its end.
-      const round = o.sweep !== undefined && ctx.createConicGradient?.(-TURN / 4, cx, cy);
+      // ponytail: past a few dozen slices a sweep in each cannot be seen and its stops slow every fill, so they stay solid.
+      const round =
+        o.sweep !== undefined && slices.length <= 64 && ctx.createConicGradient?.(-TURN / 4, cx, cy);
       for (const { lead, span } of round ? slices : []) {
         const [red, green, blue, a = 1] = rgba(ctx, shade(lead)).map((v, at) =>
           at < 3 ? Math.round(v * 255) : v,
