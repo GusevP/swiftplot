@@ -33,6 +33,7 @@ import {
   treemap,
 } from '../src/index.js';
 import type { Axis, Internals, Mark, Options } from '../src/index.js';
+import type { GlLayer } from '../src/types.js';
 import { columns } from '../src/marks/common.js';
 import { scale } from '../src/scale.js';
 
@@ -578,6 +579,52 @@ test('a destroyed chart does not repaint when destroy() loses its WebGL context'
   expect(paints).toBe(0);
 });
 
+/** A WebGL dots mark whose layer is made by `wrap` from the usual one, and whose GPU prepare rejects a lost context. */
+function wrapped(wrap: (layer: GlLayer) => GlLayer): Mark {
+  const base = pile(30_000);
+  const gl = base.gl!;
+  return {
+    ...base,
+    gl: {
+      ...gl,
+      layer: canvas => wrap(gl.layer(canvas)!),
+      prepare: (view, layer) => {
+        if (layer.gl.isContextLost()) throw new Error('prepared on a lost context');
+        return gl.prepare(view, layer);
+      },
+    },
+  };
+}
+
+test('a chart whose WebGL layer comes with its context lost draws its marks on the canvas', () => {
+  const el = host();
+  const mark = wrapped(layer => {
+    layer.gl.getExtension('WEBGL_lose_context')!.loseContext();
+    return layer;
+  });
+  plot(el, { ...frame, marks: [mark] });
+  expect(el.querySelectorAll('canvas')[1]!.style.display).toBe('none');
+  expect(pixel(el, 50, 50)).toEqual([255, 0, 0, 255]);
+});
+
+test('a WebGL layer whose context is lost is destroyed once', async () => {
+  let destroyed = 0;
+  const mark = wrapped(layer => ({
+    ...layer,
+    destroy() {
+      destroyed++;
+      layer.destroy();
+    },
+  }));
+  const el = host();
+  const chart = plot(el, { ...frame, marks: [mark] });
+  const { lost, lose } = losing(el);
+  lose();
+  await lost;
+  chart.destroy();
+  expect(destroyed).toBe(1);
+});
+
 test('every one of many WebGL charts shows its marks, and charts destroyed make room for as many new ones', async ({
   skip,
 }) => {
@@ -585,8 +632,9 @@ test('every one of many WebGL charts shows its marks, and charts destroyed make 
   const make = (onLost: () => void) => {
     const el = host();
     const chart = plot(el, { ...frame, marks: [pile(30_000)] });
-    el.querySelectorAll('canvas')[1]!.addEventListener('webglcontextlost', onLost);
-    return { el, chart };
+    const layer = el.querySelectorAll('canvas')[1]!;
+    layer.addEventListener('webglcontextlost', onLost);
+    return { el, chart, layer };
   };
   let lost = 0;
   const charts: ReturnType<typeof make>[] = [];
@@ -612,6 +660,7 @@ test('every one of many WebGL charts shows its marks, and charts destroyed make 
 
   const fitted = charts.length - lost;
   for (const { chart } of charts) chart.destroy();
+  for (const { layer } of charts) expect(layer.getContext('webgl2')!.isContextLost()).toBe(true);
   let lostAgain = 0;
   const again: ReturnType<typeof make>[] = [];
   while (again.length < fitted) {
@@ -619,6 +668,10 @@ test('every one of many WebGL charts shows its marks, and charts destroyed make 
     await task();
   }
   expect(lostAgain).toBe(0);
+  for (const { layer } of again) {
+    expect(layer.style.display).toBe('');
+    expect(layer.getContext('webgl2')!.isContextLost()).toBe(false);
+  }
   for (const { chart } of again) chart.destroy();
 });
 

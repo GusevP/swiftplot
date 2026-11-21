@@ -331,6 +331,7 @@ export function plot(el: HTMLElement, options: Options): Chart {
   const dropLost = () => {
     if (!gl?.gl.isContextLost()) return false;
     release();
+    gl.destroy();
     gl = null;
     return true;
   };
@@ -342,7 +343,6 @@ export function plot(el: HTMLElement, options: Options): Chart {
   };
 
   const prepare = (viewChanged: boolean) => {
-    dropLost();
     // A backdrop stays on the canvas: the WebGL layer is dimmed as one when a group is focused.
     const make = makeGl ?? marks.find(k => k.gl && !k.backdrop)?.gl?.layer;
     const on = marks.map(k => !!k.gl && !k.backdrop && k.gl.layer === make);
@@ -365,6 +365,7 @@ export function plot(el: HTMLElement, options: Options): Chart {
       gl = makeGl(glCanvas);
       glCanvas.addEventListener('webglcontextlost', onLost);
     }
+    dropLost();
     useGl &&= !!gl;
     if (glCanvas) glCanvas.style.display = useGl ? '' : 'none';
 
