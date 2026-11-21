@@ -1616,6 +1616,105 @@ test('the legend wraps onto as many rows as its entries need and reserves them a
   expect(el.querySelectorAll('span > span')).toHaveLength(3);
 });
 
+const textOf = (el: HTMLElement, text: string) =>
+  [...el.querySelectorAll('div')].find(d => !d.children.length && d.textContent === text)!;
+
+test('twelve legend entries stay inside a 400 px chart, on as many rows as they take', () => {
+  const el = host();
+  let chart!: Internals;
+  const named = (label: string) => line({ x: [0, 10], y: [0.5, 0.5], color: RED, label });
+  plot(el, {
+    ...frame,
+    width: 400,
+    height: 300,
+    marks: Array.from({ length: 12 }, (_, i) => named(`entry ${String.fromCharCode(97 + i)}xxx`)),
+    use: [legend(), c => ((chart = c), { destroy() {} })],
+  });
+  const root = el.firstElementChild!.getBoundingClientRect();
+  expect(root.width).toBe(400);
+  const items = [...el.querySelectorAll('span')].filter(s => s.children.length);
+  expect(items).toHaveLength(12);
+  for (const item of items) {
+    const box = item.getBoundingClientRect();
+    expect(box.left).toBeGreaterThanOrEqual(root.left);
+    expect(box.right).toBeLessThanOrEqual(root.left + 400);
+  }
+  const rows = new Set(items.map(i => i.parentElement)).size;
+  expect(rows).toBe(3);
+  expect(chart.margin().top).toBe(rows * 20 + 4);
+});
+
+test('y tick labels of twelve characters get a left margin of 14 plus 7 a character', () => {
+  const el = host();
+  let chart!: Internals;
+  const labels = ['xxxxxxxxxxx0', 'xxxxxxxxxxx1'];
+  plot(el, {
+    ...frame,
+    width: 400,
+    height: 300,
+    margin: undefined,
+    marks: [],
+    y: {
+      domain: [0, 1],
+      label: '',
+      scale: () => ({ lo: 0, hi: 1, ticks: labels.map((label, value) => ({ value, label })) }),
+    },
+    use: [c => ((chart = c), { destroy() {} })],
+  });
+  expect(chart.margin().left).toBe(14 + 12 * 7);
+  const root = el.firstElementChild!.getBoundingClientRect();
+  for (const label of labels)
+    expect(textOf(el, label).getBoundingClientRect().left).toBeGreaterThanOrEqual(root.left);
+});
+
+test('the last x tick label ends inside the right edge on a linear, a time and a band axis', () => {
+  const cases: [Axis, string, number][] = [
+    [{ domain: [0, 1_000_000], label: '' }, '1000000', 1_000_000],
+    [
+      time({ label: '', domain: [Date.UTC(2026, 0, 1), Date.UTC(2026, 0, 1, 12)] }),
+      '12:00',
+      Date.UTC(2026, 0, 1, 12),
+    ],
+    [band({ label: '', categories: ['a', 'b', 'c'].map(c => c + 'x'.repeat(21)) }), 'c' + 'x'.repeat(21), 2],
+  ];
+  for (const [x, last, value] of cases) {
+    const el = host();
+    let chart!: Internals;
+    plot(el, {
+      ...frame,
+      width: 400,
+      height: 300,
+      margin: undefined,
+      x,
+      marks: [],
+      use: [c => ((chart = c), { destroy() {} })],
+    });
+    expect(chart.xPx(value) + last.length * 3.5).toBeLessThanOrEqual(400);
+    const root = el.firstElementChild!.getBoundingClientRect();
+    expect(root.width).toBe(400);
+    expect(textOf(el, last).getBoundingClientRect().right).toBeLessThanOrEqual(root.left + 400);
+  }
+});
+
+test('one legend label longer than the chart is cut at its edge, on one row', () => {
+  const el = host();
+  let chart!: Internals;
+  plot(el, {
+    ...frame,
+    width: 400,
+    height: 300,
+    marks: [line({ x: [0, 10], y: [0.5, 0.5], color: RED, label: 'x'.repeat(80) })],
+    use: [legend(), c => ((chart = c), { destroy() {} })],
+  });
+  expect(chart.margin().top).toBe(24);
+  const root = el.firstElementChild!.getBoundingClientRect();
+  const item = [...el.querySelectorAll('span')].find(s => s.children.length)!;
+  const row = item.parentElement!;
+  expect(row.getBoundingClientRect().right).toBeLessThanOrEqual(root.left + 400);
+  expect(item.getBoundingClientRect().right).toBeGreaterThan(root.left + 400);
+  expect(getComputedStyle(row).overflow).toBe('hidden');
+});
+
 test('only the legend entries take the pointer, and the legend follows an update', () => {
   const el = host();
   let internals!: Internals;
