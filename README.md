@@ -59,7 +59,7 @@ Each point comes from profiling uPlot, the fastest of thirteen libraries in [cha
 - **Each mark has its own x column.** No aligned table, so no join step.
 - **Step lines and bands are reduced to one min/max per pixel column** before the path is built.
 - **Typed-array columns in, scale maths inlined** in the draw loops.
-- **Scatter switches to WebGL2 at 10,000 points, and a sankey at 1,000 nodes and links together.** Raw WebGL2 set-up cost about 5 ms; Canvas 2D wins or ties below roughly 10k points.
+- **Scatter, bars, error bars and box plots switch to WebGL2 at 10,000 points, and a sankey at 1,000 nodes and links together.** Raw WebGL2 set-up cost about 5 ms; Canvas 2D wins or ties below roughly 10k points.
 - **Paths and GPU buffers are kept,** so a hover repaint never touches the data again.
 
 ## Measured

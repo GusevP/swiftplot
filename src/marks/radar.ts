@@ -42,9 +42,21 @@ export function radar(o: RadarOptions): Mark[] {
     r = Math.max(r, Math.min(width, height) / 4, 0);
     return { cx: left + width / 2, cy: top + height / 2, r };
   };
-  const ring = (cx: number, cy: number, far: (i: number) => number) => {
+  // With more spokes than the rim has device pixels, one is drawn for each pixel: the longest of
+  // those it stands for. More shapes than pixels cost time and show nothing.
+  const drawn = (r: number, far?: (i: number) => number) => {
+    const room = Math.max(1, Math.ceil(TURN * r));
+    if (n <= room) return Array.from({ length: n }, (_, i) => i);
+    const best = new Int32Array(room).fill(-1);
+    for (let i = 0; i < n; i++) {
+      const at = Math.floor((i * room) / n);
+      if (best[at]! < 0 || (far && far(i) > far(best[at]!))) best[at] = i;
+    }
+    return [...best].filter(i => i >= 0);
+  };
+  const ring = (cx: number, cy: number, far: (i: number) => number, spokes: number[]) => {
     const path = new Path2D();
-    for (let i = 0; i < n; i++) path.lineTo(cx + toward(i)[0] * far(i), cy + toward(i)[1] * far(i));
+    for (const i of spokes) path.lineTo(cx + toward(i)[0] * far(i), cy + toward(i)[1] * far(i));
     path.closePath();
     return path;
   };
@@ -63,13 +75,14 @@ export function radar(o: RadarOptions): Mark[] {
       // The rim is drawn and given its value even where it has been thinned out of the ticks.
       const rings = [...new Set([...ticks.filter(t => t > 0), hi])];
       const lines = new Path2D();
-      for (const t of rings) lines.addPath(ring(cx, cy, () => (t / hi) * r));
-      for (let i = 0; i < n; i++) {
+      const spokes = drawn(r);
+      for (const t of rings) lines.addPath(ring(cx, cy, () => (t / hi) * r, spokes));
+      for (const i of spokes) {
         lines.moveTo(cx, cy);
         lines.lineTo(cx + toward(i)[0] * r, cy + toward(i)[1] * r);
       }
-      const labels: Label[] = axes.map((text, i) => {
-        const [c, s] = toward(i);
+      const labels: Label[] = spokes.map(i => {
+        const [[c, s], text] = [toward(i), axes[i]!];
         const side = Math.abs(c) < 0.01 ? 'center' : c > 0 ? 'start' : 'end';
         return { x: cx + c * (r + 8 * dpr), y: cy + s * (r + 12 * dpr), text, align: side, priority: 1 };
       });
@@ -107,9 +120,10 @@ export function radar(o: RadarOptions): Mark[] {
         const { cx, cy, r } = disc(view);
         const far = (i: number) => (Math.min(worth(s.values[i]), hi) / hi) * r;
         const at = (i: number) => [cx + toward(i)[0] * far(i), cy + toward(i)[1] * far(i)] as const;
-        const shape = ring(cx, cy, far);
+        const spokes = drawn(r, far);
+        const shape = ring(cx, cy, far, spokes);
         const corners = new Path2D();
-        for (let i = 0; i < n; i++) {
+        for (const i of spokes) {
           corners.moveTo(...at(i));
           corners.arc(...at(i), 2 * dpr, 0, TURN);
         }

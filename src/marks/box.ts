@@ -1,6 +1,8 @@
-import type { Col, Mark } from '../types.js';
+import { glLayer } from '../gl.js';
+import type { Col, Mark, Prepared, View } from '../types.js';
 import { base } from './common.js';
 import type { Common } from './common.js';
+import { focused, gpuRows, type Part } from './rects.js';
 
 /**
  * A box from q1 to q3 with a line at the median and whiskers out to min and max, one per x.
@@ -27,20 +29,46 @@ export function box(o: BoxOptions): Mark {
     if (x[i]! < first && x[i] !== -Infinity) first = x[i]!;
     if (x[i]! > last && x[i] !== Infinity) last = x[i]!;
   }
+  const rows = gpuRows(new WeakMap(), [x], [min, q1, median, q3, max]);
+  // Each box's left, top, right and bottom in device pixels; a row with a number missing has none.
+  const bounds = ({ ox, kx, oy, ky }: View) => {
+    const edges = new Float64Array(n * 4).fill(NaN);
+    for (let i = 0; i < n; i++) {
+      if (![x, min, q1, median, q3, max].every(c => Number.isFinite(c[i]))) continue;
+      const mid = ox + x[i]! * kx;
+      const l = Math.round(mid - (width * kx) / 2);
+      const r = Math.max(Math.round(mid + (width * kx) / 2), l + 1);
+      edges.set([l, Math.round(oy - q3[i]! * ky), r, Math.round(oy - q1[i]! * ky)], i * 4);
+    }
+    return edges;
+  };
+  // The box itself answers, with its median; reported as the weakest hit like any filled shape.
+  const hit =
+    ({ dpr, left, top, width: plotWidth, height }: View, bounded: () => Float64Array): Prepared['hit'] =>
+    (px, py, reach) => {
+      const [hx, hy] = [px * dpr, py * dpr];
+      if (hx < left || hx > left + plotWidth || hy < top || hy > top + height) return null;
+      const edges = bounded();
+      for (let i = n - 1; i >= 0; i--) {
+        const j = i * 4;
+        if (hx >= edges[j]! && hy >= edges[j + 1]! && hx < edges[j + 2]! && hy < edges[j + 3]!) {
+          return { x: x[i]!, y: median[i]!, distance: reach, row: i };
+        }
+      }
+      return null;
+    };
   return {
     ...base('box', o, [x, [first - width / 2, last + width / 2]], [min, max]),
     overhang: 0.75,
-    prepare({ ctx, dpr, ox, kx, oy, ky, left, top, width: plotWidth, height }) {
-      const edges = new Float64Array(n * 4).fill(NaN);
+    prepare(view) {
+      const { ctx, dpr, ox, kx, oy, ky } = view;
+      const edges = bounds(view);
       const y = (v: number) => Math.round(oy - v * ky);
       const trace = (fill: Path2D, lines: Path2D, i: number) => {
+        const [l, t, r, b] = [edges[i * 4]!, edges[i * 4 + 1]!, edges[i * 4 + 2]!, edges[i * 4 + 3]!];
         // A row with a number missing draws nothing: see errorBars for what a NaN does to a path.
-        if (![x, min, q1, median, q3, max].every(c => Number.isFinite(c[i]))) return;
+        if (Number.isNaN(l)) return;
         const mid = ox + x[i]! * kx;
-        const l = Math.round(mid - (width * kx) / 2);
-        const r = Math.max(Math.round(mid + (width * kx) / 2), l + 1);
-        const [t, b] = [y(q3[i]!), y(q1[i]!)];
-        edges.set([l, t, r, b], i * 4);
         fill.rect(l, t, r - l, b - t);
         lines.rect(l, t, r - l, b - t);
         for (const [from, to] of [
@@ -78,19 +106,56 @@ export function box(o: BoxOptions): Mark {
           draw(split.others, a * rest);
           draw(split.one, a);
         },
-        // The box itself answers, with its median; reported as the weakest hit like any filled shape.
-        hit(px, py, reach) {
-          const [hx, hy] = [px * dpr, py * dpr];
-          if (hx < left || hx > left + plotWidth || hy < top || hy > top + height) return null;
-          for (let i = n - 1; i >= 0; i--) {
-            const j = i * 4;
-            if (hx >= edges[j]! && hy >= edges[j + 1]! && hx < edges[j + 2]! && hy < edges[j + 3]!) {
-              return { x: x[i]!, y: median[i]!, distance: reach, row: i };
-            }
-          }
-          return null;
-        },
+        hit: hit(view, () => edges),
       };
+    },
+    gl: {
+      layer: glLayer,
+      under: true,
+      prepare(view, { gl }) {
+        const { draw, once } = rows.on(view, gl, color, 0.75);
+        // Columns: x, then min, q1, median, q3 and max. Half the box's width, and half the line's.
+        const [w, h] = [Math.max((width * view.kx) / 2, 0.5), 0.75 * view.dpr];
+        const at = (ya: number, yb: number, pad: [number, number], more?: Partial<Part>): Part => ({
+          xa: 0,
+          xb: 0,
+          ya,
+          yb,
+          pad,
+          snap: true,
+          ...more,
+        });
+        const body = at(2, 4, [w, 0], { alpha: 0.25 });
+        // The four sides, the two whiskers with their ends, and the median.
+        const lines = [
+          at(4, 4, [w + h, h]),
+          at(2, 2, [w + h, h]),
+          at(2, 4, [h, h], { shift: [-w, 0] }),
+          at(2, 4, [h, h], { shift: [w, 0] }),
+          at(4, 5, [h, 0]),
+          at(1, 2, [h, 0]),
+          at(5, 5, [w / 2, h]),
+          at(1, 1, [w / 2, h]),
+          at(3, 3, [w, h]),
+        ];
+        let edges: Float64Array | undefined;
+        return {
+          // The bodies as one filled shape and then the lines as one stroke, as on the canvas.
+          paint(a, row, rest = 1) {
+            for (const parts of [[body], lines]) {
+              once(() => {
+                for (const [strength, ...run] of focused(n, row, rest)) {
+                  for (const part of parts) draw(part, alpha * a * strength, ...run);
+                }
+              });
+            }
+          },
+          hit: hit(view, () => (edges ??= bounds(view))),
+        };
+      },
+    },
+    release(layer) {
+      if (layer) rows.release(layer.gl);
     },
   };
 }

@@ -1,6 +1,8 @@
-import type { Col, Mark, View } from '../types.js';
+import { glLayer } from '../gl.js';
+import type { Col, Mark, Prepared, View } from '../types.js';
 import { base } from './common.js';
 import type { Common } from './common.js';
+import { focused, gpuRows } from './rects.js';
 
 /**
  * One rectangle per row, from (x1, y1) to (x2, y2) in data units; either pair may be in any order.
@@ -19,6 +21,7 @@ const bounds = (o: BarOptions): Bounds => ({
 
 // ponytail: a morph rebuilds every bar each frame, so beyond this many they cross-fade instead.
 const MORPH_MAX = 2000;
+const PART = { xa: 0, xb: 1, ya: 2, yb: 3, snap: true };
 
 // Edges are snapped to device pixels so neighbours meet without a seam. Holds l, t, r, b per bar,
 // as doubles: a bar far outside the domain must not wrap round into view as a 32-bit integer would.
@@ -52,10 +55,31 @@ export function bar(o: BarOptions): Mark {
   const { x1, x2, y2 } = own;
   const n = x2.length;
   const zero = n ? [0] : [];
+  const rows = gpuRows(new WeakMap(), [x1, x2], [own.y1, y2]);
+  // ponytail: linear scan per pointer move. The value end is y2, or x2 for a bar given as a
+  // single x; a horizontal bar given all four bounds still reports as a vertical one.
+  const hit =
+    ({ dpr, left, top, width, height }: View, boxed: () => Float64Array): Prepared['hit'] =>
+    (px, py, max) => {
+      const box = boxed();
+      const x = px * dpr;
+      const y = py * dpr;
+      if (x < left || x > left + width || y < top || y > top + height) return null;
+      for (let i = n - 1; i >= 0; i--) {
+        const j = i * 4;
+        if (x >= box[j]! && y >= box[j + 1]! && x < box[j + 2]! && y < box[j + 3]!) {
+          const y1i = own.y1 ? own.y1[i]! : 0;
+          return 'x' in o
+            ? { x: x2[i]!, y: (y1i + y2[i]!) / 2, distance: max, row: i }
+            : { x: ((x1 ? x1[i]! : 0) + x2[i]!) / 2, y: y2[i]!, distance: max, row: i };
+        }
+      }
+      return null;
+    };
   return {
     ...base('bar', o, [x2, x1 ?? zero], [y2, own.y1 ?? zero]),
     prepare(view, previous) {
-      const { ctx, dpr, left, top, width, height } = view;
+      const { ctx } = view;
       const box = boxes(own, view);
       const full = rects(box);
       let path = full;
@@ -94,24 +118,28 @@ export function bar(o: BarOptions): Mark {
             shown = box.map((v, i) => Math.round(from[i]! + (v - from[i]!) * t));
             path = rects(shown);
           }),
-        // ponytail: linear scan per pointer move. The value end is y2, or x2 for a bar given as a
-        // single x; a horizontal bar given all four bounds still reports as a vertical one.
-        hit(px, py, max) {
-          const x = px * dpr;
-          const y = py * dpr;
-          if (x < left || x > left + width || y < top || y > top + height) return null;
-          for (let i = n - 1; i >= 0; i--) {
-            const j = i * 4;
-            if (x >= box[j]! && y >= box[j + 1]! && x < box[j + 2]! && y < box[j + 3]!) {
-              const y1i = own.y1 ? own.y1[i]! : 0;
-              return 'x' in o
-                ? { x: x2[i]!, y: (y1i + y2[i]!) / 2, distance: max, row: i }
-                : { x: ((x1 ? x1[i]! : 0) + x2[i]!) / 2, y: y2[i]!, distance: max, row: i };
-            }
-          }
-          return null;
-        },
+        hit: hit(view, () => box),
       };
+    },
+    gl: {
+      layer: glLayer,
+      under: true,
+      prepare(view, { gl }) {
+        const { draw, once } = rows.on(view, gl, color);
+        let box: Float64Array | undefined;
+        return {
+          paint(k, row, rest = 1) {
+            once(() => {
+              for (const [strength, ...run] of focused(n, row, rest))
+                draw(PART, alpha * k * strength, ...run);
+            });
+          },
+          hit: hit(view, () => (box ??= boxes(own, view))),
+        };
+      },
+    },
+    release(layer) {
+      if (layer) rows.release(layer.gl);
     },
   };
 }

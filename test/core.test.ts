@@ -3308,3 +3308,132 @@ test('a sankey of thousands of links is drawn by WebGL as it is on the canvas, a
   expect(pixel(el, 50, 25, 1)[3]).toBeGreaterThan(105);
   expect(pixel(el, 50, 75, 1)[3]).toBeLessThan(35);
 });
+
+// Rows of rectangles for the WebGL painters: the first are given, the rest have no number and draw nothing.
+const padded = (...first: number[]) => {
+  const column = new Float64Array(10_000).fill(NaN);
+  column.set(first);
+  return column;
+};
+
+test('bars are drawn by WebGL from 10,000 of them, dim round the one pointed at, and stay under a line', () => {
+  const el = host();
+  const bars = bar({ x1: padded(2, 6), x2: padded(4, 8), y: padded(0.5, 1), color: BLUE });
+  const chart = plot(el, {
+    ...frame,
+    dim: 0.2,
+    marks: [bars],
+    use: [tooltip({ mode: 'nearest', text: (_, _x, _y, row) => `row ${row}` })],
+  });
+  expect(pixel(el, 30, 75)).toEqual([0, 0, 0, 0]);
+  expect(pixel(el, 30, 75, 1)).toEqual([0, 0, 255, 255]);
+  expect(pixel(el, 30, 25, 1)).toEqual([0, 0, 0, 0]);
+  expect(pixel(el, 70, 25, 1)).toEqual([0, 0, 255, 255]);
+  expect(hover(el, 30, 75).innerText).toContain('row 0');
+  expect(pixel(el, 30, 75, 1)).toEqual([0, 0, 255, 255]);
+  expect(pixel(el, 70, 25, 1)[3]).toBe(51);
+
+  chart.update({ marks: [bars, flat(0.5)] });
+  expect(pixel(el, 30, 75)).toEqual([0, 0, 255, 255]);
+  expect(pixel(el, 90, 50)).toEqual(RED_PIXEL);
+  expect(el.querySelectorAll('canvas')[1]!.style.display).toBe('none');
+});
+
+test('error bars and a box are drawn by WebGL as on the canvas, under points on the same layer', () => {
+  const el = host();
+  plot(el, {
+    ...frame,
+    marks: [
+      errorBars({ x: padded(5), y1: padded(0.2), y2: padded(0.8), color: BLUE, width: 2 }),
+      pile(10_000),
+    ],
+  });
+  expect(pixel(el, 50, 50, 1)).toEqual(RED_PIXEL);
+  expect(pixel(el, 50, 30, 1)).toEqual([0, 0, 255, 255]);
+  expect(pixel(el, 47, 80, 1)).toEqual([0, 0, 255, 255]);
+  expect(pixel(el, 47, 70, 1)).toEqual([0, 0, 0, 0]);
+
+  const boxed = host();
+  plot(boxed, {
+    ...frame,
+    marks: [
+      box({
+        x: padded(5),
+        min: padded(0.1),
+        q1: padded(0.3),
+        median: padded(0.5),
+        q3: padded(0.7),
+        max: padded(0.9),
+        color: RED,
+        width: 4,
+      }),
+    ],
+  });
+  expect(pixel(boxed, 40, 40, 1)).toEqual([255, 0, 0, 64]);
+  expect(pixel(boxed, 40, 50, 1)).toEqual(RED_PIXEL);
+  expect(pixel(boxed, 50, 20, 1)).toEqual(RED_PIXEL);
+  expect(pixel(boxed, 20, 50, 1)).toEqual([0, 0, 0, 0]);
+});
+
+test('bars too many for the pixels dim as one shape on WebGL, and are cut at the plot area beside error bars', () => {
+  const n = 20_000;
+  const el = host();
+  const column = (at: (i: number) => number) => Float64Array.from({ length: n }, (_, i) => at(i));
+  plot(el, {
+    ...frame,
+    dim: 0.2,
+    margin: { top: 10, right: 10, bottom: 10, left: 10 },
+    marks: [
+      bar({
+        x1: column(i => (i / n) * 10),
+        x2: column(i => ((i + 1) / n) * 10),
+        y: column(() => 2),
+        color: BLUE,
+      }),
+      errorBars({ y: padded(0.5), x1: padded(2), x2: padded(8), color: RED, width: 2 }),
+    ],
+    use: [tooltip({ mode: 'nearest', text: () => 'tip' })],
+  });
+  expect(pixel(el, 50, 30, 1)).toEqual([0, 0, 255, 255]);
+  expect(pixel(el, 50, 50, 1)).toEqual(RED_PIXEL);
+  expect(pixel(el, 26, 47, 1)).toEqual(RED_PIXEL);
+  expect(pixel(el, 50, 8, 1)).toEqual([0, 0, 0, 0]);
+  hover(el, 30, 80);
+  expect(pixel(el, 70, 30, 1)[3]).toBe(51);
+});
+
+test('a sankey of links too thin to show one by one still shows them together, and a radar of too many spokes its shape', () => {
+  const many = 100_000;
+  const el = host();
+  plot(el, {
+    ...blank,
+    marks: [
+      sankey({
+        nodes: ['a', 'b'],
+        source: new Float64Array(many),
+        target: new Float64Array(many).fill(1),
+        value: new Float64Array(many).fill(1),
+        colors: [RED],
+        text: false,
+      }),
+    ],
+  });
+  // Each link is a thousandth of a pixel; together they are one band as strong as a single link would be.
+  const [, , , strength] = pixel(el, 50, 50, 1);
+  expect(strength).toBeGreaterThan(60);
+  expect(strength).toBeLessThan(130);
+
+  const round = host();
+  const fills = vi.spyOn(CanvasRenderingContext2D.prototype, 'arc');
+  plot(round, {
+    ...pie,
+    marks: radar({
+      axes: Array.from({ length: many }, () => ''),
+      series: [{ values: new Float64Array(many).fill(1), color: RED }],
+      max: 1,
+      fill: 1,
+    }),
+  });
+  expect(pixel(round, 50, 30)).toEqual(RED_PIXEL);
+  expect(fills.mock.calls.length).toBeLessThan(1000);
+});

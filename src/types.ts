@@ -99,8 +99,10 @@ export type Mark = {
   gl?: {
     layer: (canvas: HTMLCanvasElement) => GlLayer | null;
     prepare: (view: View, layer: GlLayer) => Prepared;
-    /** The points from which this mark asks for the layer, where that is fewer than the chart's 10,000. */
+    /** The points at which this mark alone asks for the layer: 10,000 when left out. Marks add up by their shares. */
     from?: number;
+    /** The mark belongs under those after it, so it stays on the canvas unless they are all on the layer. */
+    under?: true;
   };
   /**
    * What the mark shows at x: a y, or for a filled mark its value and the y range it covers there.

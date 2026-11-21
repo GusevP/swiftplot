@@ -327,12 +327,16 @@ export function plot(el: HTMLElement, options: Options): Chart {
   const prepare = (viewChanged: boolean) => {
     // A backdrop stays on the canvas: the WebGL layer is dimmed as one when a group is focused.
     const make = makeGl ?? marks.find(k => k.gl && !k.backdrop)?.gl?.layer;
-    const onLayer = (k: Mark) => !!k.gl && !k.backdrop && k.gl.layer === make;
-    const from = marks.reduce(
-      (least, k) => (onLayer(k) ? Math.min(least, k.gl!.from ?? least) : least),
-      GL_FROM,
-    );
-    let useGl = marks.reduce((n, k) => n + (onLayer(k) ? k.points : 0), 0) >= from;
+    const on = marks.map(k => !!k.gl && !k.backdrop && k.gl.layer === make);
+    // The layer lies over the canvas, so a mark that belongs under those after it stays on the
+    // canvas unless they are all on the layer too.
+    for (let at = marks.length - 2, clear = on.at(-1) ?? true; at >= 0; at--) {
+      if (marks[at]!.gl?.under && !clear) on[at] = false;
+      clear &&= on[at]!;
+    }
+    const onLayer = (k: Mark) => on[marks.indexOf(k)]!;
+    // Each mark fills its own share of the threshold, so a mark may ask for the layer sooner or later.
+    let useGl = marks.reduce((sum, k) => sum + (onLayer(k) ? k.points / (k.gl!.from ?? GL_FROM) : 0), 0) >= 1;
     if (useGl && gl === undefined) {
       makeGl = make!;
       glCanvas = layer('canvas', 'left:0;top:0');

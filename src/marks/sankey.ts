@@ -34,14 +34,16 @@ const SEGMENTS = 24;
 const programs = new WeakMap<WebGL2RenderingContext, ReturnType<typeof ribbonProgram>>();
 
 // An instance is a ribbon from (e.x, e.z) to (e.y, e.w), h tall, bent as the canvas bezier is. Each
-// pixel is as strong as the share of it the ribbon covers, so a ribbon under a pixel does not break up.
+// pixel is as strong as the share of it the ribbon covers. Under an eighth of a pixel that is too
+// faint for the canvas to add up, so such a ribbon is drawn an eighth thick or not at all, as
+// often as keeps the whole as strong; one on the path pointed at is always drawn.
 function ribbonProgram(gl: WebGL2RenderingContext) {
   const p = program(
     gl,
-    `layout(location=0) in vec4 e;layout(location=1) in float h;layout(location=2) in vec4 c;layout(location=3) in float s;uniform vec2 size;out vec4 col;out vec2 v;void main(){float t=float(gl_VertexID>>1)/${SEGMENTS}.0;float side=float(gl_VertexID&1)*2.0-1.0;float w=1.0-t;float x=e.x*w*w*w+(e.x+e.y)*1.5*w*t+e.y*t*t*t;float r=h*0.5+0.5;float y=mix(e.z,e.w,t*t*(3.0-2.0*t))+h*0.5+side*r;gl_Position=vec4(x/size.x*2.0-1.0,1.0-y/size.y*2.0,0,1);col=vec4(c.rgb,1)*c.a*s;v=vec2(side*r,h*0.5);}`,
+    `layout(location=0) in vec4 e;layout(location=1) in float h;layout(location=2) in vec4 c;layout(location=3) in float s;uniform vec2 size;uniform float lit;out vec4 col;out vec2 v;void main(){float t=float(gl_VertexID>>1)/${SEGMENTS}.0;float side=float(gl_VertexID&1)*2.0-1.0;float w=1.0-t;float x=e.x*w*w*w+(e.x+e.y)*1.5*w*t+e.y*t*t*t;uint z=uint(gl_InstanceID)*2654435761u;z^=z>>15;float d=h;if(h>0.0&&h<0.125)d=s>=lit||float(z&65535u)/65536.0<h*8.0?0.125:0.0;float r=d*0.5+0.5;float y=mix(e.z,e.w,t*t*(3.0-2.0*t))+d*0.5+side*r;gl_Position=vec4(x/size.x*2.0-1.0,1.0-y/size.y*2.0,0,1);col=vec4(c.rgb,1)*c.a*s;v=vec2(side*r,d*0.5);}`,
     'precision highp float;in vec4 col;in vec2 v;out vec4 o;void main(){o=col*clamp(min(v.y,v.x+0.5)-max(-v.y,v.x-0.5),0.0,1.0);}',
   );
-  return { p, size: gl.getUniformLocation(p, 'size') };
+  return { p, size: gl.getUniformLocation(p, 'size'), lit: gl.getUniformLocation(p, 'lit') };
 }
 
 /** The columns sankey() takes, from links that name their ends. Nodes are listed as first met. */
@@ -344,6 +346,7 @@ export function sankey(o: SankeyOptions): Mark {
         }
         gl.useProgram(u.p);
         gl.uniform2f(u.size, gl.canvas.width, gl.canvas.height);
+        gl.uniform1f(u.lit, row === undefined ? 2 : alpha * k * 0.45 * 0.999);
         gl.bindVertexArray(vao);
         gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 2 * (SEGMENTS + 1), count);
         gl.bindVertexArray(null);

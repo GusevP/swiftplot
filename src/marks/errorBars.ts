@@ -1,6 +1,8 @@
+import { glLayer } from '../gl.js';
 import type { Col, Mark } from '../types.js';
 import { base } from './common.js';
 import type { Common } from './common.js';
+import { gpuRows, type Part } from './rects.js';
 
 /**
  * A line from y1 to y2 at each x with a cap at both ends, or from x1 to x2 at each y.
@@ -16,6 +18,7 @@ export function errorBars(o: ErrorBarsOptions): Mark {
   const upright = 'x' in o;
   // `at` is the position the bar stands on; `from` and `to` are its ends along the other axis.
   const [at, from, to] = upright ? [o.x, o.y1, o.y2] : [o.y, o.x1, o.x2];
+  const rows = upright ? gpuRows(new WeakMap(), [at], [from, to]) : gpuRows(new WeakMap(), [from, to], [at]);
   return {
     ...base('errorBars', o, upright ? [at] : [from, to], upright ? [from, to] : [at]),
     overhang: Math.max(cap, width / 2),
@@ -54,6 +57,31 @@ export function errorBars(o: ErrorBarsOptions): Mark {
           ctx.stroke(path);
         },
       };
+    },
+    gl: {
+      layer: glLayer,
+      under: true,
+      prepare(view, { gl }) {
+        const { draw, once } = rows.on(view, gl, color, Math.max(cap, width / 2));
+        // A line keeps a device pixel of width and is fainter instead, or it would fall between pixels.
+        const [half, c] = [Math.max(width * view.dpr, 1) / 2, cap * view.dpr];
+        const thin = Math.min(width * view.dpr, 1);
+        const parts: Part[] = upright
+          ? [
+              { xa: 0, xb: 0, ya: 1, yb: 2, pad: [half, 0] },
+              { xa: 0, xb: 0, ya: 1, yb: 1, pad: [c, half] },
+              { xa: 0, xb: 0, ya: 2, yb: 2, pad: [c, half] },
+            ]
+          : [
+              { xa: 0, xb: 1, ya: 2, yb: 2, pad: [0, half] },
+              { xa: 0, xb: 0, ya: 2, yb: 2, pad: [half, c] },
+              { xa: 1, xb: 1, ya: 2, yb: 2, pad: [half, c] },
+            ];
+        return { paint: a => once(() => parts.forEach(part => draw(part, alpha * a * thin))) };
+      },
+    },
+    release(layer) {
+      if (layer) rows.release(layer.gl);
     },
   };
 }
