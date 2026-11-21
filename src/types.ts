@@ -23,7 +23,24 @@ export type Hit = {
   row?: number;
 };
 
+/**
+ * Text a mark asks to have drawn at a point of the canvas, in device pixels like the rest of what
+ * a mark computes. The chart draws it as DOM, leaves out what would run off the chart or onto a
+ * label of higher priority (judged at 7 px a character), and shows it as a reveal uncovers it.
+ */
+export type Label = {
+  x: number;
+  y: number;
+  text: string;
+  /** Which edge of the text sits at x; 'center' by default. */
+  align?: 'start' | 'center' | 'end';
+  color?: string;
+  /** The higher wins a collision; ties go to the earlier label. */
+  priority?: number;
+};
+
 export type Prepared = {
+  labels?: Label[];
   /**
    * With a row, that row is drawn at `alpha` and the mark's other rows at `alpha * rest`.
    * A mark that does not draw one shape per row ignores both.
@@ -89,6 +106,13 @@ export type Mark = {
   /** A chart has dropped the mark; `layer` is that chart's, so only what was made for it is freed. */
   release?(layer: GlLayer | null): void;
   /**
+   * For a mark coloured by value: the colours, as the pixels of a ColorScale's table, and the
+   * values that get the first and the last of them. A legend draws it as a strip.
+   */
+  ramp?(): { table: Uint32Array; lo: number; hi: number };
+  /** A reveal uncovers the chart downwards when a mark asks for it; otherwise from the left. */
+  reveal?: 'down';
+  /**
    * The named parts of a mark that draws several, such as slices, in row order. A legend lists
    * these in place of the mark's own label, and pointing at one focuses that row.
    */
@@ -125,10 +149,11 @@ export type Options = {
   x?: Axis;
   y?: Axis;
   /**
-   * A frame with no axes, for marks drawn round a centre such as arcs(). Such a mark is given the
-   * plot rectangle only, and reports a hit as fractions of it: x from the left, y from the bottom.
+   * 'polar' and 'blank' have no axes: a mark is given the plot rectangle only, and reports a hit
+   * as fractions of it, x from the left and y from the bottom. 'polar' is for marks drawn round
+   * a centre, such as arcs(); it differs from 'blank' in how a reveal uncovers it.
    */
-  polar?: boolean;
+  frame?: 'axes' | 'polar' | 'blank';
   marks: Mark[];
   /** Read once, when the chart is created. */
   use?: Feature[];
@@ -167,16 +192,22 @@ export type Internals = {
    * False, and nothing moves, unless every changed mark can morph and none was added or removed.
    */
   morph(t: number): boolean;
-  /** Whether the frame has no axes, which is where a reveal sweeps round and does not wipe across. */
-  polar(): boolean;
+  /**
+   * The outline, in CSS pixels, of what a reveal has uncovered at this progress: the plot from
+   * the left or from the top, or in a polar frame swept round from twelve o'clock.
+   */
+  revealed(progress: number): [number, number][];
   /**
    * Keeps room above the plot. `space` is asked on every layout, with the plot's left edge and
    * width in CSS pixels, for the height it needs; it must be cheap and measure nothing.
    * ponytail: one caller, and the top only; other sides when a feature needs them.
    */
   reserve(space: (left: number, width: number) => number): void;
-  /** Shows only the left fraction of the WebGL layer, at an opacity; the next draw() shows all of it again. */
-  reveal(fraction: number, opacity?: number): void;
+  /**
+   * Uncovers the WebGL layer and the marks' labels to this progress, at an opacity; the next
+   * draw() shows all of them again.
+   */
+  reveal(progress: number, opacity?: number): void;
   layer<K extends keyof HTMLElementTagNameMap>(tag: K, css?: string): HTMLElementTagNameMap[K];
   marks(): readonly Mark[];
   size(): { width: number; height: number };

@@ -12,10 +12,13 @@ import {
   dots,
   errorBars,
   fiveNumbers,
+  fromLinks,
+  funnel,
   heatmap,
   legend,
   line,
   plot,
+  sankey,
   sequential,
   stack,
   time,
@@ -824,7 +827,7 @@ test('the WebGL layer takes part in the entrance and an update in between does n
   chart.update({});
   expect(layer.style.opacity).toBe('0');
   vi.advanceTimersByTime(400);
-  expect(layer.style.opacity).toBe('1');
+  expect(layer.style.opacity).toBe('');
 
   const el = host();
   const revealed = plot(el, {
@@ -833,9 +836,10 @@ test('the WebGL layer takes part in the entrance and an update in between does n
     use: [animate({ duration: 300 })],
   });
   const clip = el.querySelectorAll('canvas')[1]!.style;
-  expect(clip.clipPath).toBe('inset(0px 100px 0px 0px)');
+  const outline = () => (clip.clipPath.match(/-?[\d.e-]+px/g) ?? []).map(parseFloat);
+  expect(outline()).toEqual([0, 0, 0, 0, 0, 100, 0, 100]);
   revealed.update({});
-  expect(clip.clipPath).toBe('inset(0px 100px 0px 0px)');
+  expect(outline()).toEqual([0, 0, 0, 0, 0, 100, 0, 100]);
   vi.advanceTimersByTime(400);
   expect(clip.clipPath).toBe('inset(0px)');
 });
@@ -1955,7 +1959,7 @@ const pie = {
   width: 100,
   height: 100,
   margin: { top: 0, right: 0, bottom: 0, left: 0 },
-  polar: true as const,
+  frame: 'polar' as const,
 };
 
 test('slices start at twelve and run clockwise, each as wide as its share', () => {
@@ -1974,7 +1978,7 @@ test('a frame without axes centres the pie with the same margin all round', () =
   plot(host(), {
     width: 200,
     height: 120,
-    polar: true,
+    frame: 'polar',
     marks: [arcs({ values: [1], colors: [RED] })],
     use: [c => ((chart = c), { destroy() {} })],
   });
@@ -2225,4 +2229,456 @@ test('the sweep over the WebGL layer takes in each corner of a wide plot as it p
   expect(points()).toEqual([500, 50, 500, 0, 1000, 0, 1000, 100, 464, 100]);
   chart.reveal(1);
   expect(layer.style.clipPath).toBe('inset(0px)');
+});
+
+const labelsOf = (el: HTMLElement) =>
+  [...el.querySelectorAll('div')].filter(
+    d => !d.children.length && /%|\w/.test(d.textContent ?? '') && d.style.lineHeight,
+  );
+
+test('slices carry their share where it fits, and not where it does not', () => {
+  const el = host();
+  plot(el, {
+    ...pie,
+    width: 300,
+    height: 300,
+    marks: [arcs({ values: [70, 28, 2], colors: [RED, BLUE, GREEN], text: true })],
+  });
+  const labels = labelsOf(el);
+  expect(labels.map(d => d.textContent)).toEqual(['70%', '28%']);
+  const big = labels[0]!;
+  expect(big.style.color).toBe('rgb(255, 255, 255)');
+  expect(parseFloat(big.style.left) + parseFloat(big.style.width) / 2).toBeGreaterThan(150);
+
+  const own = host();
+  plot(own, {
+    ...pie,
+    width: 300,
+    height: 300,
+    marks: [
+      arcs({
+        values: [1, 1],
+        colors: [RED, BLUE],
+        text: row => ['left', 'a far longer name than fits in here at all'][1 - row]!,
+      }),
+    ],
+  });
+  expect(labelsOf(own).map(d => d.textContent)).toEqual(['left']);
+});
+
+test("a mark's labels are placed in CSS pixels whatever the density, dropped where they collide or leave the chart, and follow updates", () => {
+  const noted = (labels: { x: number; y: number; text: string; priority?: number }[]): Mark => ({
+    type: 'noted',
+    color: RED,
+    options: { labels },
+    points: 0,
+    channels: { x: [], y: [] },
+    prepare: ({ dpr }) => ({ paint() {}, labels: labels.map(l => ({ ...l, x: l.x * dpr, y: l.y * dpr })) }),
+  });
+  const el = host();
+  const chart = plot(el, {
+    ...frame,
+    width: 300,
+    marks: [
+      noted([
+        { x: 100, y: 50, text: 'first' },
+        { x: 110, y: 52, text: 'second', priority: 1 },
+        { x: 295, y: 50, text: 'off the edge' },
+        { x: 200, y: 20, text: 'third' },
+      ]),
+    ],
+  });
+  expect(labelsOf(el).map(d => d.textContent)).toEqual(['second', 'third']);
+  const left = () => labelsOf(el).map(d => d.style.left);
+  const before = left();
+
+  const was = devicePixelRatio;
+  let changed!: () => void;
+  vi.spyOn(window, 'matchMedia').mockImplementation(
+    () =>
+      ({
+        addEventListener: (_: string, f: () => void) => void (changed = f),
+        removeEventListener() {},
+      }) as never,
+  );
+  const dense = host();
+  plot(dense, { ...frame, width: 300, marks: [noted([{ x: 200, y: 20, text: 'third' }])] });
+  try {
+    Object.defineProperty(window, 'devicePixelRatio', { value: was * 2, configurable: true });
+    changed();
+    expect(labelsOf(dense).map(d => d.style.left)).toEqual([before[1]]);
+  } finally {
+    Object.defineProperty(window, 'devicePixelRatio', { value: was, configurable: true });
+  }
+
+  chart.update({ marks: [noted([{ x: 100, y: 50, text: 'only' }])] });
+  expect(labelsOf(el).map(d => d.textContent)).toEqual(['only']);
+  chart.update({ marks: [] });
+  expect(labelsOf(el)).toHaveLength(0);
+});
+
+test('a label appears when the reveal has uncovered all of it, as the pixel under it does', () => {
+  fakeClock();
+  const el = host();
+  const noted: Mark = {
+    type: 'noted',
+    color: RED,
+    options: {},
+    points: 0,
+    channels: { x: [], y: [] },
+    prepare: ({ ctx, dpr }) => ({
+      paint() {
+        ctx.fillStyle = RED;
+        ctx.fillRect(140 * dpr, 40 * dpr, 20 * dpr, 20 * dpr);
+      },
+      labels: [{ x: 150 * dpr, y: 50 * dpr, text: 'here' }],
+    }),
+  };
+  const chart = plot(el, { ...frame, width: 300, marks: [noted], use: [animate({ duration: 600 })] });
+  const label = labelsOf(el)[0]!;
+  expect(label.style.visibility).toBe('hidden');
+  vi.advanceTimersByTime(60);
+  expect(pixel(el, 150, 45)[3]).toBe(0);
+  expect(label.style.visibility).toBe('hidden');
+  chart.update({});
+  expect(label.style.visibility).toBe('hidden');
+  vi.advanceTimersByTime(600);
+  expect(pixel(el, 150, 45)).toEqual(RED_PIXEL);
+  expect(label.style.visibility).toBe('');
+});
+
+const blank = {
+  width: 100,
+  height: 100,
+  margin: { top: 0, right: 0, bottom: 0, left: 0 },
+  frame: 'blank' as const,
+};
+const labelled = (labels: { x: number; y: number; text: string }[], extra: Partial<Mark> = {}): Mark => ({
+  type: 'labelled',
+  color: RED,
+  options: { labels },
+  points: 0,
+  channels: { x: [], y: [] },
+  prepare: ({ ctx, dpr }) => ({
+    paint() {
+      ctx.fillStyle = RED;
+      ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+    },
+    labels: labels.map(l => ({ ...l, x: l.x * dpr, y: l.y * dpr })),
+  }),
+  ...extra,
+});
+
+test('a chart drawn part revealed is uncovered the same way on the canvas as for its labels', () => {
+  const el = host();
+  plot(el, {
+    ...blank,
+    marks: [
+      labelled(
+        [
+          { x: 50, y: 20, text: 'top' },
+          { x: 50, y: 80, text: 'low' },
+        ],
+        { reveal: 'down' },
+      ),
+    ],
+    use: [chart => (chart.onPaint(draw => draw(0.5)), { destroy() {} })],
+  });
+  expect(pixel(el, 80, 25)).toEqual([255, 0, 0, 255]);
+  expect(pixel(el, 20, 75)[3]).toBe(0);
+  expect(labelsOf(el).map(d => [d.textContent, d.style.visibility])).toEqual([
+    ['top', ''],
+    ['low', 'hidden'],
+  ]);
+});
+
+test('a label waits for the last wedge of a sweep to pass, and one at the edge of the plot is not kept waiting', () => {
+  let chart!: Internals;
+  const capture = (c: Internals) => ((chart = c), { destroy() {} });
+  const round = host();
+  plot(round, { ...pie, marks: [labelled([{ x: 50, y: 30, text: 'wide' }])], use: [capture] });
+  chart.reveal(0.98);
+  expect(labelsOf(round)[0]!.style.visibility).toBe('hidden');
+  chart.reveal(1);
+  expect(labelsOf(round)[0]!.style.visibility).toBe('');
+
+  const across = host();
+  plot(across, { ...blank, marks: [labelled([{ x: 20, y: 92, text: 'ab' }])], use: [capture] });
+  chart.reveal(0.5);
+  expect(labelsOf(across)[0]!.style.visibility).toBe('');
+  chart.reveal(0.2);
+  expect(labelsOf(across)[0]!.style.visibility).toBe('hidden');
+});
+
+test('a ring too thin to hold its label goes without one', () => {
+  const el = host();
+  plot(el, {
+    ...pie,
+    width: 300,
+    height: 300,
+    marks: [arcs({ values: [1], colors: [RED], inner: 0.99, text: true })],
+  });
+  expect(labelsOf(el)).toHaveLength(0);
+  const thick = host();
+  plot(thick, {
+    ...pie,
+    width: 300,
+    height: 300,
+    marks: [arcs({ values: [1], colors: [RED], inner: 0.5, text: true })],
+  });
+  expect(labelsOf(thick).map(d => d.textContent)).toEqual(['100%']);
+});
+
+test('a funnel narrows stage by stage, names its stages and answers for the one under the pointer', () => {
+  const el = host();
+  let chart!: Internals;
+  plot(el, {
+    ...blank,
+    width: 300,
+    height: 300,
+    dim: 0.2,
+    marks: [
+      funnel({
+        values: [100, 50, -5, NaN],
+        colors: [RED, BLUE, GREEN],
+        labels: ['Visits', 'Carts', 'Orders', 'Paid', 'extra'],
+        text: true,
+      }),
+    ],
+    use: [tooltip({ mode: 'nearest', text: label => `tip ${label}` }), c => ((chart = c), { destroy() {} })],
+  });
+  expect(pixel(el, 10, 5)).toEqual([255, 0, 0, 255]);
+  expect(pixel(el, 290, 5)).toEqual([255, 0, 0, 255]);
+  expect(pixel(el, 150, 100)).toEqual([0, 0, 255, 255]);
+  expect(pixel(el, 30, 100)[3]).toBe(0);
+  expect(pixel(el, 150, 200)[3]).toBe(0);
+  expect(labelsOf(el).map(d => d.textContent)).toEqual(['Visits 100%', 'Carts 50%', 'Orders 0%', 'Paid 0%']);
+  expect(chart.marks()[0]!.entries).toHaveLength(4);
+  expect(chart.marks()[0]!.reveal).toBe('down');
+
+  expect(hover(el, 150, 100).innerText).toContain('tip Carts');
+  expect(pixel(el, 150, 100)).toEqual([0, 0, 255, 255]);
+  expect(pixel(el, 150, 20)[3]).toBeLessThan(100);
+  expect(hover(el, 20, 110).innerText).not.toContain('tip');
+
+  for (const values of [[], [0, 0], [1e308, 1e308]]) {
+    expect(() =>
+      plot(host(), { ...blank, marks: [funnel({ values, colors: [RED], text: true })] }),
+    ).not.toThrow();
+  }
+});
+
+test('a sankey lays nodes out in columns, joins them with ribbons as wide as the flow, and names them', () => {
+  const el = host();
+  let chart!: Internals;
+  const flows = fromLinks([
+    { source: 'A', target: 'B', value: 3 },
+    { source: 'A', target: 'C', value: 1 },
+    { source: 'B', target: 'D', value: 3 },
+  ]);
+  expect(flows).toEqual({
+    nodes: ['A', 'B', 'C', 'D'],
+    source: [0, 0, 1],
+    target: [1, 2, 3],
+    value: [3, 1, 3],
+  });
+  plot(el, {
+    ...blank,
+    width: 312,
+    height: 200,
+    dim: 0.2,
+    marks: [sankey({ ...flows, colors: [RED, BLUE, GREEN, BLUE] })],
+    use: [
+      tooltip({ mode: 'nearest', text: (_, x, y, row) => `row ${row}` }),
+      c => ((chart = c), { destroy() {} }),
+    ],
+  });
+  expect(pixel(el, 5, 100)).toEqual([255, 0, 0, 255]);
+  expect(pixel(el, 155, 60)).toEqual([0, 0, 255, 255]);
+  expect(pixel(el, 305, 60)).toEqual([0, 0, 255, 255]);
+  const ribbon = pixel(el, 80, 60);
+  expect(ribbon[3]).toBeGreaterThan(90);
+  expect(ribbon[3]).toBeLessThan(140);
+  expect(pixel(el, 155, 147)[3]).toBe(0);
+  expect(
+    labelsOf(el)
+      .map(d => d.textContent)
+      .sort(),
+  ).toEqual(['A', 'B', 'C', 'D']);
+
+  const c = Array.from({ length: 200 }, (_, y) => y).find(y => pixel(el, 155, y)[1] === 255)!;
+  expect(pixel(el, 155, c + 1)).toEqual([0, 255, 0, 255]);
+  expect(hover(el, 5, 100).innerText).toContain('row 0');
+  expect(hover(el, 80, 60).innerText).toContain('row 4');
+  expect(hover(el, 230, 60).innerText).toContain('row 6');
+  expect(pixel(el, 230, 60)[3]).toBeGreaterThan(90);
+  expect(pixel(el, 80, 60)[3]).toBeGreaterThan(90);
+  expect(pixel(el, 5, 100)).toEqual([255, 0, 0, 255]);
+  expect(pixel(el, 155, c + 1)[3]).toBeLessThan(60);
+  expect(hover(el, 155, 147).innerText).not.toContain('row');
+  expect(chart.marks()[0]!.points).toBe(7);
+
+  expect(pixel(el, 155, c + 1)).toEqual([0, 255, 0, 255]);
+  expect(hover(el, 305, 60).innerText).toContain('row 3');
+  expect(pixel(el, 5, 100)).toEqual([255, 0, 0, 255]);
+  expect(pixel(el, 155, 60)).toEqual([0, 0, 255, 255]);
+  expect(pixel(el, 80, 60)[3]).toBeGreaterThan(90);
+  expect(pixel(el, 230, 60)[3]).toBeGreaterThan(90);
+  expect(pixel(el, 155, c + 1)[3]).toBeLessThan(60);
+});
+
+test('a sankey refuses links it cannot place, and copes with empty and enormous flows', () => {
+  const make = (source: number[], target: number[], value = source.map(() => 1)) =>
+    sankey({ nodes: ['A', 'B', 'C'], source, target, value, colors: [RED] });
+  expect(() => make([0, 1, 2], [1, 2, 0])).toThrow(/circle through (A, B, C|B, C, A|C, A, B)$/);
+  expect(() => make([0, 1, 1], [1, 0, 2])).toThrow(/circle through (A, B|B, A)$/);
+  expect(() => make([0], [0])).toThrow(/A links to itself/);
+  expect(() => make([0], [7])).toThrow(/names node 7/);
+  expect(() => make([0], [1.5])).toThrow(/names node 1.5/);
+  for (const mark of [
+    make([], []),
+    make([0, 0], [1, 2], [1e308, 1e308]),
+    make([0], [1], [NaN]),
+    make([0], [1], [-4]),
+  ]) {
+    expect(() => plot(host(), { ...blank, marks: [mark] })).not.toThrow();
+  }
+  const el = host();
+  plot(el, { ...blank, width: 300, height: 200, marks: [make([0, 0], [1, 2], [1e308, 1e308])] });
+  expect(pixel(el, 5, 100)).toEqual([255, 0, 0, 255]);
+});
+
+test("the legend shows a heatmap's colours as a strip between the ends of its domain", () => {
+  const el = host();
+  let chart!: Internals;
+  const auto = { domain: 'data' as const, label: '' };
+  plot(el, {
+    ...frame,
+    width: 300,
+    x: auto,
+    y: auto,
+    marks: [
+      heatmap({
+        values: [2, 7.123456, NaN, 4],
+        columns: 2,
+        label: 'Load',
+        color: sequential({ stops: ['#ff0000', '#0000ff'] }),
+      }),
+    ],
+    use: [legend(), c => ((chart = c), { destroy() {} })],
+  });
+  const strip = [...el.querySelectorAll('span')].find(s => s.style.backgroundImage)!;
+  expect(strip.style.backgroundImage).toMatch(
+    /^linear-gradient\(to right, rgb\(255, 0, 0\).*rgb\(0, 0, 255\)\)$/,
+  );
+  expect(strip.parentElement!.textContent).toBe('Load 27.12');
+  expect(chart.margin().top).toBe(24);
+});
+
+test('a crowded sankey keeps its flows and its nodes inside the plot', () => {
+  const many = host();
+  const fan = fromLinks(
+    Array.from({ length: 12 }, (_, i) => ({ source: 'in', target: `out ${i}`, value: 1 })),
+  );
+  plot(many, { ...blank, marks: [sankey({ ...fan, colors: [RED], text: false })] });
+  const across = Array.from({ length: 20 }, (_, i) => pixel(many, 50, 40 + i)[3]!);
+  expect(Math.max(...across)).toBeGreaterThan(90);
+  expect(Math.min(...across)).toBeLessThan(40);
+  expect(pixel(many, 97, 1)[3]).toBe(255);
+  expect(pixel(many, 97, 98)[3]).toBe(255);
+
+  const long = host();
+  let chart!: Internals;
+  const chain = fromLinks(
+    Array.from({ length: 11 }, (_, i) => ({ source: `n${i}`, target: `n${i + 1}`, value: 1 })),
+  );
+  plot(long, {
+    ...blank,
+    marks: [sankey({ ...chain, colors: [RED], text: false })],
+    use: [c => ((chart = c), { destroy() {} })],
+  });
+  const rows = [2, 6.5, 98].map(x => chart.hit(x, 50, 5)?.row);
+  expect(rows).toEqual([0, 12, 11]);
+  expect(
+    fromLinks([
+      { source: 'A', target: 'B', value: 1 },
+      { source: 'C', target: 'D', value: 1 },
+    ]).nodes,
+  ).toEqual(['A', 'B', 'C', 'D']);
+  expect(() =>
+    sankey({
+      ...fromLinks(
+        Array.from({ length: 10_000 }, (_, i) => ({ source: `${i}`, target: `${i + 1}`, value: 1 })),
+      ),
+      colors: [RED],
+    }),
+  ).not.toThrow();
+});
+
+test('a funnel is hit where it is painted, and keeps text off its sloping sides', () => {
+  const el = host();
+  let chart!: Internals;
+  plot(el, {
+    ...blank,
+    marks: [funnel({ values: [1, 1], colors: [RED] })],
+    use: [c => ((chart = c), { destroy() {} })],
+  });
+  expect(chart.hit(50, 49.5, 5)).toBeNull();
+  expect(chart.hit(50, 48, 5)!.row).toBe(0);
+  expect(chart.hit(50, 50, 5)!.row).toBe(1);
+
+  const curved = host();
+  plot(curved, {
+    ...blank,
+    marks: [funnel({ values: [1, 0.2], colors: [RED] })],
+    use: [c => ((chart = c), { destroy() {} })],
+  });
+  // Half-widths of 50 and 10: a quarter of the way down a straight side is 40 out and the curve
+  // 35.6; three quarters down they are 20 and 13.3.
+  expect(chart.hit(82, 12, 5)!.row).toBe(0);
+  expect(pixel(curved, 82, 12)).toEqual(RED_PIXEL);
+  expect(chart.hit(88, 12, 5)).toBeNull();
+  expect(pixel(curved, 88, 12)).not.toEqual(RED_PIXEL);
+  expect(chart.hit(62, 37, 5)!.row).toBe(0);
+  expect(chart.hit(66, 37, 5)).toBeNull();
+  expect(pixel(curved, 66, 37)).not.toEqual(RED_PIXEL);
+
+  const steep = host();
+  plot(steep, {
+    ...blank,
+    width: 300,
+    height: 120,
+    marks: [funnel({ values: [1, 0.3, 0.05], colors: [RED], text: row => (row === 1 ? 'Carts step' : '') })],
+  });
+  const beside = labelsOf(steep);
+  expect(beside.map(d => [d.textContent, d.style.color])).toEqual([['Carts step', '']]);
+  // The second stage runs from y = 40 to 79 and from a half-width of 45 down to 7.5; the text is
+  // 16 px tall about its middle, and must start to the right of the stage's edge at its top.
+  const edgeAtTop = 150 + 45 - 37.5 * ((59.5 - 8 - 40) / 39);
+  expect(parseFloat(beside[0]!.style.left)).toBeGreaterThan(edgeAtTop);
+  expect(parseFloat(beside[0]!.style.left)).toBeLessThan(edgeAtTop + 12);
+
+  const cramped = host();
+  plot(cramped, {
+    ...blank,
+    width: 300,
+    height: 40,
+    marks: [funnel({ values: [1, 0], colors: [RED], text: row => (row ? '' : 'Stage') })],
+  });
+  expect(labelsOf(cramped)).toHaveLength(0);
+});
+
+test('the ends of a colour strip are told apart however close they are', () => {
+  const el = host();
+  const auto = { domain: 'data' as const, label: '' };
+  plot(el, {
+    ...frame,
+    width: 300,
+    x: auto,
+    y: auto,
+    marks: [heatmap({ values: [1000, 1001], columns: 2 })],
+    use: [legend()],
+  });
+  const strip = [...el.querySelectorAll('span')].find(s => s.style.backgroundImage)!;
+  expect(strip.parentElement!.textContent).toBe('10001001');
 });

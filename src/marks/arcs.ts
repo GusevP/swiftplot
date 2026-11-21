@@ -11,6 +11,8 @@ export type ArcsOptions = {
   colors: string[];
   labels?: string[];
   inner?: number;
+  /** Text on each slice that has room for it: true for its share as a percentage, or your own. */
+  text?: true | ((row: number, share: number) => string);
   alpha?: number;
   key?: string;
   label?: string;
@@ -60,7 +62,43 @@ export function arcs(o: ArcsOptions): Mark {
         path.closePath();
         return path;
       });
+      // Where a slice's label and its tooltip sit: half-way round it and half-way out.
+      const anchor = (i: number) => {
+        const middle = (((ends[i - 1] ?? 0) + ends[i]!) / 2) * TURN - TURN / 4;
+        const far = (hole + outer) / 2;
+        return [cx + Math.cos(middle) * far, cy + Math.sin(middle) * far] as const;
+      };
+      const said = o.text === true ? (_: number, share: number) => `${Math.round(share * 100)}%` : o.text;
+      // Text is level, so its box must lie inside the slice: between the hole and the rim at its
+      // nearest and furthest points, and between the slice's two edges at its corners.
+      const within = (i: number, x: number, y: number, w: number, h: number) => {
+        const [l, t, r, b] = [x - w / 2 - cx, y - h / 2 - cy, x + w / 2 - cx, y + h / 2 - cy];
+        const near = Math.hypot(Math.max(l, 0, -r), Math.max(t, 0, -b));
+        const far = Math.hypot(Math.max(-l, r), Math.max(-t, b));
+        if (near < hole || far > outer) return false;
+        const [from, to] = [ends[i - 1] ?? 0, ends[i]!];
+        if (to - from >= 1) return true;
+        return [
+          [l, t],
+          [r, t],
+          [r, b],
+          [l, b],
+        ].every(([px, py]) => {
+          const share = ((((Math.atan2(py!, px!) + TURN / 4) / TURN) % 1) + 1) % 1;
+          return share >= from && share < to;
+        });
+      };
+      const labels = !said
+        ? undefined
+        : Array.from(ends, (end, i) => {
+            const share = end - (ends[i - 1] ?? 0);
+            const text = slices[i] ? said(i, share) : '';
+            const [x, y] = anchor(i);
+            if (!text || !within(i, x, y, text.length * 7 * dpr, 16 * dpr)) return undefined;
+            return { x, y, text, color: '#fff', priority: share };
+          }).filter(l => l !== undefined);
       return {
+        labels,
         paint(k, row, rest = 1) {
           slices.forEach((path, i) => {
             if (!path) return;
@@ -77,11 +115,10 @@ export function arcs(o: ArcsOptions): Mark {
           const share = ((((Math.atan2(dy, dx) + TURN / 4) / TURN) % 1) + 1) % 1;
           const row = ends.findIndex((end, i) => share < end && end > (ends[i - 1] ?? 0));
           if (row < 0) return null;
-          const middle = (((ends[row - 1] ?? 0) + ends[row]!) / 2) * TURN - TURN / 4;
-          const reachOut = (hole + outer) / 2;
+          const [x, y] = anchor(row);
           return {
-            x: (cx + Math.cos(middle) * reachOut - left) / width,
-            y: 1 - (cy + Math.sin(middle) * reachOut - top) / height,
+            x: (x - left) / width,
+            y: 1 - (y - top) / height,
             distance: reach,
             row,
           };

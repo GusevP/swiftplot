@@ -26,7 +26,9 @@ export function heatmap(o: HeatmapOptions): Mark {
   const rows = Math.ceil(values.length / columns);
   const [x0, x1] = o.x ?? [-0.5, columns - 0.5];
   const [y0, y1] = o.y ?? [-0.5, rows - 0.5];
-  let domain: [number, number] | undefined;
+  // Found when first asked for, by the legend or the first paint, whichever comes first.
+  let found: [number, number] | undefined;
+  const domain = () => (found ??= color.domain ?? extent([values]));
 
   return {
     type: 'heatmap',
@@ -37,6 +39,10 @@ export function heatmap(o: HeatmapOptions): Mark {
     options: o,
     points: values.length,
     channels: { x: [[x0, x1]], y: [[y0, y1]] },
+    ramp() {
+      const [lo, hi] = domain();
+      return { table: color.table, lo, hi };
+    },
     prepare({ ctx, dpr, ox, kx, oy, ky, left, top, width, height }) {
       // Column c starts at ax + c * bx in device pixels, row r at ay + r * by.
       const [ax, bx] = [ox + x0 * kx, ((x1 - x0) / columns) * kx];
@@ -83,7 +89,7 @@ export function heatmap(o: HeatmapOptions): Mark {
       }
       let picture: OffscreenCanvas | undefined;
       if (some) {
-        const [lo, hi] = (domain ??= color.domain ?? extent([values]));
+        const [lo, hi] = domain();
         picture = new OffscreenCanvas(w, h);
         const c = picture.getContext('2d')!;
         const image = c.createImageData(w, h);

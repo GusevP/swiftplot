@@ -35,7 +35,8 @@ const resolve = (a: Axis, of: () => [number, number], room: Room): Resolved => {
 };
 const AUTO: Axis = { domain: 'nice', label: '' };
 const NONE: Axis = { domain: [0, 1], label: '', scale: () => ({ lo: 0, hi: 1, ticks: [] }) };
-const axisOf = (o: Options, which: 'x' | 'y') => (o.polar ? NONE : (o[which] ?? AUTO));
+const bare = (o: Options) => o.frame === 'polar' || o.frame === 'blank';
+const axisOf = (o: Options, which: 'x' | 'y') => (bare(o) ? NONE : (o[which] ?? AUTO));
 const sameAxis = (a: Axis, b: Axis) =>
   same({ ...a, domain: String(a.domain) }, { ...b, domain: String(b.domain) });
 
@@ -101,31 +102,114 @@ export function plot(el: HTMLElement, options: Options): Chart {
     return true;
   };
 
-  // The WebGL canvas is clipped to the plot by CSS; an entrance narrows that to the left fraction
-  // `shown` or lowers its opacity. Layout calls this with no argument, which must undo neither.
+  // What a reveal has uncovered at a progress, in CSS pixels: the one shape the canvas clip, the
+  // WebGL clip and the labels all follow.
+  const revealed = (t: number): [number, number][] => {
+    const [l, top, w, h] = [m.left, m.top, W - m.left - m.right, H - m.top - m.bottom];
+    if (t >= 1 || o.frame !== 'polar') {
+      const [across, down] = marks.some(k => k.reveal === 'down') ? [1, Math.min(t, 1)] : [Math.min(t, 1), 1];
+      return [
+        [l, top],
+        [l + w * across, top],
+        [l + w * across, top + h * down],
+        [l, top + h * down],
+      ];
+    }
+    // The centre, twelve o'clock, each corner of the rectangle the sweep has passed, and where
+    // its leading ray leaves the rectangle.
+    const [cx, cy] = [l + w / 2, top + h / 2];
+    const ray = (turn: number): [number, number] => {
+      const [dx, dy] = [Math.sin(turn * 2 * Math.PI), -Math.cos(turn * 2 * Math.PI)];
+      const far = Math.min(w / 2 / Math.abs(dx || 1e-9), h / 2 / Math.abs(dy || 1e-9));
+      return [cx + dx * far, cy + dy * far];
+    };
+    const corner = Math.atan2(w, h) / (2 * Math.PI);
+    const passed = [corner, 0.5 - corner, 0.5 + corner, 1 - corner].filter(turn => turn < t);
+    return [[cx, cy], ray(0), ...passed.map(ray), ray(t)];
+  };
+  const inside = (shape: [number, number][], x: number, y: number) => {
+    let within = false;
+    for (let i = 0, j = shape.length - 1; i < shape.length; j = i++) {
+      const [[xi, yi], [xj, yj]] = [shape[i]!, shape[j]!];
+      if (yi > y !== yj > y && x < xi + ((xj - xi) * (y - yi)) / (yj - yi)) within = !within;
+    }
+    return within;
+  };
+  const cross = (a: number[], b: number[], c: number[], d: number[]) => {
+    const side = (p: number[], q: number[], r: number[]) =>
+      Math.sign((q[0]! - p[0]!) * (r[1]! - p[1]!) - (q[1]! - p[1]!) * (r[0]! - p[0]!));
+    return side(a, b, c) !== side(a, b, d) && side(c, d, a) !== side(c, d, b);
+  };
+  // The whole of a box is uncovered when its corners are and no edge of the outline cuts through
+  // it; the corners alone miss a wedge still to come that passes between them. The box is taken a
+  // little smaller, so that one touching the edge of the plot counts as inside it.
+  const uncovered = (shape: [number, number][], k: { l: number; t: number; r: number; b: number }) => {
+    const [l, t, r, b] = [k.l + 0.5, k.t + 0.5, k.r - 0.5, k.b - 0.5];
+    const corners = [
+      [l, t],
+      [r, t],
+      [r, b],
+      [l, b],
+    ];
+    return (
+      corners.every(([x, y]) => inside(shape, x!, y!)) &&
+      !shape.some((p, i) =>
+        corners.some((q, j) => cross(p, shape[(i + 1) % shape.length]!, q, corners[(j + 1) % 4]!)),
+      )
+    );
+  };
+
+  // The marks' labels, as DOM in a layer made when the first one is asked for.
+  type Box = { l: number; t: number; r: number; b: number; text: string; color?: string };
+  let notes: HTMLDivElement | undefined;
+  let noted = '[]';
+  let boxes: (Box & { el: HTMLElement })[] = [];
+  const annotate = () => {
+    // In the order of the marks, whichever layer each is drawn on: that order settles a tie.
+    const wanted = [...new Set(marks)].flatMap(k => cache.get(k)?.p.labels ?? []);
+    const kept: Box[] = [];
+    for (const label of wanted.sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0))) {
+      const [x, y, w] = [label.x / dpr, label.y / dpr, label.text.length * 7];
+      const l = label.align === 'start' ? x : label.align === 'end' ? x - w : x - w / 2;
+      const box = { l, t: y - 8, r: l + w, b: y + 8, text: label.text, color: label.color };
+      if (box.l < 0 || box.t < 0 || box.r > W || box.b > H) continue;
+      if (kept.some(k => box.l < k.r && k.l < box.r && box.t < k.b && k.t < box.b)) continue;
+      kept.push(box);
+    }
+    const key = JSON.stringify(kept);
+    if (key === noted) return;
+    noted = key;
+    boxes = kept.map(k => {
+      const el = document.createElement('div');
+      el.textContent = k.text;
+      el.style.cssText = `position:absolute;white-space:nowrap;line-height:16px;left:${k.l}px;top:${k.t}px;width:${k.r - k.l}px;text-align:center`;
+      if (k.color) el.style.color = k.color;
+      return { ...k, el };
+    });
+    notes ??= layer('div', 'inset:0;color:#444');
+    notes.replaceChildren(...boxes.map(k => k.el));
+    uncover();
+  };
+
+  // An entrance uncovers the chart up to `shown`, or raises it from an opacity of `faded`. Layout
+  // calls this with no argument, which must undo neither.
   let shown = 1;
   let faded = 1;
   let clipped = '';
-  const clipGl = (reveal = shown, opacity = faded) => {
-    shown = reveal;
-    if (!glCanvas) return;
-    const [w, h] = [W - m.left - m.right, H - m.top - m.bottom];
-    let css = `inset(${m.top}px ${m.right + w * (1 - reveal)}px ${m.bottom}px ${m.left}px)`;
-    if (o.polar && reveal < 1) {
-      // The same sweep as the canvas gets, cut to the plot: the centre, twelve o'clock, each corner
-      // of the rectangle the sweep has passed, and where its leading ray leaves the rectangle.
-      const [cx, cy] = [m.left + w / 2, m.top + h / 2];
-      const ray = (turn: number) => {
-        const [dx, dy] = [Math.sin(turn * 2 * Math.PI), -Math.cos(turn * 2 * Math.PI)];
-        const far = Math.min(w / 2 / Math.abs(dx || 1e-9), h / 2 / Math.abs(dy || 1e-9));
-        return [cx + dx * far, cy + dy * far];
-      };
-      const corner = Math.atan2(w, h) / (2 * Math.PI);
-      const passed = [corner, 0.5 - corner, 0.5 + corner, 1 - corner].filter(turn => turn < reveal);
-      css = `polygon(${[[cx, cy], ray(0), ...passed.map(ray), ray(reveal)].map(([x, y]) => `${x}px ${y}px`).join()})`;
+  const uncover = (reveal = shown, opacity = faded) => {
+    [shown, faded] = [reveal, opacity];
+    const shape = reveal < 1 ? revealed(reveal) : undefined;
+    if (notes) {
+      notes.style.opacity = opacity === 1 ? '' : String(opacity);
+      // A label shows once the whole of its box is uncovered, so it never names what is not there yet.
+      for (const k of boxes) k.el.style.visibility = !shape || uncovered(shape, k) ? '' : 'hidden';
     }
+    if (!glCanvas) return;
+    const css = shape
+      ? `polygon(${shape.map(([x, y]) => `${x}px ${y}px`).join()})`
+      : `inset(${m.top}px ${m.right}px ${m.bottom}px ${m.left}px)`;
     if (css !== clipped) glCanvas.style.clipPath = clipped = css;
-    if (opacity !== faded) glCanvas.style.opacity = String((faded = opacity));
+    glCanvas.style.opacity = opacity === 1 ? '' : String(opacity);
   };
 
   // A column set is scanned at most once per list of marks, and only if its axis asks.
@@ -158,7 +242,7 @@ export function plot(el: HTMLElement, options: Options): Chart {
     const given = o.margin ?? {};
     let widest = 0;
     if (given.left === undefined) for (const t of ys.ticks) widest = Math.max(widest, t.label.length);
-    m = o.polar
+    m = bare(o)
       ? { top: given.top ?? 8, right: given.right ?? 8, bottom: given.bottom ?? 8, left: given.left ?? 8 }
       : {
           top: given.top ?? 12,
@@ -205,7 +289,7 @@ export function plot(el: HTMLElement, options: Options): Chart {
       dpr,
       ctx,
     };
-    clipGl();
+    uncover();
 
     const key = JSON.stringify([W, H, m, xs, ys, xLabel, yLabel]);
     if (key !== axesKey) {
@@ -245,7 +329,7 @@ export function plot(el: HTMLElement, options: Options): Chart {
       glCanvas.ariaHidden = 'true';
       canvas.after(glCanvas);
       fit(glCanvas);
-      clipGl();
+      uncover();
       gl = makeGl(glCanvas);
     }
     useGl &&= !!gl;
@@ -272,6 +356,7 @@ export function plot(el: HTMLElement, options: Options): Chart {
     }
     if (!all) morphs = [];
     replaced.clear();
+    annotate();
   };
 
   const grid = () => {
@@ -307,13 +392,13 @@ export function plot(el: HTMLElement, options: Options): Chart {
     const dim = o.dim ?? 1;
     const lit = drawnFocus();
     const only = drawnRow();
-    clipGl(reveal, 1);
+    uncover(reveal, 1);
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     grid();
     if (!reveal) return;
     ctx.save();
     ctx.beginPath();
-    ctx.rect(view.left, view.top, view.width * reveal, view.height);
+    for (const [x, y] of revealed(reveal)) ctx.lineTo(x * dpr, y * dpr);
     ctx.clip();
     // Beside a focused row the other marks keep their strength, unless they are other series.
     const others = lit !== null || (only && several) ? dim : 1;
@@ -353,7 +438,9 @@ export function plot(el: HTMLElement, options: Options): Chart {
     if (!drawable) {
       flat = [];
       onGl = [];
+      cache.clear();
       settle();
+      annotate();
       return false;
     }
     if (data || viewChanged) prepare(viewChanged);
@@ -383,8 +470,8 @@ export function plot(el: HTMLElement, options: Options): Chart {
       for (const p of morphs) p.morph!(t);
       return morphs.length > 0;
     },
-    polar: () => !!o.polar,
-    reveal: clipGl,
+    revealed,
+    reveal: uncover,
     reserve(space) {
       above = space;
     },

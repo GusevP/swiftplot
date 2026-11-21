@@ -12,6 +12,14 @@ type Entry = { label: string; color: string; group?: string; part?: [mark: numbe
  * ponytail: entry widths are estimated at 7 px a character, because measuring text (DOM or canvas)
  * costs about 16 ms at 4x CPU slowdown before the first paint. A row that turns out wider is cut off.
  */
+/** The two ends of a domain to as few digits as tell them apart, and at least three. */
+function ends(lo: number, hi: number) {
+  for (let digits = 3; ; digits++) {
+    const said = [lo, hi].map(v => String(+v.toPrecision(digits)));
+    if (said[0] !== said[1] || lo === hi || digits > 16) return said;
+  }
+}
+
 export function legend(): Feature {
   return chart => {
     const { root } = chart;
@@ -22,12 +30,16 @@ export function legend(): Feature {
     let at: [number, number] | undefined;
 
     chart.reserve((left, width) => {
+      // One pass over the marks. A mark's own entries come before its strip of colours, and a
+      // mark with either is not also listed by its label.
       const entries: Entry[] = [];
+      const ramps: { label?: string; table: Uint32Array; lo: number; hi: number }[] = [];
       const listed = new Set<string>();
       chart.marks().forEach((k, at) => {
-        if (k.entries) return entries.push(...k.entries.map((e, row): Entry => ({ ...e, part: [at, row] })));
+        k.entries?.forEach((e, row) => entries.push({ ...e, part: [at, row] }));
+        if (k.ramp) ramps.push({ label: k.label, ...k.ramp() });
         const id = k.group ?? k.label;
-        if (k.label === undefined || id === undefined || listed.has(id)) return;
+        if (k.entries || k.ramp || k.label === undefined || id === undefined || listed.has(id)) return;
         listed.add(id);
         entries.push({ label: k.label, color: k.color, group: k.group });
       });
@@ -42,7 +54,17 @@ export function legend(): Feature {
         rows.at(-1)!.push(e);
         used += (used && GAP) + w;
       }
-      const key = JSON.stringify([left, width, rows]);
+      if (!entries.length) rows.length = 0;
+      // A strip is described by a few of its colours, which is also all the page is given of them.
+      const strips = ramps.map(r => ({
+        label: r.label,
+        ends: ends(r.lo, r.hi),
+        colors: [0, 51, 102, 153, 204, 255].map(i => {
+          const p = r.table[i]!;
+          return `rgb(${p & 255},${(p >> 8) & 255},${(p >> 16) & 255})`;
+        }),
+      }));
+      const key = JSON.stringify([left, width, rows, strips]);
       if (key !== built) {
         built = key;
         shown.clear();
@@ -66,9 +88,19 @@ export function legend(): Feature {
             }
             return line;
           }),
+          ...strips.map(s => {
+            const line = document.createElement('div');
+            line.style.cssText = `display:flex;gap:6px;height:${ROW}px;align-items:center;white-space:nowrap;overflow:hidden`;
+            const strip = document.createElement('span');
+            strip.style.cssText = 'display:inline-block;width:120px;height:10px;border-radius:2px';
+            strip.style.backgroundImage = `linear-gradient(to right,${s.colors.join()})`;
+            line.append(...(s.label ? [s.label, ' '] : []), s.ends[0]!, strip, s.ends[1]!);
+            return line;
+          }),
         );
       }
-      return entries.length ? rows.length * ROW + 4 : 0;
+      const lines = rows.length + strips.length;
+      return lines ? lines * ROW + 4 : 0;
     });
 
     // The mark is looked up when pointed at: after an update that kept the entries as they were,
