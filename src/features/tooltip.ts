@@ -17,7 +17,7 @@ export function tooltip(t: TooltipOptions): Feature {
     const cross = chart.layer('div', 'display:none;border-left:1px dashed #888');
     const tip = chart.layer(
       'div',
-      'display:none;background:#fff;border:1px solid #ccc;padding:4px 8px;box-sizing:border-box;width:max-content;max-width:100%;white-space:normal;overflow-wrap:anywhere;z-index:100',
+      'display:none;left:0;background:#fff;border:1px solid #ccc;padding:4px 8px;box-sizing:border-box;width:max-content;max-width:100%;white-space:normal;overflow-wrap:anywhere;z-index:100',
     );
     let at: [number, number] | null = null;
     const hide = () => {
@@ -37,11 +37,9 @@ export function tooltip(t: TooltipOptions): Feature {
       const fx = x > width / 2;
       const fy = y > height / 2;
       tip.style.display = '';
-      const w = (tip.getBoundingClientRect().width * width) / root.getBoundingClientRect().width;
-      const left = fx ? x - 12 - w : x + 12;
-      tip.style.left = `${Math.max(0, Math.min(left, width - w))}px`;
+      const left = fx ? `${x - 12}px - 100%` : `${x + 12}px`;
       tip.style.top = `${y + (fy ? -12 : 12)}px`;
-      tip.style.transform = `translateY(${fy ? -100 : 0}%)`;
+      tip.style.transform = `translate(clamp(0px, ${left}, ${width}px - 100%), ${fy ? -100 : 0}%)`;
     };
     const place = () => {
       if (!at) return;
