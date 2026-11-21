@@ -130,7 +130,7 @@ export function legend(): Feature {
       if (e.pointerType !== 'touch') leave();
     };
     const away = (e: PointerEvent) => {
-      if (!root.contains(e.target as Node)) leave();
+      if (!e.composedPath().includes(root)) leave();
     };
     root.addEventListener('pointerdown', move, true);
     root.addEventListener('pointermove', move, true);

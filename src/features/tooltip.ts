@@ -114,7 +114,7 @@ export function tooltip(t: TooltipOptions): Feature {
       if (e.pointerType !== 'touch') leave();
     };
     const away = (e: PointerEvent) => {
-      if (at && !root.contains(e.target as Node)) leave();
+      if (at && !e.composedPath().includes(root)) leave();
     };
     root.addEventListener('pointerdown', move);
     root.addEventListener('pointermove', move);
