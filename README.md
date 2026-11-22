@@ -1,5 +1,12 @@
 # swiftplot
 
+<p>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/logo-dark.svg" />
+    <img src="assets/logo.svg" alt="swiftplot" height="64" />
+  </picture>
+</p>
+
 Small, fast charts on Canvas 2D and WebGL2. MIT, TypeScript, ESM only, no dependencies.
 
 **Status: prototype.** It draws lines and areas (straight or stepped), bars, box plots, error bars, heatmaps, tick marks and scatter dots on linear, time and category axes, and pies, donuts, radars, radial bars, funnels, sankey diagrams, treemaps and sunbursts, with a hover tooltip, dim-the-others on hover and optional animation. A chart can be updated and follows its container when no size is given. There is a legend that hides and shows series, zoom and pan, a brush, a click event, the pointer from code for linked charts, light and dark themes, reference lines and zones, log axes, and tick steps and formats.
@@ -187,3 +194,7 @@ pnpm typecheck
 pnpm lint        # oxlint, type-aware
 pnpm format      # oxfmt
 ```
+
+## Licence
+
+The code is MIT. The swiftplot name and logo are not covered by that licence.
