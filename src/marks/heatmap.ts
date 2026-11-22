@@ -38,7 +38,7 @@ export function heatmap(o: HeatmapOptions): Mark {
     color: color.stops.at(-1)!,
     options: o,
     points: values.length,
-    channels: { x: [[x0, x1]], y: [[y0, y1]] },
+    channels: { x: [[x0], [x1]], y: [[y0], [y1]] },
     ramp() {
       const [lo, hi] = domain();
       return { table: color.table, lo, hi };

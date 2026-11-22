@@ -5,7 +5,7 @@ import type { Common } from './common.js';
 
 /**
  * r is the radius of each point in CSS pixels. With `ring`, a width in CSS pixels, a point is a
- * ring of its colour that wide round a middle of `fill`, white by default; such points are
+ * ring of its colour that wide round a middle of `fill`, the theme's surface by default; such points are
  * always drawn on the canvas.
  */
 export type DotsOptions = Common & { x: Col; y: Col; r: Col; ring?: number; fill?: string };
@@ -18,12 +18,12 @@ function pointProgram(gl: WebGL2RenderingContext) {
   const p = program(
     gl,
     'in vec3 a;uniform vec4 m;uniform float dpr;out float size;void main(){gl_Position=vec4(a.x*m.x+m.y,a.y*m.z+m.w,0,1);size=a.z*2.0*dpr+1.0;gl_PointSize=size;}',
-    'precision mediump float;uniform vec4 color;in float size;out vec4 o;void main(){float al=clamp(size*0.5-length(gl_PointCoord-0.5)*size,0.0,1.0)*color.a;if(al<=0.0)discard;o=vec4(color.rgb*al,al);}',
+    'precision mediump float;uniform vec4 color;uniform float hole;in float size;out vec4 o;void main(){float d=length(gl_PointCoord-0.5)*size;float al=clamp(size*0.5-d,0.0,1.0)*color.a;if(hole>0.0)al*=clamp(d-size*0.5+0.5+hole,0.0,1.0);if(al<=0.0)discard;o=vec4(color.rgb*al,al);}',
   );
   const a = gl.getAttribLocation(p, 'a');
   gl.enableVertexAttribArray(a);
   const uniform = (name: string) => gl.getUniformLocation(p, name);
-  return { p, a, m: uniform('m'), dpr: uniform('dpr'), color: uniform('color') };
+  return { p, a, m: uniform('m'), dpr: uniform('dpr'), hole: uniform('hole'), color: uniform('color') };
 }
 
 export function dots(o: DotsOptions): Mark {
@@ -32,6 +32,7 @@ export function dots(o: DotsOptions): Mark {
   const buffers = new WeakMap<WebGL2RenderingContext, WebGLBuffer>();
   let reach = 0;
   for (let i = 0; i < n; i++) reach = Math.max(reach, r[i]!);
+  const overhang = reach + (o.ring ?? 0) / 2;
 
   // ponytail: linear scan per pointer move, fine at 100k points; a grid index when it shows in a profile.
   const hit =
@@ -46,7 +47,7 @@ export function dots(o: DotsOptions): Mark {
         const d = (cx / dpr - px) ** 2 + (cy / dpr - py) ** 2;
         if (d < best) [best, at] = [d, i];
       }
-      return at < 0 ? null : { x: x[at]!, y: y[at]!, distance: Math.sqrt(best) };
+      return at < 0 ? null : { x: x[at]!, y: y[at]!, distance: Math.sqrt(best), row: at };
     };
 
   const prepareGl = (view: View, { gl }: GlLayer): Prepared => {
@@ -71,23 +72,39 @@ export function dots(o: DotsOptions): Mark {
     }
     const { ctx, kx, ox, ky, oy, dpr } = view;
     const [red, green, blue, opacity = 1] = rgba(ctx, color);
+    const ready = () => {
+      const { width: w, height: h } = gl.canvas;
+      gl.useProgram(u.p);
+      gl.uniform4f(
+        u.m,
+        (kx * 2) / w,
+        ((ox + x0 * kx) * 2) / w - 1,
+        (ky * 2) / h,
+        1 - ((oy - y0 * ky) * 2) / h,
+      );
+      gl.uniform1f(u.dpr, dpr);
+      gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+      gl.vertexAttribPointer(u.a, 3, gl.FLOAT, false, 0, 0);
+    };
+    const own = () => {
+      gl.uniform1f(u.hole, 0);
+      gl.uniform4f(u.color, red!, green!, blue!, alpha * opacity);
+    };
     return {
       // The alpha argument is unused: dense points saturate, so the layer's fade() dims a group instead.
       paint() {
-        const { width: w, height: h } = gl.canvas;
-        gl.useProgram(u.p);
-        gl.uniform4f(
-          u.m,
-          (kx * 2) / w,
-          ((ox + x0 * kx) * 2) / w - 1,
-          (ky * 2) / h,
-          1 - ((oy - y0 * ky) * 2) / h,
-        );
-        gl.uniform1f(u.dpr, dpr);
-        gl.uniform4f(u.color, red!, green!, blue!, alpha * opacity);
-        gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
-        gl.vertexAttribPointer(u.a, 3, gl.FLOAT, false, 0, 0);
+        ready();
+        own();
         gl.drawArrays(gl.POINTS, 0, n);
+      },
+      select(rows, outline) {
+        ready();
+        own();
+        for (const i of rows) gl.drawArrays(gl.POINTS, i, 1);
+        const [r2, g2, b2, a2 = 1] = rgba(ctx, outline);
+        gl.uniform1f(u.hole, dpr);
+        gl.uniform4f(u.color, r2!, g2!, b2!, a2);
+        for (const i of rows) gl.drawArrays(gl.POINTS, i, 1);
       },
       hit: hit(view),
     };
@@ -95,26 +112,48 @@ export function dots(o: DotsOptions): Mark {
 
   return {
     ...base('dots', o, [x], [y]),
-    overhang: reach + (o.ring ?? 0) / 2,
+    overhang,
+    rowsAlike: true,
     prepare(view) {
-      const { ctx, dpr, ox, kx, oy, ky } = view;
-      const path = new Path2D();
-      for (let i = 0; i < n; i++) {
+      const { ctx, dpr, ox, kx, oy, ky, theme, left, top, width, height } = view;
+      // A point further out than twice the overhang cannot reach the area its mark is cut to.
+      const out = 2 * overhang * dpr;
+      const circle = (path: Path2D, i: number, grow = 0) => {
         const px = ox + x[i]! * kx;
         const py = oy - y[i]! * ky;
-        const radius = r[i]! * dpr;
+        if (px < left - out || px > left + width + out || py < top - out || py > top + height + out) return;
+        const radius = r[i]! * dpr + grow;
         path.moveTo(px + radius, py);
         path.arc(px, py, radius, 0, TAU);
-      }
+      };
+      const path = new Path2D();
+      for (let i = 0; i < n; i++) circle(path, i);
+      const fill = (shape: Path2D, a: number) => {
+        ctx.globalAlpha = alpha * a;
+        ctx.fillStyle = o.ring ? (o.fill ?? theme.surface) : color;
+        ctx.fill(shape);
+        if (!o.ring) return;
+        ctx.strokeStyle = color;
+        ctx.lineWidth = o.ring * dpr;
+        ctx.stroke(shape);
+      };
       return {
-        paint(a) {
-          ctx.globalAlpha = alpha * a;
-          ctx.fillStyle = o.ring ? (o.fill ?? '#fff') : color;
-          ctx.fill(path);
-          if (!o.ring) return;
-          ctx.strokeStyle = color;
-          ctx.lineWidth = o.ring * dpr;
-          ctx.stroke(path);
+        paint: a => fill(path, a),
+        select(rows, outline) {
+          const some = new Path2D();
+          const edge = new Path2D();
+          for (const i of rows) {
+            circle(some, i);
+            circle(edge, i, ((o.ring ?? 0) / 2) * dpr);
+          }
+          fill(some, 1);
+          ctx.save();
+          ctx.clip(edge);
+          ctx.globalAlpha = 1;
+          ctx.strokeStyle = outline;
+          ctx.lineWidth = 2 * dpr;
+          ctx.stroke(edge);
+          ctx.restore();
         },
         hit: hit(view),
       };

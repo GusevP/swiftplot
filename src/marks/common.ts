@@ -82,7 +82,8 @@ export const turnAt = (dx: number, dy: number) => ((((Math.atan2(dy, dx) + TURN 
  * without it they alias `lo` and must not be read.
  * A y that is not finite once projected, or a value of `also` at the same row that is not, ends a
  * run: `runs` holds each run's first column, the column after its last and how many values it
- * kept, and a pixel column a run ends in is split.
+ * kept, and a pixel column a run ends in is split. A run also ends after a row in `cuts`, and is
+ * marked as following one when nothing else broke it since.
  */
 export function columns(
   x: Col,
@@ -93,26 +94,30 @@ export function columns(
   ky: number,
   straight = false,
   also?: Col,
+  [from, to] = [0, x.length],
+  cuts?: Set<number>,
 ) {
-  const n = x.length;
+  const n = to - from;
   const col = new Int32Array(n);
   const lo = new Float64Array(n);
   const hi = new Float64Array(n);
   const last = new Float64Array(n);
   const first = straight ? new Float64Array(n) : lo;
   const at = straight ? new Float64Array(n) : lo;
-  const runs: [number, number, number][] = [];
+  const runs: [number, number, number, boolean][] = [];
   let cut = true;
+  let bridged = false;
   let k = -1;
-  for (let i = 0; i < n; i++) {
+  for (let i = from; i < to; i++) {
     const p = ox + x[i]! * kx;
     const c = Math.round(p);
     const v = oy - y[i]! * ky;
     if (!Number.isFinite(v) || (also && !Number.isFinite(oy - also[i]! * ky))) {
       cut = true;
+      bridged = false;
       continue;
     }
-    if (cut) runs.push([k + 1, k + 1, 0]);
+    if (cut) runs.push([k + 1, k + 1, 0, bridged]);
     const run = runs[runs.length - 1]!;
     run[2]++;
     if (cut || c !== col[k]) {
@@ -125,12 +130,37 @@ export function columns(
     } else if (v < lo[k]!) lo[k] = v;
     else if (v > hi[k]!) hi[k] = v;
     last[k] = v;
+    if (cuts?.has(i)) cut = bridged = true;
   }
   return { n: k + 1, col, lo, hi, last, first, at, runs };
 }
 
-/** y at v: the held sample of a step, the interpolated value of a straight line. */
-export function sampleAt(x: Col, y: Col, v: number, step: boolean) {
+/** Runs of columns() put together where each follows a cut, for `join` to draw as one. */
+export function chains<T extends [number, number, number, boolean]>(runs: T[]) {
+  const out: T[][] = [];
+  for (const run of runs) {
+    if (run[3] && out.length) out[out.length - 1]!.push(run);
+    else out.push([run]);
+  }
+  return out;
+}
+
+/**
+ * x and ys cut to the rows where every y is finite, and the kept rows a gap follows: the curve is
+ * drawn straight from each of those to the next.
+ */
+export function joined<T extends Col[]>(x: Col, ...ys: T): [[Col, ...T], Set<number>] {
+  const keep: number[] = [];
+  for (let i = 0; i < x.length; i++) if (ys.every(y => Number.isFinite(y[i]!))) keep.push(i);
+  const cuts = new Set<number>();
+  for (let k = 1; k < keep.length; k++) if (keep[k] !== keep[k - 1]! + 1) cuts.add(k - 1);
+  if (keep.length === x.length) return [[x, ...ys], cuts];
+  const cut = (c: Col) => Float64Array.from(keep, i => c[i]!);
+  return [[cut(x), ...ys.map(cut)] as unknown as [Col, ...T], cuts];
+}
+
+/** How many rows of an ascending x are at or below v. */
+export function upTo(x: Col, v: number) {
   let a = 0;
   let b = x.length;
   while (a < b) {
@@ -138,12 +168,77 @@ export function sampleAt(x: Col, y: Col, v: number, step: boolean) {
     if (x[mid]! <= v) a = mid + 1;
     else b = mid;
   }
+  return a;
+}
+
+/**
+ * The rows of an ascending x that a curve drawn between the device pixels lo and hi reads: those
+ * between them and `keep` pixel columns of rows beyond each, so no column is cut in two.
+ */
+export function span(x: Col, ox: number, kx: number, lo: number, hi: number, keep: number): [number, number] {
+  const column = (i: number) => Math.round(ox + x[i]! * kx);
+  let [a, b] = [upTo(x, (lo - ox) / kx), upTo(x, (hi - ox) / kx)];
+  if (a > b) [a, b] = [b, a];
+  for (let k = 0; k < keep && a > 0; k++) for (a--; a > 0 && column(a - 1) === column(a);) a--;
+  for (let k = 0; k < keep && b < x.length; k++) for (b++; b < x.length && column(b) === column(b - 1);) b++;
+  return [a, b];
+}
+
+/** The least and greatest f(value) over the rows where f of every column is finite. */
+export function extent(ys: Col[], f = (v: number) => v): [number, number] {
+  let lo = Infinity;
+  let hi = -Infinity;
+  rows: for (let i = 0; i < ys[0]!.length; i++) {
+    for (const y of ys) if (!Number.isFinite(f(y[i]!))) continue rows;
+    for (const y of ys) {
+      const v = f(y[i]!);
+      if (v < lo) lo = v;
+      if (v > hi) hi = v;
+    }
+  }
+  return [lo, hi];
+}
+
+/**
+ * The least and greatest oy - y * ky over the rows of ys, from their extent: when an end of it
+ * overflows once projected, the rows are scanned again for the ones that do not.
+ */
+export function reach([lo, hi]: [number, number], ys: Col[], oy: number, ky: number): [number, number] {
+  const [a, b] = [oy - lo * ky, oy - hi * ky];
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return extent(ys, v => oy - v * ky);
+  return a < b ? [a, b] : [b, a];
+}
+
+/**
+ * y at v as the curve draws it: the held sample of a step, else the line or smooth() between
+ * samples, and the line from a row in `cuts` to the next. A row where y, or `also` like columns(), is not
+ * finite breaks the curve.
+ */
+export function sampleAt(x: Col, y: Col, v: number, curve: Curve, also?: Col, cuts?: Set<number>) {
+  const ok = (i: number) => Number.isFinite(y[i]!) && (!also || Number.isFinite(also[i]!));
+  const a = upTo(x, v);
   if (!a) return undefined;
   const x0 = x[a - 1]!;
   const y0 = y[a - 1]!;
-  if (!Number.isFinite(y0)) return undefined;
+  if (!ok(a - 1)) return undefined;
   if (x0 === v) return y0;
-  if (a < x.length && !Number.isFinite(y[a]!)) return undefined;
-  if (step) return y0;
-  return a < x.length ? y0 + ((y[a]! - y0) * (v - x0)) / (x[a]! - x0) : undefined;
+  if (a < x.length && !ok(a)) return undefined;
+  if (cuts?.has(a - 1)) curve = 'linear';
+  if (curve === 'step') return y0;
+  if (a === x.length) return undefined;
+  const [x1, y1] = [x[a]!, y[a]!];
+  const t = (v - x0) / (x1 - x0);
+  if (curve !== 'smooth') return y0 + (y1 - y0) * t;
+  const rise = (i: number) =>
+    i >= 0 && i + 1 < x.length && ok(i) && ok(i + 1) && !cuts?.has(i)
+      ? (y[i + 1]! - y[i]!) / (x[i + 1]! - x[i]! || 1)
+      : undefined;
+  const lean = (i: number) => {
+    const [p, q] = [rise(i - 1), rise(i)];
+    if (p === undefined || q === undefined) return (p ?? q)!;
+    return p * q > 0 ? (2 * p * q) / (p + q) : 0;
+  };
+  const [m0, m1] = [lean(a - 1) * (x1 - x0), lean(a) * (x1 - x0)];
+  const s = 1 - t;
+  return s * s * (1 + 2 * t) * y0 + s * s * t * m0 + t * t * (3 - 2 * t) * y1 - t * t * s * m1;
 }

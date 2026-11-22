@@ -2,7 +2,7 @@
 
 Small, fast charts on Canvas 2D and WebGL2. MIT, TypeScript, ESM only, no dependencies.
 
-**Status: prototype.** It draws lines and areas (straight or stepped), bars, box plots, error bars, heatmaps, tick marks and scatter dots on linear, time and category axes, and pies, donuts, radars, radial bars, funnels, sankey diagrams, treemaps and sunbursts, with a hover tooltip, dim-the-others on hover and optional animation. A chart can be updated and follows its container when no size is given. There is a legend; there is no zoom or pan yet.
+**Status: prototype.** It draws lines and areas (straight or stepped), bars, box plots, error bars, heatmaps, tick marks and scatter dots on linear, time and category axes, and pies, donuts, radars, radial bars, funnels, sankey diagrams, treemaps and sunbursts, with a hover tooltip, dim-the-others on hover and optional animation. A chart can be updated and follows its container when no size is given. There is a legend that hides and shows series, zoom and pan, a brush, a click event, the pointer from code for linked charts, light and dark themes, reference lines and zones, log axes, and tick steps and formats.
 
 ## Use
 
@@ -24,8 +24,8 @@ chart.destroy();
 ```
 
 - **Marks** are imported functions: `line`, `area`, `bar`, `box`, `errorBars`, `heatmap`, `ticks`, `dots`, `arcs`, `radar`, `radialBars`, `funnel`, `sankey`, `treemap`, `sunburst`. Only the ones you import are bundled.
-- **Lines and areas** are straight between points unless `curve: 'step'` or `curve: 'smooth'`, which curves through the points without overshooting them. `area({ x, y })` fills from zero; `area({ x, y1, y2 })` is a band. A `y` that is `NaN` or infinite leaves a gap: nothing is joined across it, and a lone point between two gaps draws nothing. `x` must be finite and ascending.
-- **Bars** have explicit bounds, `bar({ x1, x2, y1, y2 })`, so vertical, horizontal, grouped and stacked bars are the same mark. A single `y` (or `x`) starts at zero. On a category axis `const [x1, x2] = bands(7)` gives the bounds, and `bands(7, { slot: 0, of: 2 })` those of one series of a grouped chart.
+- **Lines and areas** are straight between points unless `curve: 'step'` or `curve: 'smooth'`, which curves through the points without overshooting them. `area({ x, y })` fills from zero; `area({ x, y1, y2 })` is a band. A `y` that is `NaN` or infinite leaves a gap: nothing is joined across it, and a lone point between two gaps draws nothing; `join: true` draws a line or fills an area straight across instead. `x` must be finite and ascending.
+- **Bars** have explicit bounds, `bar({ x1, x2, y1, y2 })`, so vertical, horizontal, grouped and stacked bars are the same mark. A single `y` (or `x`) starts at zero. On a category axis `const [x1, x2] = bands(7)` gives the bounds. Grouped bars are `bar({ x, y, dodge: 'years' })` for each series, `x` being the category's place: the chart gives the shown series of that id a slot each, in the order listed, so hiding one widens the others. `bands(7, { slot: 0, of: 2 })` gives one series' bounds for a chart that never hides it.
 - **Box plots** take the five numbers as columns: `box({ x, ...fiveNumbers(groups), color })`. The whiskers go to the minimum and maximum; leave outliers out and draw them with `dots`.
 - **Heatmaps** are `heatmap({ values, columns, color: sequential({ stops }) })`, with cell (c, r) centred on x = c, y = r so it sits on band axes; `x` and `y` give the grid's outer edges instead. Create the colour scale once, outside the update, or every update repaints the grid.
 - **Pies and donuts** are `plot(el, { frame: 'polar', marks: [arcs({ values, colors, labels, inner: 0.6, text: true })] })`. A polar frame has no axes; slices start at twelve o'clock and run clockwise. `labels` give the legend one entry per slice, and `text` writes each slice's share on it where there is room. With `animate()` a pie is revealed by a sweep round the clock.
@@ -46,12 +46,44 @@ chart.destroy();
 - **Ticks** thin out to fit the axis, so a narrow chart shows fewer labels, not overlapping ones.
 - **Accessibility:** the chart is exposed as an image with a label built from the axis labels and series names; set `description` to say what it shows. The data itself is not exposed yet.
 - **Margins** are sized from the tick labels; pass `margin: { left: 80 }` to set a side yourself.
-- **Legend** is a feature you import: `use: [legend()]` lists each labelled series above the plot and highlights it on hover.
-- **Histograms and stacks** are plain functions feeding the marks: `bar({ ...bin(values, 20), color })`, and `stack([a, b, c])` gives each series the `y1` and `y2` of its layer, for `bar` or `area`. A `NaN` in a layer counts as zero: that layer has no thickness there.
+- **Legend** is a feature you import: `use: [legend()]` lists each labelled series above the plot, highlights it on hover, and hides or shows it on a click, a tap, Enter or Space (`legend({ toggle: false })` turns that off). A label wider than the plot ends in an ellipsis. Rows are capped at what fits in a third of the chart's height, or at `legend({ rows: 2 })`, and the entries left over go behind "+N more".
+- **Zoom and pan** is a feature you import: `use: [zoom()]`. Ctrl or cmd and the wheel (a trackpad pinch) zoom about the pointer, a drag pans, and a double click or double tap shows the whole domain again; on a touch screen two fingers pinch and pan and one scrolls the page. `zoom({ axes: 'xy', wheel: 'plain', drag: 'shift' })` zooms both axes, zooms on a plain wheel and pans only with shift held. Over the plot a ctrl or cmd wheel never reaches the page unless `wheel: false`, and with `wheel: 'plain'` a plain one reaches it only when the view cannot move further. The window is the `view` option, `{ x?: [lo, hi], y?: [lo, hi] }` in axis values, shown clamped to the domain; `onViewChange` reports it after a gesture, never for `update()`. `y: { domain: 'nice', label, fit: 'window' }` fits y to what the x window shows.
+- **A brush** reports a range: `use: [brush({ onSelect: range => ... })]`. A drag draws a rectangle and `onSelect` gets `{ x, y }` in axis values on release, then `null` once it is cleared; `brush({ zoom: true })` shows the range brushed. With a brush beside `zoom()`, a plain drag brushes and shift and a drag pans. Mouse and pen only.
+- **Hidden series:** `hidden: ['Group 1']` leaves out the series a legend lists under that id (a mark's `group`, or its `label`), from the start or from code, and `onHiddenChange(hidden)` reports a change the legend made. An automatic domain fits what is shown; `fit: 'all'` on an axis holds it still. The chart restacks layers given a `stack` id and re-dodges bars given a `dodge` id; the layers `stack()` returns are computed by the app, so it restacks in `onHiddenChange`.
+- **Clicks and the pointer:** `onClick(hit, at)` gets what is within 20 px of a click on the plot, or `null`, and the axis values at the click; a click that ends a drag is not one. `selected: [{ id: 'Group 1', rows: [3] }]` picks rows out. `pointer: { x, y }` shows a tooltip as if the user's pointer were there, and `onPointerChange` reports the user's, with `null` as it leaves, so two charts can follow each other:
+
+  ```ts
+  const charts = [a, b].map((el, i) =>
+    plot(el, {
+      ...options,
+      onPointerChange: p => charts[1 - i]!.update({ pointer: p }),
+      use: [tooltip(tip)],
+    }),
+  );
+  ```
+
+- **Themes:** `theme: dark` colours the text, grid, tick marks and tooltip for a dark page; `light` is the default. Dark mode is never guessed: the app switches it, and `paletteDark` gives series colours for a dark surface.
+
+  ```ts
+  const scheme = matchMedia('(prefers-color-scheme: dark)');
+  const chart = plot(el, { ...options, theme: scheme.matches ? dark : light });
+  scheme.addEventListener('change', e => chart.update({ theme: e.matches ? dark : light }));
+  ```
+
+- **Reference lines and zones:** `rule({ y: 50, color: '#dc2626', dashed: true, text: 'Target' })` draws a line across the plot at each value, and `zone({ x1, x2, color, text })` a band between two values. A rule is always above the data and a zone under it, wherever they are in `marks`; neither widens a domain or counts as a series.
+- **Tick step and format:** an axis's `step` puts ticks on multiples of it, thinned when their labels do not fit, and `format` labels them; `time({ label, every: 3, unit: 'month', format })` does the same on a time axis. Define `format` once, outside the update: a new function each time counts as a new axis and prepares every mark again.
+
+  ```ts
+  const percent = (v: number) => `${v * 100}%`;
+  chart.update({ y: { domain: 'nice', label: 'Share', step: 0.25, format: percent } });
+  ```
+
+- **Log axes:** `const y = log({ label: 'Count' })` (`base` defaults to 10, `domain` takes real values above zero). Marks take their columns through it, `line({ x, y: y.col(counts), color })`, and a value at or below zero becomes a gap. Everything the app is given or gives (`view`, `pointer`, callbacks, tooltip text) is a real value; a rule or zone takes `y.to(v, y)`. Bars need both ends given, `bar({ x1, x2, y1: y.col(lows), y2: y.col(highs), color })` with `[x1, x2]` from `bands()`, since zero has no place on a log axis, and nothing is stacked on one.
+- **Histograms and stacks** are plain functions feeding the marks: `bar({ ...bin(values, 20), color })`, and `area({ x, y, stack: 'traffic' })` or `bar({ x, y, stack: 'traffic' })` for each series stacks the shown series of that id in the order listed, negative values downwards, so hiding one closes the gap; a tooltip and `onClick` report a layer's own value. `stack([a, b, c])` gives each series the `y1` and `y2` of its layer once, for a chart that never hides one. A `NaN` in a layer counts as zero: that layer has no thickness there.
 - **Hover** highlights the series under the pointer and dims the others (`dim`). Where a chart has only one series, the hovered bar is picked out from the other bars instead.
-- **Touch:** a tap shows the tooltip or highlights a legend entry, and it stays after the finger lifts until a tap elsewhere or the next update or resize of the chart, which lets it go. A pen behaves as a mouse. The chart adds no listener that blocks the page from scrolling.
+- **Touch:** a tap shows the tooltip, and it stays after the finger lifts until a tap elsewhere or the next update or resize of the chart, which lets it go. A pen behaves as a mouse. Without `zoom()` the chart adds no listener that blocks the page from scrolling; with it the chart takes `touch-action: pan-x pan-y`, so one finger still scrolls the page.
 - **Animation** is a feature you import: `use: [animate({ duration: 300 })]`. Marks are revealed from the left on the first paint (`enter: 'fade'` fades them in instead). When the data changes, bars move to their new values, row for row, and everything else cross-fades. It is skipped for a resize, with reduced motion, and while updates arrive faster than the duration.
-- **Axes** are linear by default: `{ domain: 'nice' | 'data' | [lo, hi], label }`. `time({ label })` takes millisecond timestamps and puts ticks on calendar boundaries, in UTC unless `utc: false`. `band({ label, categories })` puts category `i` at `x = i`, owning `i - 0.5` to `i + 0.5`.
+- **Axes** are linear by default: `{ domain: 'nice' | 'data' | [lo, hi], label }`. `time({ label })` takes millisecond timestamps and puts ticks on calendar boundaries, in UTC unless `utc: false`. `log({ label })` is a log axis. `step` and `format` set the ticks, and `fit` which marks an automatic domain is fitted to. `band({ label, categories })` puts category `i` at `x = i`, owning `i - 0.5` to `i + 0.5`.
 - **Columns** (`x`, `y`, `r`) are typed arrays or plain number arrays, one set per mark.
 - **Size**: leave out `width` or `height` and the chart follows its container, which must then have a size of its own (a container with no height gives an empty chart, which draws once the container gets a height).
 - **Updates**: a mark whose options are unchanged keeps its geometry, so passing a fresh `marks` array is cheap. Columns are compared by identity: after writing new values into the same array, pass a new array or view of it (`x.subarray(0)`).
@@ -97,6 +129,51 @@ Time until the chart's own code has finished, which leaves out the wait for the 
 - uPlot has no built-in scatter, so its scatter numbers include circle-drawing code written for the benchmark.
 - Only these two chart types are in the benchmark. Bars, areas, the time axis, the legend and animation are not measured against uPlot.
 - uPlot ships far more features in its 23.6 KB gzip (plus a stylesheet); the swiftplot code these two charts pull in is 7.2 KB gzip.
+
+Script time of one pan step, `propose()` of a window moved by a hundredth of its width (at the whole domain, one narrowed by a thousandth), median ms of 50, on an 800 × 400 chart, 2026-11-22, Apple M3 Pro, Chrome on Metal. Before → after is the remedy of the same date: a line or an area reads only the rows its window shows, and points on the canvas skip those that cannot reach the plot.
+
+| case               |    100,000 |   1,000,000 |
+| ------------------ | ---------: | ----------: |
+| line, whole        |        0.9 |         5.1 |
+| line, 10×          |        0.2 |         0.8 |
+| line, 5000×        |  3.5 → 0.1 |  40.0 → 0.1 |
+| area, whole        |        0.8 |         5.0 |
+| area, 10×          |        0.2 |         0.8 |
+| area, 5000×        |  5.0 → 0.0 |  55.8 → 0.1 |
+| filled line, whole |        0.9 |         5.0 |
+| filled line, 10×   |        0.2 |         0.9 |
+| filled line, 5000× |        0.1 |         0.1 |
+| filled area, whole |        0.8 |         4.9 |
+| filled area, 10×   |        0.2 |         0.8 |
+| filled area, 5000× |        0.0 |         0.1 |
+| bars, whole        |        0.1 |         0.0 |
+| bars, 10×          |        0.0 |         0.1 |
+| bars, 5000×        |        4.9 |        61.0 |
+| points, whole      |        0.1 |         0.0 |
+| points, 10×        |        0.0 |         0.0 |
+| points, 5000×      | 13.3 → 0.2 | 156.9 → 1.9 |
+
+- Bars and points of 10,000 rows or more are drawn by WebGL, whose draw call returns before the GPU finishes, so their whole and 10× cells leave the drawing out. Magnified past 4096 times every mark is drawn on the canvas.
+- A million bars at 5000× is over the 16 ms budget: the canvas still walks every bar.
+
+The same step at 1,000,000 points with `fit: 'window'` on the y axis, 2026-11-22, beside the step without it in the same run (mean of two runs each). At the whole domain two windows narrowed by a thousandth and by two take turns, since one window repeated would be fitted once and kept.
+
+| case          | without | with fit |
+| ------------- | ------: | -------: |
+| line, whole   |     4.8 |      7.0 |
+| line, 10×     |     0.8 |      1.3 |
+| line, 5000×   |     0.1 |      0.1 |
+| area, whole   |     4.8 |      7.0 |
+| area, 10×     |     0.9 |      1.3 |
+| area, 5000×   |     0.1 |      0.1 |
+| bars, whole   |     0.0 |      8.4 |
+| bars, 10×     |     0.0 |      5.2 |
+| bars, 5000×   |    55.4 |     63.8 |
+| points, whole |     0.0 |      7.4 |
+| points, 10×   |     0.1 |      3.8 |
+| points, 5000× |     1.9 |      5.0 |
+
+- A line or an area finds the rows in its window by binary search, so the fit costs the rows the window holds. Bars and points need not be in x order, so the fit reads every row.
 
 ## Develop
 

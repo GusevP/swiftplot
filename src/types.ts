@@ -1,3 +1,5 @@
+import type { Theme } from './theme.js';
+
 export type Col = ArrayLike<number>;
 
 /** Device pixels: px = ox + x * kx, py = oy - y * ky. left/top/width/height is the plot rectangle. */
@@ -12,6 +14,7 @@ export type View = {
   height: number;
   dpr: number;
   ctx: CanvasRenderingContext2D;
+  theme: Theme;
 };
 
 /** A data point and its distance from the pointer in CSS pixels. */
@@ -19,6 +22,8 @@ export type Hit = {
   x: number;
   y: number;
   distance: number;
+  /** The row's own value where y is not it, such as a stacked bar's, which y places at its top. */
+  value?: number;
   /** Which row of the mark was hit, when it draws one shape per row. */
   row?: number;
   /** The colour of what was hit, where the rows of a mark differ in colour and are not its entries. */
@@ -43,11 +48,15 @@ export type Label = {
 
 export type Prepared = {
   labels?: Label[];
+  /** Lines across the whole plot at a device pixel, drawn as DOM over every canvas and never dimmed. */
+  rules?: { x?: number; y?: number; color: string; width: number; dashed: boolean }[];
   /**
    * With a row, that row is drawn at `alpha` and the mark's other rows at `alpha * rest`.
    * A mark that does not draw one shape per row ignores both.
    */
   paint(alpha: number, row?: number, rest?: number): void;
+  /** Draws these rows again over what paint() drew, at full strength, outlined inside in `outline`. */
+  select?(rows: readonly number[], outline: string): void;
   /**
    * Present when the mark can move from the shape of the mark it replaced: sets what paint() draws,
    * from that shape (0) to its own (1). It starts at 1, and hit() always answers for 1.
@@ -68,7 +77,11 @@ export type GlLayer = {
   destroy(): void;
 };
 
-export type Sample = { value: number; y1: number; y2: number };
+/**
+ * Where a filled mark lies at an x. Its value is the real distance between the edges for a band,
+ * else `value`, else y2.
+ */
+export type Sample = { y1: number; y2: number; band?: boolean; value?: number };
 
 export type Mark = {
   /** Names the implementation, e.g. 'line'. */
@@ -107,8 +120,9 @@ export type Mark = {
   /**
    * What the mark shows at x: a y, or for a filled mark its value and the y range it covers there.
    * A step holds its last sample from there on; a straight line has nothing outside its samples.
+   * `straight` asks for a smooth curve as drawn where its rows share a pixel column: straight.
    */
-  sampleAtX?(x: number): number | Sample | undefined;
+  sampleAtX?(x: number, straight?: boolean): number | Sample | undefined;
   /** A chart has dropped the mark; `layer` is that chart's, so only what was made for it is freed. */
   release?(layer: GlLayer | null): void;
   /**
@@ -130,6 +144,15 @@ export type Mark = {
    * these in place of the mark's own label, and pointing at one focuses that row.
    */
   entries?: { label: string; color: string }[];
+  /** paint() draws every row alike, so a focused row focuses the mark's group instead; select() still picks rows out. */
+  rowsAlike?: true;
+  /** paint() draws the mark as one shape and ignores a row, so selecting any of its rows draws it whole. */
+  oneShape?: true;
+  /**
+   * Laid out by the chart with the other shown marks of the same key, such as a stack: `lay` is
+   * given them in listed order and returns the marks drawn in their place.
+   */
+  arrange?: { key: string; lay(members: readonly Mark[]): Mark[] };
 };
 
 /** The rough length of an axis in CSS pixels, and whether its labels run along it (x) or across it (y). */
@@ -149,8 +172,25 @@ export type Axis = {
    * called; and the room there is for ticks. It runs again whenever that room may have changed.
    */
   scale?(axis: Axis, extent: () => [number, number], room?: Room): Resolved;
+  /**
+   * Which marks the extent is taken from: those shown (the default), or all of them, hidden or not.
+   * 'window', on a y axis with an automatic domain, takes it from the shown marks inside the x window
+   * while there is one and y has no window of its own.
+   */
+  fit?: 'shown' | 'all' | 'window';
+  /**
+   * Ticks at the multiples of this, thinned to every k-th when their labels do not fit; 'nice' rounds to it.
+   * A step that would give 990 ticks or more across what is shown gives way to the automatic one.
+   */
+  step?: number;
+  /** The text of each tick, on the built-in scale and on time(); define it once, not anew in each update. */
+  format?: (value: number) => string;
+  /** A transformed axis, such as log(): a real value in the space the marks' columns are in, and back. */
+  to?(real: number, axis: Axis): number;
+  from?(v: number, axis: Axis): number;
 };
 export type Margin = { top: number; right: number; bottom: number; left: number };
+export type Span = [number, number];
 
 export type Options = {
   /** CSS pixels; when omitted the chart follows its container. */
@@ -177,6 +217,43 @@ export type Options = {
   description?: string;
   /** Opacity multiplier for every other group while one is focused. */
   dim?: number;
+  /** `light` when left out. Replacing it with another object repaints the chart and restyles its text. */
+  theme?: Theme;
+  /**
+   * The part of each axis shown, in its values; a side left out shows the whole domain. It is shown
+   * clamped to the domain but kept as given, so it comes back when the domain grows again.
+   */
+  view?: { x?: Span; y?: Span };
+  /**
+   * Called with the window shown once a feature has moved it; never for update(). y is left out
+   * when the y axis fits the x window and has no window of its own.
+   */
+  onViewChange?(view: { x: Span; y?: Span }): void;
+  /** The series not drawn, by the id a legend lists a mark under: its `group`, or its `label`. */
+  hidden?: string[];
+  /** Called with the hidden ids once a feature has changed them; never for update(). */
+  onHiddenChange?(hidden: string[]): void;
+  /**
+   * Rows the app has picked out, by the id `hidden` uses: drawn at full strength, and every other row
+   * at `dim`, while nothing is focused. Bars and dots outline them; a mark drawn as one shape, such as
+   * a line or an area, is drawn whole, and other marks draw the rows without an outline. Unknown ids
+   * and rows are ignored. A translucent row is drawn over its dimmed copy, so it shows a little
+   * stronger than when focused.
+   */
+  selected?: { id: string; rows: number[] }[] | null;
+  /**
+   * Called for a click on the plot, but not for one that ends a drag: with what is within 20 px of
+   * it, or null, and the values at the click. While it is set, the cursor is a pointer over a hit.
+   */
+  onClick?(hit: (Hit & { mark: Mark }) | null, at: { x: number; y: number }): void;
+  /**
+   * A pointer to show as if the user's were there, such as another chart's: a tooltip shows at it
+   * while the user's own is not on the chart. Without y, an x tooltip focuses no series and a
+   * nearest one shows nothing.
+   */
+  pointer?: { x: number; y?: number } | null;
+  /** Called as the user's pointer moves over the plot, and with null once as it leaves or a drag starts; never for update(). */
+  onPointerChange?(pointer: { x: number; y: number } | null): void;
 };
 
 export type Chart = {
@@ -192,7 +269,8 @@ export type Painter = (draw: (reveal?: number) => void, why: 'data' | 'size' | '
 
 /**
  * What a feature works with. Pixel values are CSS pixels relative to the chart. A feature is set
- * up before the first paint: the pixel helpers and hit() work from that paint on.
+ * up before the first paint: the pixel helpers, hit(), view() and propose()
+ * work from that paint on.
  */
 export type Internals = {
   root: HTMLElement;
@@ -222,13 +300,47 @@ export type Internals = {
    */
   reveal(progress: number, opacity?: number): void;
   layer<K extends keyof HTMLElementTagNameMap>(tag: K, css?: string): HTMLElementTagNameMap[K];
+  /** The marks shown: those listed, less the hidden ones. */
   marks(): readonly Mark[];
+  /** Every mark in `marks`, hidden or not. */
+  listed(): readonly Mark[];
+  hidden(): readonly string[];
+  /** Hides these ids, shows the rest, and passes them to onHiddenChange; nothing when they are already hidden. */
+  hide(ids: string[]): void;
   size(): { width: number; height: number };
   margin(): Margin;
+  theme(): Theme;
   xPx(x: number): number;
   yPx(y: number): number;
   xValue(px: number): number;
+  yValue(px: number): number;
+  /** The window shown on each axis, in the marks' space. */
+  view(): { x: Span; y: Span };
+  /** The whole domain on each axis: the widest window propose() shows. */
+  domain(): { x: Span; y: Span };
+  /**
+   * Shows this window, or with null the whole domain, clamped to the domain, and passes it to
+   * onViewChange; a side left out keeps its window, and a side given as undefined shows its whole
+   * domain. False, and nothing happens, when what is shown would not change.
+   */
+  propose(view: { x?: Span; y?: Span } | null): boolean;
+  /** The window propose() would show for this view, without showing it. */
+  fit(view: { x?: Span; y?: Span } | null): { x: Span; y: Span };
+  /** A value in the marks' space as the app sees it. */
+  real(axis: 'x' | 'y', v: number): number;
+  frame(): NonNullable<Options['frame']>;
+  /**
+   * Which feature a drag over the plot belongs to. `pan` is 'plain' when every drag pans and a brush
+   * gets none, and 'shift' when a drag with shift held pans and a brush keeps the plain ones; with no
+   * brush a plain drag then pans too, unless zoom() was given `drag: 'shift'`. `active` is set while
+   * a drag or a gesture is under way, and until the click after its release has gone by.
+   */
+  drag: { brush: boolean; pan: 'plain' | 'shift' | false; active: boolean };
+  /** Runs every feature's update(), for a change under a resting pointer that the chart cannot see, such as the end of a drag. */
+  sync(): void;
   hit(px: number, py: number, max: number): (Hit & { mark: Mark }) | null;
+  /** The app's `pointer`, or null when there is none or its x is outside the plot; a y outside the plot is dropped. */
+  pointer(): { x: number; y?: number } | null;
   /**
    * Dims everything outside the group. When the chart holds no second group to dim, a row focuses
    * that one row of its mark instead and dims the mark's other rows.
@@ -237,7 +349,9 @@ export type Internals = {
 };
 
 /**
- * update() runs after the chart changed under a resting pointer: new options or a new size.
- * letGo() runs before the chart repaints for either, so a focus dropped there does not cut a data animation short.
+ * update() runs whenever what is under a resting pointer may have changed: after the first paint, for
+ * new options or a new size, a series hidden or shown, a new window, and at the end of a drag.
+ * letGo() runs before the repaint for each of these but the first paint, the end of a drag and an
+ * update of only `pointer` or callbacks, so a focus dropped there does not cut a data animation short.
  */
 export type Feature = (chart: Internals) => { update?(): void; letGo?(): void; destroy(): void };

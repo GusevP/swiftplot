@@ -9,6 +9,7 @@ export function ticks(o: TicksOptions): Mark {
   const { x, y, color, size, alpha = 1 } = o;
   return {
     ...base('ticks', o, [x], [y]),
+    oneShape: true,
     prepare({ ctx, dpr, ox, kx, oy, ky }) {
       const h = size * dpr;
       const path = new Path2D();

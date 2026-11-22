@@ -33,6 +33,8 @@ export function animate({ duration = 300, enter = 'reveal' }: AnimateOptions = {
     let frame = 0;
     let last = -Infinity;
     let entered = false;
+    let entering = false;
+    let shown: (() => void) | undefined;
 
     const keep = (picture: OffscreenCanvas) => {
       picture.width = canvas.width;
@@ -42,18 +44,24 @@ export function animate({ duration = 300, enter = 'reveal' }: AnimateOptions = {
     const stop = () => {
       cancelAnimationFrame(frame);
       frame = 0;
+      entering = false;
+      shown = undefined;
       from.width = to.width = 0;
       chart.morph(1);
     };
     const run = (step: (t: number) => void, drawn = false) => {
       const start = performance.now();
+      const show = (e: number) => {
+        step(e);
+        shown = () => step(e);
+      };
       const tick = (now: number) => {
         const t = motion.matches ? 1 : Math.min(1, Math.max(0, (now - start) / duration));
-        step(1 - (1 - t) ** 3);
+        show(1 - (1 - t) ** 3);
         if (t < 1) frame = requestAnimationFrame(tick);
         else stop();
       };
-      if (!drawn) step(0);
+      if (!drawn) show(0);
       frame = requestAnimationFrame(tick);
     };
     // 'copy' replaces the canvas with what is drawn, so the pictures need no clearing first.
@@ -82,6 +90,14 @@ export function animate({ duration = 300, enter = 'reveal' }: AnimateOptions = {
     });
 
     chart.onPaint((draw, why) => {
+      // A focus change lands while the entrance runs: it goes into both pictures, which may have a new layout.
+      if (why === 'focus' && entering && shown) {
+        draw(0);
+        keep(from);
+        draw();
+        keep(to);
+        return shown();
+      }
       const now = performance.now();
       const still =
         why !== 'data' || frame !== 0 || now - last < duration || document.hidden || motion.matches;
@@ -101,6 +117,7 @@ export function animate({ duration = 300, enter = 'reveal' }: AnimateOptions = {
       draw();
       keep(to);
       if (!first) return run(fade);
+      entering = true;
       run(enter === 'fade' ? t => (chart.reveal(1, t), fade(t)) : t => (chart.reveal(t), reveal(t)));
     });
 

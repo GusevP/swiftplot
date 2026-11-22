@@ -89,13 +89,20 @@ export function radar(o: RadarOptions): Mark[] {
       // Under its ring, clear of the name at the top of the first spoke.
       for (const t of rings) {
         const [x, y] = [cx + 4 * dpr, cy - (t / hi) * r + 9 * dpr];
-        labels.push({ x, y, text: String(t), align: 'start', color: '#888', priority: t === hi ? 0.5 : 0 });
+        labels.push({
+          x,
+          y,
+          text: String(t),
+          align: 'start',
+          color: view.theme.muted,
+          priority: t === hi ? 0.5 : 0,
+        });
       }
       return {
         labels: r && n ? labels : [],
         paint(k) {
           ctx.globalAlpha = k;
-          ctx.strokeStyle = '#e5e5e5';
+          ctx.strokeStyle = view.theme.grid;
           ctx.lineWidth = dpr;
           ctx.stroke(lines);
         },
@@ -115,6 +122,7 @@ export function radar(o: RadarOptions): Mark[] {
       options: { ...s, hi, axes, fill },
       points: n,
       channels: { x: [], y: [] },
+      oneShape: true,
       prepare(view) {
         const { ctx, dpr, left, top, width, height } = view;
         const { cx, cy, r } = disc(view);

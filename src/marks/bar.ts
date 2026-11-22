@@ -1,5 +1,6 @@
 import { glLayer } from '../gl.js';
 import { painter, stops, type Paint } from '../paint.js';
+import { bands, stack } from '../transforms.js';
 import type { Col, Mark, Prepared, View } from '../types.js';
 import { base } from './common.js';
 import type { Common } from './common.js';
@@ -14,12 +15,26 @@ import { focused, gpuRows, type Blend, type Part } from './rects.js';
  * show it, and bars drawn by WebGL, stay square. `fill` fills the bars with something other than
  * their colour: a blend runs over each bar, and down a bar that stands on a baseline it runs from
  * the value end to the baseline. On the canvas blended bars are filled one at a time.
+ * Bars given `x`, `y` and a `stack` or `dodge` id are laid out by the chart with the shown bars of
+ * that id, in the order they are listed: stacked over one another, or side by side in the slots of
+ * their category, `x` being the category's place on a band axis.
  */
 export type BarOptions = Common & { fill?: Paint; radius?: number; gap?: number } & (
-    | { x1: Col; x2: Col }
-    | { x: Col }
-  ) &
-  ({ y1: Col; y2: Col } | { y: Col });
+    | (({ x1: Col; x2: Col } | { x: Col }) &
+        ({ y1: Col; y2: Col } | { y: Col }) & { stack?: never; dodge?: never })
+    | ({ x: Col; y: Col } & ({ stack: string; dodge?: never } | { dodge: string; stack?: never }))
+  );
+
+type Arranged = Common & { x: Col; y: Col; stack?: string; dodge?: string };
+
+const arranged = (members: readonly Arranged[]) => {
+  const stacked = members[0]?.stack !== undefined && stack(members.map(m => m.y));
+  return members.map((m, i) => {
+    const { x, y, stack: _, dodge: __, ...rest } = m;
+    const [x1, x2] = bands(x, stacked ? {} : { slot: i, of: members.length });
+    return stacked ? make({ ...rest, x1, x2, ...stacked[i]! }, y) : make({ ...rest, x1, x2, y });
+  });
+};
 
 // A bound left out is zero throughout, which needs no column.
 type Bounds = { x1?: Col; x2: Col; y1?: Col; y2: Col };
@@ -62,6 +77,19 @@ function rects(box: Float64Array) {
 }
 
 export function bar(o: BarOptions): Mark {
+  if (o.stack === undefined && o.dodge === undefined) return make(o);
+  const a = o as Arranged;
+  return {
+    ...arranged([a])[0]!,
+    options: o,
+    arrange: {
+      key: a.stack !== undefined ? `bar:stack:${a.stack}` : `bar:dodge:${a.dodge}`,
+      lay: members => arranged(members.map(k => k.options as Arranged)),
+    },
+  };
+}
+
+function make(o: BarOptions, value?: Col): Mark {
   const { color, alpha = 1 } = o;
   const own = bounds(o);
   const { x1, x2, y2 } = own;
@@ -110,7 +138,13 @@ export function bar(o: BarOptions): Mark {
           const y1i = own.y1 ? own.y1[i]! : 0;
           return 'x' in o
             ? { x: x2[i]!, y: (y1i + y2[i]!) / 2, distance: max, row: i }
-            : { x: ((x1 ? x1[i]! : 0) + x2[i]!) / 2, y: y2[i]!, distance: max, row: i };
+            : {
+                x: ((x1 ? x1[i]! : 0) + x2[i]!) / 2,
+                y: y2[i]!,
+                distance: max,
+                row: i,
+                ...(value && { value: value[i]! }),
+              };
         }
       }
       return null;
@@ -156,6 +190,22 @@ export function bar(o: BarOptions): Mark {
           ctx.fill(path);
           ctx.restore();
         },
+        select(rows, outline) {
+          for (const i of rows) {
+            const one = new Path2D();
+            trace(one, shown, i, view.dpr);
+            ctx.globalAlpha = alpha;
+            ctx.fillStyle = ink([...shown.subarray(i * 4, i * 4 + 4)], 'y' in o ? view.oy : undefined);
+            ctx.fill(one);
+            ctx.save();
+            ctx.clip(one);
+            ctx.globalAlpha = 1;
+            ctx.strokeStyle = outline;
+            ctx.lineWidth = 2 * view.dpr;
+            ctx.stroke(one);
+            ctx.restore();
+          }
+        },
         morph:
           before &&
           (t => {
@@ -196,6 +246,15 @@ export function bar(o: BarOptions): Mark {
             once(() => {
               for (const [strength, ...run] of focused(n, row, rest))
                 draw(part as Part, alpha * k * strength, ...run);
+            });
+          },
+          // A pixel keeps the first rectangle to reach it, so the inset fill leaves a ring of the outline.
+          select(chosen, outline) {
+            const ring = rows.on(view, gl, outline).draw;
+            const inset = { ...part, pad: part.pad.map(p => p - view.dpr) };
+            once(() => {
+              for (const i of chosen) draw(inset as Part, alpha, i, 1);
+              for (const i of chosen) ring(part as Part, 1, i, 1);
             });
           },
           hit: hit(view, () => (box ??= laid(own, view))),

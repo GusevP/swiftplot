@@ -15,6 +15,8 @@ deepStrictEqual(
     'bin',
     'box',
     'brand',
+    'brush',
+    'dark',
     'dots',
     'errorBars',
     'fiveNumbers',
@@ -24,11 +26,15 @@ deepStrictEqual(
     'gradient',
     'heatmap',
     'legend',
+    'light',
     'line',
+    'log',
     'palette',
+    'paletteDark',
     'plot',
     'radar',
     'radialBars',
+    'rule',
     'sankey',
     'sequential',
     'stack',
@@ -37,6 +43,8 @@ deepStrictEqual(
     'time',
     'tooltip',
     'treemap',
+    'zone',
+    'zoom',
   ].sort(),
   'exports',
 );
@@ -81,6 +89,12 @@ deepStrictEqual(
   'fromLinks',
 );
 
+const ly = lib.log({ label: 'y' });
+const logged = ly.col(new Float64Array([1, 100, 0, -1, NaN]));
+deepStrictEqual([logged instanceof Float64Array, ...logged], [true, 0, 2, NaN, NaN, NaN], 'log col typed');
+deepStrictEqual(ly.col([1000, 0]), [3, NaN], 'log col plain');
+deepStrictEqual(+ly.from(ly.to(123.456, ly), ly).toPrecision(12), 123.456, 'log round trip');
+
 const [x, y, colors, color] = [[0, 1, 2], [1, 3, 2], ['#e15759', '#4e79a7'], '#4e79a7'];
 const marks = [
   lib.line({ x, y, color, fill: lib.gradient(0.4, 0) }),
@@ -88,6 +102,8 @@ const marks = [
   lib.bar({ ...binned, color }),
   lib.dots({ x, y, color, r: [2, 3, 4] }),
   lib.ticks({ x, y, color, size: 4 }),
+  lib.zone({ y1: 1, y2: 2, color }),
+  lib.rule({ y: [1, 2], color, text: 'goal' }),
   lib.errorBars({ x: [0, 1], y1: low.y1, y2: low.y2, color }),
   lib.box({ x: [0], ...stats, color }),
   lib.heatmap({ values: [1, 2, 3, 4], columns: 2 }),

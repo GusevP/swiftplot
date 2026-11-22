@@ -15,6 +15,18 @@ export const palette = [
   '#4f46e5',
 ];
 
+/** The same eight hues in the same order, each with a contrast of 3:1 on `dark.surface`. */
+export const paletteDark = [
+  '#0891b2',
+  '#8b5cf6',
+  '#ec4899',
+  '#3b82f6',
+  '#d97706',
+  '#d946ef',
+  '#059669',
+  '#6366f1',
+];
+
 /** A stop is a CSS colour, or a number for the mark's own colour at that opacity. */
 export type Gradient = {
   from: string | number;
@@ -61,6 +73,8 @@ export function painter(ctx: CanvasRenderingContext2D, paint: Paint | undefined,
     ),
   );
   return ([l, t, r, b]: number[], turn?: number) => {
+    // A box that is not a number, such as a bar at zero on a log axis, draws nothing, and a gradient for it would throw.
+    if (!Number.isFinite(upright ? t! + b! : l! + r!)) return plain![0]!;
     const made = upright ? ctx.createLinearGradient(0, t!, 0, b!) : ctx.createLinearGradient(l!, 0, r!, 0);
     if (upright && turn !== undefined) {
       made.addColorStop(0, based![0]!);

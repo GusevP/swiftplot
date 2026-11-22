@@ -1,26 +1,36 @@
+import { NEAREST_PX } from '../chart.js';
 import type { Feature } from '../types.js';
+import { position } from './pointer.js';
 
 export type TooltipOptions =
-  /** One row per labelled mark that can be sampled at the pointer's x, with a crosshair. */
+  /** One row per labelled mark that can be sampled at the pointer's x, with a crosshair; a band gives its thickness. */
   | { mode: 'x'; title: (x: number) => string; value: (y: number) => string }
-  /** x and y are where the mark says it was hit; row is its row there, to look up anything else. */
+  /** x and y are where the mark says it was hit, y being the row's own value where it has one; row is its row there. */
   | { mode: 'nearest'; text: (label: string, x: number, y: number, row?: number) => string };
 
 type Row = { text: string; color?: string };
 
-const NEAREST_PX = 20;
 const FOCUS_PX = 30;
 
 export function tooltip(t: TooltipOptions): Feature {
   return chart => {
     const { root } = chart;
-    const cross = chart.layer('div', 'display:none;border-left:1px dashed #888');
+    const cross = chart.layer('div', 'display:none;border-left:1px dashed');
     const tip = chart.layer(
       'div',
-      'display:none;left:0;top:0;background:#fff;border:1px solid #ccc;padding:4px 8px;box-sizing:border-box;width:max-content;max-width:100%;max-height:100%;overflow:hidden;white-space:normal;overflow-wrap:anywhere;z-index:100',
+      'display:none;left:0;top:0;border:1px solid;padding:4px 8px;box-sizing:border-box;width:max-content;max-width:100%;max-height:100%;overflow:hidden;white-space:normal;overflow-wrap:anywhere;z-index:100',
     );
+    const restyle = () => {
+      const { text, muted, surface, border } = chart.theme();
+      cross.style.borderLeftColor = muted;
+      Object.assign(tip.style, { color: text, background: surface, borderColor: border });
+    };
+    restyle();
     let at: [number, number] | null = null;
     let held = false;
+    // The user's pointer is on the chart, maybe over another feature's layer, so the app's is not shown.
+    let inside = false;
+    let fromApp = false;
     const hide = () => {
       cross.style.display = tip.style.display = 'none';
       chart.focus(null);
@@ -43,12 +53,27 @@ export function tooltip(t: TooltipOptions): Feature {
       tip.style.transform = `translate(clamp(0px, ${left}, ${width}px - 100%), clamp(0px, ${top}, ${height}px - 100%))`;
     };
     const place = () => {
-      if (!at) return;
       const { width, height } = chart.size();
-      const box = root.getBoundingClientRect();
-      const px = ((at[0] - box.left) * width) / box.width;
-      const py = ((at[1] - box.top) * height) / box.height;
+      let px: number;
+      let py: number | undefined;
+      if (at) {
+        fromApp = false;
+        ({ px, py } = position(chart, ...at));
+      } else {
+        const p = inside ? null : chart.pointer();
+        if (!p) {
+          if (fromApp) {
+            fromApp = false;
+            hide();
+          }
+          return;
+        }
+        fromApp = true;
+        ({ x: px, y: py } = p);
+      }
+      if (chart.drag.active) return hide();
       if (t.mode === 'nearest') {
+        if (py === undefined) return hide();
         const hit = chart.hit(px, py, NEAREST_PX);
         if (!hit) return hide();
         chart.focus(
@@ -58,14 +83,15 @@ export function tooltip(t: TooltipOptions): Feature {
         // A mark made of named parts, such as slices, is spoken for by the part that was hit.
         const part = hit.row === undefined ? undefined : hit.mark.entries?.[hit.row];
         const { label = '', color } = part ?? hit.mark;
-        const text = t.text(label, hit.x, hit.y, hit.row);
+        const text = t.text(label, chart.real('x', hit.x), chart.real('y', hit.value ?? hit.y), hit.row);
         show(chart.xPx(hit.x), chart.yPx(hit.y), [{ text, color: hit.color ?? color }]);
         return;
       }
       const m = chart.margin();
-      if (px < m.left || px > width - m.right || py < m.top || py > height - m.bottom) return hide();
+      const off = py !== undefined && (py < m.top || py > height - m.bottom);
+      if (px < m.left || px > width - m.right || off) return hide();
       const v = chart.xValue(px);
-      const rows: Row[] = [{ text: t.title(v) }];
+      const rows: Row[] = [{ text: t.title(chart.real('x', v)) }];
       // A line within reach of the pointer is focused before the filled mark the pointer is in,
       // and of several filled marks the one drawn last.
       let near = FOCUS_PX;
@@ -74,11 +100,18 @@ export function tooltip(t: TooltipOptions): Feature {
       for (const k of chart.marks()) {
         if (!k.sampleAtX) continue;
         const s = k.sampleAtX(v);
-        const value = typeof s === 'number' ? s : s?.value;
+        const value =
+          typeof s === 'number'
+            ? chart.real('y', s)
+            : s &&
+              (s.band ? chart.real('y', s.y2) - chart.real('y', s.y1) : chart.real('y', s.value ?? s.y2));
         if (k.label !== undefined) {
-          rows.push({ text: `${k.label}: ${value === undefined ? '–' : t.value(value)}`, color: k.color });
+          rows.push({
+            text: `${k.label}: ${value === undefined ? '–' : t.value(value)}`,
+            color: k.color,
+          });
         }
-        if (s === undefined || k.group === undefined) continue;
+        if (s === undefined || k.group === undefined || py === undefined) continue;
         if (typeof s === 'number') {
           const gap = Math.abs(chart.yPx(s) - py);
           if (gap < near) [near, line] = [gap, k.group];
@@ -97,10 +130,16 @@ export function tooltip(t: TooltipOptions): Feature {
       chart.focus(group);
     };
     const move = (e: PointerEvent) => {
+      inside = true;
+      if (chart.drag.active) {
+        at = null;
+        return hide();
+      }
       // Over another feature's layer, such as a legend, the focus is that feature's to set.
       if (e.target !== root) {
         at = null;
         held = false;
+        fromApp = false;
         cross.style.display = tip.style.display = 'none';
         return;
       }
@@ -111,31 +150,43 @@ export function tooltip(t: TooltipOptions): Feature {
     const leave = () => {
       at = null;
       held = false;
+      inside = false;
       hide();
     };
-    // A lifted finger leaves the chart, and a tapped tip is meant to stay until a tap elsewhere.
+    const out = () => {
+      leave();
+      place();
+    };
+    // A lifted finger leaves the chart, and a tip it tapped open is meant to stay until a tap elsewhere.
     const lift = (e: PointerEvent) => {
-      if (e.pointerType !== 'touch') leave();
-      else held = !!at;
+      inside = false;
+      if (e.pointerType !== 'touch') return out();
+      held = !!at && tip.style.display !== 'none';
+      if (held) return;
+      at = null;
+      place();
     };
     // Capturing, so a control that stops the tap still dismisses, and a tap on the chart sets its own state after.
     const away = () => {
-      if (at) leave();
+      if (at) out();
     };
     root.addEventListener('pointerdown', move);
     root.addEventListener('pointermove', move);
     root.addEventListener('pointerleave', lift);
-    root.addEventListener('pointercancel', leave);
+    root.addEventListener('pointercancel', out);
     document.addEventListener('pointerdown', away, true);
     return {
-      update: place,
+      update() {
+        restyle();
+        place();
+      },
       // A lifted finger is no longer anywhere on the chart, so what it tapped is let go.
       letGo: () => held && leave(),
       destroy() {
         root.removeEventListener('pointerdown', move);
         root.removeEventListener('pointermove', move);
         root.removeEventListener('pointerleave', lift);
-        root.removeEventListener('pointercancel', leave);
+        root.removeEventListener('pointercancel', out);
         document.removeEventListener('pointerdown', away, true);
         cross.remove();
         tip.remove();

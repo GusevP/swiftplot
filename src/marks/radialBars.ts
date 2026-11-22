@@ -51,7 +51,7 @@ export function radialBars(o: RadialBarsOptions): Mark {
     points: n,
     channels: { x: [], y: [] },
     entries: o.labels?.slice(0, n).map((label, i) => ({ label, color: shade(i) })),
-    prepare({ ctx, dpr, left, top, width, height }) {
+    prepare({ ctx, dpr, left, top, width, height, theme }) {
       const [cx, cy] = [left + width / 2, top + height / 2];
       const outer = Math.max(0, Math.min(width, height) / 2);
       const hole = outer * Math.max(0, Math.min(inner, 1));
@@ -110,7 +110,7 @@ export function radialBars(o: RadialBarsOptions): Mark {
         labels,
         paint(k, row, rest = 1) {
           ctx.globalAlpha = alpha * k * 0.06;
-          ctx.fillStyle = '#000';
+          ctx.fillStyle = theme.text;
           ctx.fill(tracks);
           for (const { path, from, to, lead, ink } of bars) {
             ctx.globalAlpha = alpha * k * (row === undefined || (row >= from && row < to) ? 1 : rest);

@@ -21,6 +21,7 @@ export function errorBars(o: ErrorBarsOptions): Mark {
   const rows = upright ? gpuRows(new WeakMap(), [at], [from, to]) : gpuRows(new WeakMap(), [from, to], [at]);
   return {
     ...base('errorBars', o, upright ? [at] : [from, to], upright ? [from, to] : [at]),
+    oneShape: true,
     overhang: Math.max(cap, width / 2),
     prepare({ ctx, dpr, ox, kx, oy, ky }) {
       const c = cap * dpr;
