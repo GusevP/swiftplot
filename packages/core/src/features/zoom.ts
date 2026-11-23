@@ -13,7 +13,10 @@ export type ZoomOptions = {
   drag?: 'pan' | 'shift' | false;
 };
 
-type Window = { x?: Span; y?: Span };
+type Window = { x?: Span; y?: Span; y2?: Span };
+
+// How far a drag that pans both axes must move up or down before it pans y: a hand does not move level.
+const LEVEL_PX = 8;
 
 const DOUBLE_TAP_MS = 300;
 const DOUBLE_TAP_PX = 20;
@@ -66,8 +69,10 @@ export function zoom(z: ZoomOptions = {}): Feature {
       if (!still) ask(want);
     };
 
+    type Shown = { x: Span; y: Span; y2?: Span };
+    // `lift` is where a drag along both axes left the level: the y spans shown then, and the height it had moved.
     let from:
-      | { id: number; x: number; y: number; view: { x: Span; y: Span }; w: number; h: number }
+      | { id: number; x: number; y: number; view: Shown; w: number; h: number; lift?: Shown & { dy: number } }
       | undefined;
     let settling = 0;
     const down = (e: PointerEvent) => {
@@ -89,10 +94,24 @@ export function zoom(z: ZoomOptions = {}): Feature {
       if (!drag.active && Math.hypot(dx, dy) < SLOP_PX) return;
       drag.active = true;
       const want: Window = {};
-      for (const s of sides) {
-        const [lo, hi] = from.view[s];
-        const shift = s === 'x' ? (-dx * (hi - lo)) / from.w : (dy * (hi - lo)) / from.h;
-        want[s] = [lo + shift, hi + shift];
+      if (sides.includes('x')) {
+        const [lo, hi] = from.view.x;
+        const shift = (-dx * (hi - lo)) / from.w;
+        want.x = [lo + shift, hi + shift];
+      }
+      if (sides.includes('y')) {
+        const both = sides.length === 2;
+        // Until then y is left out, so an axis fitted to the x window goes on fitting; from then on only the
+        // height beyond the threshold counts, from the spans shown at that moment, both y axes together.
+        if (both && !from.lift && Math.abs(dy) >= LEVEL_PX)
+          from.lift = { ...shown(), dy: Math.sign(dy) * LEVEL_PX };
+        const base = both ? from.lift : { ...from.view, y2: undefined, dy: 0 };
+        for (const k of ['y', 'y2'] as const) {
+          const s = base?.[k];
+          if (!s) continue;
+          const shift = ((dy - base!.dy) * (s[1] - s[0])) / from.h;
+          want[k] = [s[0] + shift, s[1] + shift];
+        }
       }
       ask(want);
     };

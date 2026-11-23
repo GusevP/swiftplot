@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- A second y axis: `y2` in the options draws an axis on the right, and a mark with `yAxis: 'y2'` is drawn against it, so bars and a line in two units share a chart. Each axis fits its own marks; a zoom or a pan on y moves both; `view`, `onViewChange`, `onClick`, `pointer`, `onPointerChange` and the brush's range carry `y2`; a tooltip's `value` is told the axis.
+- `candlestick({ x, open, high, low, close })`: a wick and a body per x in a rising and a falling colour (`up`, `down`), answering a pointer anywhere on the candle; drawn by WebGL from 10,000 candles.
+- With `zoom({ axes: 'xy' })` a mouse drag pans x alone until it has moved 8 px up or down, and a side a gesture proposes just as it is shown is not held, so a level mouse pan leaves a `fit: 'window'` axis fitting; panning up or down, or zooming y, gives both y axes a window of their own.
+- Scatter switches to WebGL at 20,000 points instead of 10,000: below that the canvas mounts sooner.
+
 ## 0.1.1 - 2026-11-23
 
 - First version on npm: `swiftplot`, `@swiftplot/react` and `@swiftplot/vue`.

@@ -293,6 +293,7 @@ bar({ x1, x2, y, color })                              // bounds from bands(n); 
 dots({ x, y, r, color })                               // r is a column of radii in px
 errorBars({ x, y1, y2, color })
 box({ x, ...fiveNumbers(groups), color })
+candlestick({ x, open, high, low, close, color, up, down, width? })   // up: close >= open
 heatmap({ values, columns })                           // color: sequential({ stops })
 arcs({ values, colors, labels })                       // frame: 'polar'; inner: 0.6 for a donut
 radar({ axes, series: [{ values, color, label }] })    // returns several marks: spread it
@@ -305,6 +306,11 @@ rule({ y: 50, color })                                 // a reference line; or {
 zone({ x1: 10, x2: 20, color })                        // a shaded band between two values; or { y1, y2 }
 ticks({ x, y, size, color })
 ```
+
+A second y axis: `y2: { domain, label }` in the options (drawn on the right) and `yAxis: 'y2'` on each
+mark that belongs to it; each axis fits its own marks; `view`, `onViewChange`, the click's `at`,
+`pointer` and `onPointerChange` carry `y2`; an x tooltip's `value(v, axis)` gets `'y'` or `'y2'`.
+Exactly two y axes; the easy charts in `swiftplot/charts` do not take `y2`.
 
 Axes: `{ domain: 'nice' | 'data' | [lo, hi], label, step?, format?, fit? }`, `time({ label, utc?,
 unit?, every?, format? })`, `band({ label, categories })`, `log({ label, base? })`, `bare()`.

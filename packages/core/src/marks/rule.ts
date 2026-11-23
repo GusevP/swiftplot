@@ -3,7 +3,8 @@ import type { Col, Label, Mark, Prepared } from '../types.js';
 /** A line across the whole plot at each x or each y value, over the data and never a series. */
 export type RuleOptions = { key?: string; color: string; width?: number; dashed?: boolean; text?: string } & (
   | { x: number | Col }
-  | { y: number | Col }
+  /** A y rule is placed on the chart's second y axis with `yAxis: 'y2'`. */
+  | { y: number | Col; yAxis?: 'y' | 'y2' }
 );
 
 export function rule(o: RuleOptions): Mark {
@@ -11,6 +12,7 @@ export function rule(o: RuleOptions): Mark {
   return {
     type: 'rule',
     key: o.key,
+    yAxis: 'y' in o ? o.yAxis : undefined,
     color,
     options: o,
     points: 0,
@@ -59,7 +61,7 @@ export function rule(o: RuleOptions): Mark {
 /** A band across the whole plot between two x or two y values, under the data and never a series. */
 export type ZoneOptions = { key?: string; color: string; alpha?: number; text?: string } & (
   | { x1: number; x2: number }
-  | { y1: number; y2: number }
+  | { y1: number; y2: number; yAxis?: 'y' | 'y2' }
 );
 
 export function zone(o: ZoneOptions): Mark {
@@ -67,6 +69,7 @@ export function zone(o: ZoneOptions): Mark {
   return {
     type: 'zone',
     key: o.key,
+    yAxis: 'y1' in o ? o.yAxis : undefined,
     color,
     options: o,
     points: 0,

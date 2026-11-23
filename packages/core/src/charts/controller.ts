@@ -103,17 +103,17 @@ export function create<P extends ControllerProps>(
 
   let internals: Internals | undefined;
   const keep: Feature = c => ((internals = c), { destroy() {} });
-  const windowed: { x?: Span; y?: Span } = {};
-  const remember = (v: { x?: Span; y?: Span }) => {
+  const windowed: { x?: Span; y?: Span; y2?: Span } = {};
+  const remember = (v: { x?: Span; y?: Span; y2?: Span }) => {
     const whole = internals!.domain();
-    for (const k of ['x', 'y'] as const) {
+    for (const k of ['x', 'y', 'y2'] as const) {
       const side = v[k];
-      const all = whole[k].map(e => internals!.real(k, e));
+      const all = whole[k]?.map(e => internals!.real(k, e));
       if (side && String(side) !== String(all)) windowed[k] = [...side];
       else delete windowed[k];
     }
   };
-  const onViewChange = (v: { x: Span; y?: Span }) => {
+  const onViewChange = (v: { x: Span; y?: Span; y2?: Span }) => {
     remember(v);
     props.onViewChange?.(v);
   };

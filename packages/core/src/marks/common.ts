@@ -6,6 +6,11 @@ export type Common = {
   group?: string;
   color: string;
   alpha?: number;
+  /**
+   * Draws the mark against the chart's second y axis, `y2`, which then fits it; 'y' when left out.
+   * A stack holds the marks of one `yAxis`, also on a chart with no `y2`, where all are drawn on `y`.
+   */
+  yAxis?: 'y' | 'y2';
 };
 
 export const base = (type: string, o: Common, x: Col[], y: Col[]) =>
@@ -16,9 +21,24 @@ export const base = (type: string, o: Common, x: Col[], y: Col[]) =>
     group: o.group ?? o.label,
     color: o.color,
     options: o,
+    yAxis: o.yAxis,
     points: x[0]?.length ?? 0,
     channels: { x, y },
   }) satisfies Partial<Mark>;
+
+/** A stack's key: one id on the two y axes is two stacks, as values on two scales do not add up. */
+export const stackKey = (type: string, o: { yAxis?: 'y' | 'y2'; stack?: string }) =>
+  `${type}:stack:${o.yAxis ?? 'y'}:${o.stack}`;
+
+/** The least and the greatest finite x, or Infinity and -Infinity when there is none. */
+export function ends(x: Col): [number, number] {
+  let [first, last] = [Infinity, -Infinity];
+  for (let i = 0; i < x.length; i++) {
+    if (x[i]! < first && x[i] !== -Infinity) first = x[i]!;
+    if (x[i]! > last && x[i] !== Infinity) last = x[i]!;
+  }
+  return [first, last];
+}
 
 /** 'smooth' curves through the points where they are further apart than a pixel, and is 'linear' where they are not. */
 export type Curve = 'linear' | 'step' | 'smooth';

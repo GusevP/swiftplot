@@ -11,6 +11,8 @@ import type { Common } from './common.js';
 export type DotsOptions = Common & { x: Col; y: Col; r: Col; ring?: number; fill?: string };
 
 const TAU = 2 * Math.PI;
+// Measured 2026-11-24: below this the canvas mounts sooner than WebGL can be set up, also at 4x CPU slowdown.
+const GL_FROM = 20_000;
 
 const origin = (c: Col) => {
   for (let i = 0; i < c.length; i++) if (Number.isFinite(c[i])) return c[i]!;
@@ -163,7 +165,7 @@ export function dots(o: DotsOptions): Mark {
         hit: hit(view),
       };
     },
-    gl: o.ring ? undefined : { layer: glLayer, prepare: prepareGl },
+    gl: o.ring ? undefined : { layer: glLayer, from: GL_FROM, prepare: prepareGl },
     release(layer) {
       const buffer = layer && buffers.get(layer.gl);
       if (!buffer) return;

@@ -16,6 +16,7 @@ deepStrictEqual(
     'bare',
     'bin',
     'box',
+    'candlestick',
     'brand',
     'brush',
     'dark',

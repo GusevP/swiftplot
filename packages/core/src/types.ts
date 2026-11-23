@@ -97,6 +97,8 @@ export type Mark = {
    * Values written into the same array are not seen; pass a new array or view to redraw.
    */
   options: object;
+  /** Which y axis the mark is drawn against and fits; 'y' when left out, and whenever the chart has no `y2`. */
+  yAxis?: 'y' | 'y2';
   points: number;
   /** Columns the 'nice' domains are computed from. */
   channels: { x: Col[]; y: Col[] };
@@ -202,6 +204,11 @@ export type Options = {
   x?: Axis;
   y?: Axis;
   /**
+   * A second y axis, drawn on the right, for the marks given `yAxis: 'y2'`: it takes its extent from
+   * those marks alone. Grid lines come from `y` only. Left out, there is none and every mark is on `y`.
+   */
+  y2?: Axis;
+  /**
    * 'polar' and 'blank' have no axes: a mark is given the plot rectangle only, and reports a hit
    * as fractions of it, x from the left and y from the bottom. 'polar' is for marks drawn round
    * a centre, such as arcs(); it differs from 'blank' in how a reveal uncovers it.
@@ -223,12 +230,13 @@ export type Options = {
    * The part of each axis shown, in its values; a side left out shows the whole domain. It is shown
    * clamped to the domain but kept as given, so it comes back when the domain grows again.
    */
-  view?: { x?: Span; y?: Span };
+  view?: { x?: Span; y?: Span; y2?: Span };
   /**
    * Called with the window shown once a feature has moved it; never for update(). y is left out
-   * when the y axis fits the x window and has no window of its own.
+   * when the y axis fits the x window and has no window of its own, and y2 likewise, or when there
+   * is no second axis. A gesture on y moves y2 through the same pixels.
    */
-  onViewChange?(view: { x: Span; y?: Span }): void;
+  onViewChange?(view: { x: Span; y?: Span; y2?: Span }): void;
   /** The series not drawn, by the id a legend lists a mark under: its `group`, or its `label`. */
   hidden?: string[];
   /** Called with the hidden ids once a feature has changed them; never for update(). */
@@ -243,17 +251,18 @@ export type Options = {
   selected?: { id: string; rows: number[] }[] | null;
   /**
    * Called for a click on the plot, but not for one that ends a drag: with what is within 20 px of
-   * it, or null, and the values at the click. While it is set, the cursor is a pointer over a hit.
+   * it, or null, and the values at the click, y2 among them when there is a second axis. A hit's y is
+   * on its mark's own axis. While it is set, the cursor is a pointer over a hit.
    */
-  onClick?(hit: (Hit & { mark: Mark }) | null, at: { x: number; y: number }): void;
+  onClick?(hit: (Hit & { mark: Mark }) | null, at: { x: number; y: number; y2?: number }): void;
   /**
    * A pointer to show as if the user's were there, such as another chart's: a tooltip shows at it
    * while the user's own is not on the chart. Without y, an x tooltip focuses no series and a
-   * nearest one shows nothing.
+   * nearest one shows nothing. The height may be given on the second axis instead, as y2; with both, y2 is used.
    */
-  pointer?: { x: number; y?: number } | null;
+  pointer?: { x: number; y?: number; y2?: number } | null;
   /** Called as the user's pointer moves over the plot, and with null once as it leaves or a drag starts; never for update(). */
-  onPointerChange?(pointer: { x: number; y: number } | null): void;
+  onPointerChange?(pointer: { x: number; y: number; y2?: number } | null): void;
 };
 
 export type Chart = {
@@ -269,7 +278,7 @@ export type Painter = (draw: (reveal?: number) => void, why: 'data' | 'size' | '
 
 /**
  * What a feature works with. Pixel values are CSS pixels relative to the chart. A feature is set
- * up before the first paint: the pixel helpers, hit(), view() and propose()
+ * up before the first paint: the pixel helpers, hit(), view(), fit() and propose()
  * work from that paint on.
  */
 export type Internals = {
@@ -311,23 +320,28 @@ export type Internals = {
   margin(): Margin;
   theme(): Theme;
   xPx(x: number): number;
-  yPx(y: number): number;
+  /** On `y` unless the second axis is named; a mark's own is yAxis(mark). */
+  yPx(y: number, axis?: 'y' | 'y2'): number;
   xValue(px: number): number;
-  yValue(px: number): number;
-  /** The window shown on each axis, in the marks' space. */
-  view(): { x: Span; y: Span };
+  yValue(px: number, axis?: 'y' | 'y2'): number;
+  /** The y axis a mark is on: 'y2' only when the chart has one and the mark asks for it. */
+  yAxis(mark: Mark): 'y' | 'y2';
+  /** The window shown on each axis, in the marks' space; y2 only when there is a second axis. */
+  view(): { x: Span; y: Span; y2?: Span };
   /** The whole domain on each axis: the widest window propose() shows. */
-  domain(): { x: Span; y: Span };
+  domain(): { x: Span; y: Span; y2?: Span };
   /**
    * Shows this window, or with null the whole domain, clamped to the domain, and passes it to
    * onViewChange; a side left out keeps its window, and a side given as undefined shows its whole
-   * domain. False, and nothing happens, when what is shown would not change.
+   * domain. False, and nothing happens, when what is shown would not change. A y given without a y2
+   * takes the second axis with it, through the same pixels. A side given just as it is shown, with no
+   * window of its own, is not held: an axis fitted to its marks goes on fitting them.
    */
-  propose(view: { x?: Span; y?: Span } | null): boolean;
+  propose(view: { x?: Span; y?: Span; y2?: Span } | null): boolean;
   /** The window propose() would show for this view, without showing it. */
-  fit(view: { x?: Span; y?: Span } | null): { x: Span; y: Span };
+  fit(view: { x?: Span; y?: Span; y2?: Span } | null): { x: Span; y: Span; y2?: Span };
   /** A value in the marks' space as the app sees it. */
-  real(axis: 'x' | 'y', v: number): number;
+  real(axis: 'x' | 'y' | 'y2', v: number): number;
   frame(): NonNullable<Options['frame']>;
   /**
    * Which feature a drag over the plot belongs to. `pan` is 'plain' when every drag pans and a brush

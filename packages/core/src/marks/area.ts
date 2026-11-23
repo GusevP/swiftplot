@@ -1,7 +1,7 @@
 import { stack } from '../transforms.js';
 import type { Col, Mark } from '../types.js';
 import { painter, type Paint } from '../paint.js';
-import { base, chains, columns, extent, joined, reach, sampleAt, smooth, span } from './common.js';
+import { base, chains, columns, extent, joined, reach, sampleAt, smooth, span, stackKey } from './common.js';
 import type { Common, Curve } from './common.js';
 
 /**
@@ -31,7 +31,7 @@ export function area(o: AreaOptions): Mark {
       ...layers([o as Stacked])[0]!,
       options: o,
       arrange: {
-        key: `area:stack:${o.stack}`,
+        key: stackKey('area', o),
         lay: members => layers(members.map(k => k.options as Stacked)),
       },
     };

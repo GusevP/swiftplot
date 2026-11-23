@@ -12,7 +12,7 @@ import type { Common } from './common.js';
  * not finite is left empty. Where several cells share a pixel, the pixel shows and answers for
  * the largest of them, so a peak is never lost.
  */
-export type HeatmapOptions = Omit<Common, 'color'> & {
+export type HeatmapOptions = Omit<Common, 'color' | 'yAxis'> & {
   values: Col;
   columns: number;
   x?: [number, number];

@@ -1,7 +1,7 @@
 import { glLayer } from '../gl.js';
 import { painter, stops, type Paint } from '../paint.js';
 import type { Col, Mark, Prepared, View } from '../types.js';
-import { base } from './common.js';
+import { base, ends } from './common.js';
 import type { Common } from './common.js';
 import { focused, gpuRows, type Part } from './rects.js';
 
@@ -35,11 +35,7 @@ export function box(o: BoxOptions): Mark {
   const [corner, heavy, faint] = [o.radius ?? 0, o.medianWidth ?? 1.5, o.whiskers ?? 1];
   const blended = typeof o.fill === 'object' ? o.fill : undefined;
   // The axis must make room for the boxes, not only for their centres.
-  let [first, last] = [Infinity, -Infinity];
-  for (let i = 0; i < n; i++) {
-    if (x[i]! < first && x[i] !== -Infinity) first = x[i]!;
-    if (x[i]! > last && x[i] !== Infinity) last = x[i]!;
-  }
+  const [first, last] = ends(x);
   const rows = gpuRows(new WeakMap(), [x], [min, q1, median, q3, max]);
   // Each box's left, top, right and bottom in device pixels; a row with a number missing has none.
   const bounds = ({ ox, kx, oy, ky }: View) => {

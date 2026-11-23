@@ -136,7 +136,7 @@ chart.update({ marks: [dots({ x, y: y2, r, color: '#2563eb', label: 'Group 1' })
 chart.destroy();
 ```
 
-- **Marks** are imported functions: `line`, `area`, `bar`, `box`, `errorBars`, `heatmap`, `ticks`, `dots`, `arcs`, `radar`, `radialBars`, `funnel`, `sankey`, `treemap`, `sunburst`. Only the ones you import are bundled.
+- **Marks** are imported functions: `line`, `area`, `bar`, `box`, `candlestick`, `errorBars`, `heatmap`, `ticks`, `dots`, `arcs`, `radar`, `radialBars`, `funnel`, `sankey`, `treemap`, `sunburst`. Only the ones you import are bundled.
 - **Lines and areas** are straight between points unless `curve: 'step'` or `curve: 'smooth'`, which curves through the points without overshooting them. `area({ x, y })` fills from zero; `area({ x, y1, y2 })` is a band. A `y` that is `NaN` or infinite leaves a gap: nothing is joined across it, and a lone point between two gaps draws nothing; `join: true` draws a line or fills an area straight across instead. `x` must be finite and ascending.
 - **Bars** have explicit bounds, `bar({ x1, x2, y1, y2 })`, so vertical, horizontal, grouped and stacked bars are the same mark. A single `y` (or `x`) starts at zero. On a category axis `const [x1, x2] = bands(7)` gives the bounds. Grouped bars are `bar({ x, y, dodge: 'years' })` for each series, `x` being the category's place: the chart gives the shown series of that id a slot each, in the order listed, so hiding one widens the others. `bands(7, { slot: 0, of: 2 })` gives one series' bounds for a chart that never hides it.
 - **Box plots** take the five numbers as columns: `box({ x, ...fiveNumbers(groups), color })`. The whiskers go to the minimum and maximum; leave outliers out and draw them with `dots`.
@@ -150,6 +150,7 @@ chart.destroy();
 - **Labels on shapes** (slices, stages, nodes) are drawn where they fit and left out where they would overlap or run off the chart.
 - **A colour legend** for a heatmap comes with `legend()`: a strip of its colours between the ends of its domain.
 - **Error bars** are `errorBars({ x, y1, y2 })`, or `{ y, x1, x2 }` lying down.
+- **Candlesticks** are `candlestick({ x, open, high, low, close, color, up, down })`: a wick from low to high and a body from open to close, in `up` where the close is not below the open and in `down` where it is. `width` is the body's width in x units, 0.6 by default. A pointer anywhere on a candle hits it; a `nearest` tooltip gets the row, to read the four values from your own columns.
 - **Colours:** `palette` is eight series colours to give out in order, and `brand` the cyan-to-violet blend. `gradient(from, to, 'down' | 'up' | 'right' | 'left')` makes a blend of two colours; a number stands for the mark's own colour at that opacity. `line({ fill: true })` puts a faint fade of the line's colour under it. A blend goes in `area({ fill })`, `bar({ fill })`, `line({ stroke })` and `line({ fill })`, so `area({ x, y, color, fill: gradient(0.4, 0) })` fades an area out towards its baseline. `color` stays the one colour a legend and a tooltip show.
 - **Blends on other charts:** `sankey({ blend: true })` runs each ribbon from its source's colour into its target's; `funnel({ fill: gradient(a, b) })` puts one blend down the whole funnel; `arcs({ sweep: 0.8 })` and `radialBars({ sweep: 0.35 })` start each slice or bar at that opacity and bring it to full colour at its end; `treemap({ shade: 0.7 })` starts each branch at that opacity at its top, and `sunburst({ shade: 0.7 })` ends each at that opacity at the rim.
 - **Box plots** take `radius`, `medianWidth`, `whiskers` (their opacity) and `fill`: `box({ ..., radius: 4, medianWidth: 2.5, whiskers: 0.5, fill: gradient(0.4, 0.1) })`.
@@ -160,7 +161,7 @@ chart.destroy();
 - **Accessibility:** the chart is exposed as an image with a label built from the axis labels and series names; set `description` to say what it shows. The data itself is not exposed yet.
 - **Margins** are sized from the tick labels; pass `margin: { left: 80 }` to set a side yourself.
 - **Legend** is a feature you import: `use: [legend()]` lists each labelled series above the plot, highlights it on hover, and hides or shows it on a click, a tap, Enter or Space (`legend({ toggle: false })` turns that off). A label wider than the plot ends in an ellipsis. Rows are capped at what fits in a third of the chart's height, or at `legend({ rows: 2 })`, and the entries left over go behind "+N more".
-- **Zoom and pan** is a feature you import: `use: [zoom()]`. Ctrl or cmd and the wheel (a trackpad pinch) zoom about the pointer, a drag pans, and a double click or double tap shows the whole domain again; on a touch screen two fingers pinch and pan and one scrolls the page. `zoom({ axes: 'xy', wheel: 'plain', drag: 'shift' })` zooms both axes, zooms on a plain wheel and pans only with shift held. Over the plot a ctrl or cmd wheel never reaches the page unless `wheel: false`, and with `wheel: 'plain'` a plain one reaches it only when the view cannot move further. The window is the `view` option, `{ x?: [lo, hi], y?: [lo, hi] }` in axis values, shown clamped to the domain; `onViewChange` reports it after a gesture, never for `update()`. `y: { domain: 'nice', label, fit: 'window' }` fits y to what the x window shows.
+- **Zoom and pan** is a feature you import: `use: [zoom()]`. Ctrl or cmd and the wheel (a trackpad pinch) zoom about the pointer, a drag pans, and a double click or double tap shows the whole domain again; on a touch screen two fingers pinch and pan and one scrolls the page. `zoom({ axes: 'xy', wheel: 'plain', drag: 'shift' })` zooms both axes, zooms on a plain wheel and pans only with shift held. A mouse drag along both axes pans x alone until it has moved 8 px up or down, so panning level keeps an axis with `fit: 'window'` fitting; panning up or down, or zooming y, gives both y axes a window of their own, which stops the fitting. Two fingers on a touch screen have no such threshold. Over the plot a ctrl or cmd wheel never reaches the page unless `wheel: false`, and with `wheel: 'plain'` a plain one reaches it only when the view cannot move further. The window is the `view` option, `{ x?: [lo, hi], y?: [lo, hi] }` in axis values, shown clamped to the domain; `onViewChange` reports it after a gesture, never for `update()`. `y: { domain: 'nice', label, fit: 'window' }` fits y to what the x window shows.
 - **A brush** reports a range: `use: [brush({ onSelect: range => ... })]`. A drag draws a rectangle and `onSelect` gets `{ x, y }` in axis values on release, then `null` once it is cleared; `brush({ zoom: true })` shows the range brushed. With a brush beside `zoom()`, a plain drag brushes and shift and a drag pans. Mouse and pen only.
 - **Hidden series:** `hidden: ['Group 1']` leaves out the series a legend lists under that id (a mark's `group`, or its `label`), from the start or from code, and `onHiddenChange(hidden)` reports a change the legend made. An automatic domain fits what is shown; `fit: 'all'` on an axis holds it still. The chart restacks layers given a `stack` id and re-dodges bars given a `dodge` id; the layers `stack()` returns are computed by the app, so it restacks in `onHiddenChange`.
 - **Clicks and the pointer:** `onClick(hit, at)` gets what is within 20 px of a click on the plot, or `null`, and the axis values at the click; a click that ends a drag is not one. `selected: [{ id: 'Group 1', rows: [3] }]` picks rows out. `pointer: { x, y }` shows a tooltip as if the user's pointer were there, and `onPointerChange` reports the user's, with `null` as it leaves, so two charts can follow each other:
@@ -196,6 +197,7 @@ chart.destroy();
 - **Hover** highlights the series under the pointer and dims the others (`dim`). Where a chart has only one series, the hovered bar is picked out from the other bars instead.
 - **Touch:** a tap shows the tooltip, and it stays after the finger lifts until a tap elsewhere or the next update or resize of the chart, which lets it go. A pen behaves as a mouse. Without `zoom()` the chart adds no listener that blocks the page from scrolling; with it the chart takes `touch-action: pan-x pan-y`, so one finger still scrolls the page.
 - **Animation** is a feature you import: `use: [animate({ duration: 300 })]`. Marks are revealed from the left on the first paint (`enter: 'fade'` fades them in instead). When the data changes, bars move to their new values, row for row, and everything else cross-fades. It is skipped for a resize, with reduced motion, and while updates arrive faster than the duration.
+- **A second y axis:** `y2: { domain, label }` draws an axis on the right, and a mark given `yAxis: 'y2'` is drawn against it: `marks: [bar({ x, y: revenue, color }), line({ x, y: margin, color, yAxis: 'y2' })]`. Each axis takes its extent from its own marks, grid lines come from `y` only, and there are exactly two. A zoom or a pan on y moves `y2` through the same pixels; `view`, `onViewChange`, the click's `at`, `pointer`, `onPointerChange` and a brush's range carry `y2`, and an `x` tooltip's `value(v, axis)` is told which axis a value is on. A y `rule` or `zone` takes `yAxis` too. Bars or areas stacked under one name on the two axes are two stacks; dodged bars share their slots whichever axis they are on.
 - **Axes** are linear by default: `{ domain: 'nice' | 'data' | [lo, hi], label }`. `time({ label })` takes millisecond timestamps and puts ticks on calendar boundaries, in UTC unless `utc: false`. `log({ label })` is a log axis. `step` and `format` set the ticks, and `fit` which marks an automatic domain is fitted to. `band({ label, categories })` puts category `i` at `x = i`, owning `i - 0.5` to `i + 0.5`.
 - **Columns** (`x`, `y`, `r`) are typed arrays or plain number arrays, one set per mark.
 - **Size**: leave out `width` or `height` and the chart follows its container, which must then have a size of its own (a container with no height gives an empty chart, which draws once the container gets a height).
@@ -211,37 +213,38 @@ Each point comes from profiling uPlot, the fastest of thirteen libraries in [cha
 - **Each mark has its own x column.** No aligned table, so no join step.
 - **Step lines and bands are reduced to one min/max per pixel column** before the path is built.
 - **Typed-array columns in, scale maths inlined** in the draw loops.
-- **Scatter, bars, error bars and box plots switch to WebGL2 at 10,000 points, and a sankey at 1,000 nodes and links together.** Raw WebGL2 set-up cost about 5 ms; Canvas 2D wins or ties below roughly 10k points. When the browser takes a WebGL context away, as it does with many WebGL charts on one page, that chart falls back to Canvas 2D.
+- **Scatter switches to WebGL2 at 20,000 points, bars, error bars, box plots and candlesticks at 10,000, and a sankey at 1,000 nodes and links together.** WebGL2 set-up costs about 4 ms, so a scatter on Canvas 2D mounts sooner below roughly 20,000 points. When the browser takes a WebGL context away, as it does with many WebGL charts on one page, that chart falls back to Canvas 2D.
 - **Paths and GPU buffers are kept,** so a hover repaint never touches the data again.
 
 ## Measured
 
-Mount time in chart-bench, median ms, 2026-11-20, Apple M3 Pro that was not idle. Each cell is the mean of two runs of nine loads, with the two libraries taking turns to go first. 4× is Chrome's CPU slowdown. At native speed every case but uPlot's largest sits at the empty-page floor (about 27 ms), so only the other columns separate them.
+Mount time in chart-bench, median ms, 2026-11-24, Apple M3 Pro that was not idle. Each cell is the mean of two runs of nine loads, each load a new page, with the two libraries taking turns to go first. 4× is Chrome's CPU slowdown. At native speed the two smaller sizes sit at the empty-page floor (about 27 ms), so only the other rows and columns separate the libraries.
 
 | case                     | swiftplot | uPlot | swiftplot, 4× | uPlot, 4× |
 | ------------------------ | --------: | ----: | ------------: | --------: |
-| survival, 3 × 200 points |      29.3 |  25.9 |          33.5 |      53.3 |
-| survival, 6 × 1,000      |      28.3 |  24.7 |          37.9 |      68.8 |
-| survival, 10 × 10,000    |      31.6 |  55.2 |          67.1 |     196.9 |
-| scatter, 500             |      27.8 |  25.2 |          33.7 |      46.0 |
-| scatter, 10,000          |      25.1 |  26.6 |          38.9 |      55.7 |
-| scatter, 100,000         |      30.6 |  34.3 |          56.8 |     129.0 |
+| survival, 3 × 200 points |      26.8 |  28.8 |          47.9 |      58.3 |
+| survival, 6 × 1,000      |      29.4 |  22.1 |          49.6 |      71.1 |
+| survival, 10 × 10,000    |      33.1 |  55.2 |          86.0 |     218.2 |
+| scatter, 500             |      26.2 |  26.1 |          37.7 |      60.0 |
+| scatter, 10,000          |      25.3 |  25.8 |          52.0 |      66.5 |
+| scatter, 100,000         |      32.2 |  34.9 |          68.0 |     137.5 |
 
 Time until the chart's own code has finished, which leaves out the wait for the next frame:
 
 | case                     | swiftplot | uPlot | swiftplot, 4× | uPlot, 4× |
 | ------------------------ | --------: | ----: | ------------: | --------: |
-| survival, 3 × 200 points |       4.0 |  10.7 |          14.4 |      41.7 |
-| survival, 6 × 1,000      |       5.7 |  14.2 |          20.6 |      55.8 |
-| survival, 10 × 10,000    |      14.3 |  50.6 |          48.2 |     181.6 |
-| scatter, 500             |       3.1 |   9.3 |          12.2 |      35.4 |
-| scatter, 10,000          |       5.9 |  12.9 |          21.3 |      44.6 |
-| scatter, 100,000         |      14.5 |  28.6 |          39.6 |     111.2 |
+| survival, 3 × 200 points |       5.1 |   9.4 |          25.5 |      45.1 |
+| survival, 6 × 1,000      |       8.0 |  13.2 |          30.9 |      58.7 |
+| survival, 10 × 10,000    |      19.6 |  51.3 |          66.9 |     200.9 |
+| scatter, 500             |       4.3 |   8.3 |          19.2 |      45.9 |
+| scatter, 10,000          |       6.8 |  11.8 |          31.4 |      51.9 |
+| scatter, 100,000         |      14.2 |  29.3 |          48.8 |     119.1 |
 
+- Every load is the first chart on a new page, so each cell includes the browser parsing the library's code for the first time. A second chart on the same page does not pay that.
 - The 100k scatter runs on WebGL, where the draw call returns before the GPU finishes, so its numbers flatter swiftplot.
 - uPlot has no built-in scatter, so its scatter numbers include circle-drawing code written for the benchmark.
 - Only these two chart types are in the benchmark. Bars, areas, the time axis, the legend and animation are not measured against uPlot.
-- uPlot ships far more features in its 23.6 KB gzip (plus a stylesheet); the swiftplot code these two charts pull in is 7.2 KB gzip.
+- uPlot ships far more features in the 23.9 KB gzip it adds to the benchmark page (plus a stylesheet); swiftplot adds 15.8 KB, with its tooltip and animation.
 
 Script time of one pan step, `propose()` of a window moved by a hundredth of its width (at the whole domain, one narrowed by a thousandth), median ms of 50, on an 800 × 400 chart, 2026-11-22, Apple M3 Pro, Chrome on Metal. Before → after is the remedy of the same date: a line or an area reads only the rows its window shows, and points on the canvas skip those that cannot reach the plot.
 
@@ -266,7 +269,7 @@ Script time of one pan step, `propose()` of a window moved by a hundredth of its
 | points, 10×        |        0.0 |         0.0 |
 | points, 5000×      | 13.3 → 0.2 | 156.9 → 1.9 |
 
-- Bars and points of 10,000 rows or more are drawn by WebGL, whose draw call returns before the GPU finishes, so their whole and 10× cells leave the drawing out. Magnified past 4096 times every mark is drawn on the canvas.
+- Bars of 10,000 rows or more and points of 20,000 or more are drawn by WebGL, whose draw call returns before the GPU finishes, so their whole and 10× cells leave the drawing out. Magnified past 4096 times every mark is drawn on the canvas.
 - A million bars at 5000× is over the 16 ms budget: the canvas still walks every bar.
 
 The same step at 1,000,000 points with `fit: 'window'` on the y axis, 2026-11-22, beside the step without it in the same run (mean of two runs each). At the whole domain two windows narrowed by a thousandth and by two take turns, since one window repeated would be fitted once and kept.

@@ -4,7 +4,7 @@ import { position } from './pointer.js';
 
 export type TooltipOptions =
   /** One row per labelled mark that can be sampled at the pointer's x, with a crosshair; a band gives its thickness. */
-  | { mode: 'x'; title: (x: number) => string; value: (y: number) => string }
+  | { mode: 'x'; title: (x: number) => string; value: (y: number, axis: 'y' | 'y2') => string }
   /** x and y are where the mark says it was hit, y being the row's own value where it has one; row is its row there. */
   | { mode: 'nearest'; text: (label: string, x: number, y: number, row?: number) => string };
 
@@ -83,8 +83,9 @@ export function tooltip(t: TooltipOptions): Feature {
         // A mark made of named parts, such as slices, is spoken for by the part that was hit.
         const part = hit.row === undefined ? undefined : hit.mark.entries?.[hit.row];
         const { label = '', color } = part ?? hit.mark;
-        const text = t.text(label, chart.real('x', hit.x), chart.real('y', hit.value ?? hit.y), hit.row);
-        show(chart.xPx(hit.x), chart.yPx(hit.y), [{ text, color: hit.color ?? color }]);
+        const on = chart.yAxis(hit.mark);
+        const text = t.text(label, chart.real('x', hit.x), chart.real(on, hit.value ?? hit.y), hit.row);
+        show(chart.xPx(hit.x), chart.yPx(hit.y, on), [{ text, color: hit.color ?? color }]);
         return;
       }
       const m = chart.margin();
@@ -100,24 +101,24 @@ export function tooltip(t: TooltipOptions): Feature {
       for (const k of chart.marks()) {
         if (!k.sampleAtX) continue;
         const s = k.sampleAtX(v);
+        const on = chart.yAxis(k);
         const value =
           typeof s === 'number'
-            ? chart.real('y', s)
-            : s &&
-              (s.band ? chart.real('y', s.y2) - chart.real('y', s.y1) : chart.real('y', s.value ?? s.y2));
+            ? chart.real(on, s)
+            : s && (s.band ? chart.real(on, s.y2) - chart.real(on, s.y1) : chart.real(on, s.value ?? s.y2));
         if (k.label !== undefined) {
           rows.push({
-            text: `${k.label}: ${value === undefined ? '–' : t.value(value)}`,
+            text: `${k.label}: ${value === undefined ? '–' : t.value(value, on)}`,
             color: k.color,
           });
         }
         if (s === undefined || k.group === undefined || py === undefined) continue;
         if (typeof s === 'number') {
-          const gap = Math.abs(chart.yPx(s) - py);
+          const gap = Math.abs(chart.yPx(s, on) - py);
           if (gap < near) [near, line] = [gap, k.group];
         } else {
-          const a = chart.yPx(s.y1);
-          const b = chart.yPx(s.y2);
+          const a = chart.yPx(s.y1, on);
+          const b = chart.yPx(s.y2, on);
           if (a !== b && py >= Math.min(a, b) && py <= Math.max(a, b)) fill = k.group;
         }
       }

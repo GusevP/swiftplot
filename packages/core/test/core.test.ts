@@ -14,6 +14,7 @@ import {
   bar,
   bin,
   box,
+  candlestick,
   dots,
   errorBars,
   fiveNumbers,
@@ -7369,12 +7370,17 @@ test("fit: 'window' over a window with no points in replaced data gives the new 
   );
 });
 
-test("an explicit y window equal to the whole y domain wins over fit: 'window' and is reported", () => {
+test("a y window given as an option, also one equal to the whole y domain, wins over fit: 'window'; a y proposed as it is shown does not", () => {
   expect(daily({ view: { x: [50, 87.5], y: [0, 400] } }).internals.view().y).toEqual([0, 400]);
   const onViewChange = vi.fn();
   const { internals } = daily({ onViewChange });
   internals.propose({ x: [50, 87.5], y: [0, 400] });
-  expect(onViewChange).toHaveBeenLastCalledWith({ x: [50, 87.5], y: [0, 400] });
+  expect(internals.view().y).toEqual([100, 180]);
+  expect(onViewChange).toHaveBeenLastCalledWith({ x: [50, 87.5] });
+  internals.propose({ y: [100, 150] });
+  expect(onViewChange).toHaveBeenLastCalledWith({ x: [50, 87.5], y: [100, 150] });
+  internals.propose({ x: [50, 60], y: [100, 150] });
+  expect(onViewChange).toHaveBeenLastCalledWith({ x: [50, 60], y: [100, 150] });
 });
 
 test("fit: 'window' panned from bars or an area to an empty gap keeps their fit, not their baseline", () => {
@@ -8679,7 +8685,7 @@ test('on a log axis every value the app is given or gives is a real one', async 
   const flatLine = line({ x: [0, 10], y: y.col([100, 100]), color: RED, label: 'l' });
   hover(windowed({ ...options, marks: [flatLine], use: [tooltip({ mode: 'x', title, value })] }).el, 50, 50);
   expect(title).toHaveBeenCalledWith(5);
-  expect(value).toHaveBeenCalledWith(100);
+  expect(value).toHaveBeenCalledWith(100, 'y');
 
   const onClick = vi.fn();
   const onPointerChange = vi.fn();
@@ -8842,7 +8848,7 @@ test("a custom mark's sample on a linear axis shows its own value", () => {
     50,
     50,
   );
-  expect(value).toHaveBeenLastCalledWith(2);
+  expect(value).toHaveBeenLastCalledWith(2, 'y');
 });
 
 test('a pointer given at creation shows its tooltip on a chart of fixed size, before any update', () => {
@@ -9092,4 +9098,402 @@ test('log().col() types a readonly or Col-typed array by what it may return', ()
   expect(y.col(fixed)).toEqual([0, 1]);
   expect(Array.isArray(y.col(held))).toBe(true);
   expect(y.col({ length: 1, 0: 100 })).toBeInstanceOf(Float64Array);
+});
+
+// A rising candle at x 3 and a falling one at x 7, each 20 px wide: bodies from 40 to 80 and from 30 to 70 px down,
+// wicks from 20 to 90 and from 10 to 80.
+const candles = (rows: (...first: number[]) => Col = (...first) => first) =>
+  candlestick({
+    x: rows(3, 7),
+    open: rows(0.2, 0.7),
+    high: rows(0.8, 0.9),
+    low: rows(0.1, 0.2),
+    close: rows(0.6, 0.3),
+    width: 2,
+    color: BLUE,
+    up: GREEN,
+    down: RED,
+  });
+const GREEN_PIXEL = [0, 255, 0, 255];
+
+test('a candle is a body from open to close on a wick from low to high, in the rising or the falling colour', () => {
+  const el = host();
+  plot(el, { ...frame, marks: [candles()] });
+  expect(pixel(el, 25, 60)).toEqual(GREEN_PIXEL);
+  expect(pixel(el, 30, 25)).toEqual(GREEN_PIXEL);
+  expect(pixel(el, 30, 85)).toEqual(GREEN_PIXEL);
+  expect(pixel(el, 25, 25)[3]).toBe(0);
+  expect(pixel(el, 30, 95)[3]).toBe(0);
+  expect(pixel(el, 65, 50)).toEqual(RED_PIXEL);
+  expect(pixel(el, 70, 15)).toEqual(RED_PIXEL);
+  expect(pixel(el, 65, 75)[3]).toBe(0);
+
+  const dimmed = host();
+  plot(dimmed, {
+    ...frame,
+    dim: 0.2,
+    marks: [candles()],
+    use: [tooltip({ mode: 'nearest', text: () => 'tip' })],
+  });
+  hover(dimmed, 30, 25);
+  expect(pixel(dimmed, 25, 60)).toEqual(GREEN_PIXEL);
+  // Off the grid line at 0.5, which lies under a dimmed candle.
+  expect(pixel(dimmed, 65, 45)[3]).toBe(51);
+});
+
+test('a click anywhere on a candle, its wick or the space beside the wick names its row and colour, and the axis makes room for whole candles', () => {
+  const el = host();
+  const onClick = vi.fn();
+  let chart!: Internals;
+  plot(el, { ...frame, marks: [candles()], onClick, use: [c => ((chart = c), { destroy() {} })] });
+  click(el, 30, 25);
+  click(el, 72, 15);
+  click(el, 65, 50);
+  click(el, 50, 50);
+  click(el, 85, 15);
+  click(el, 82, 50);
+  click(el, 84, 50);
+  expect(onClick.mock.calls.map(([hit]) => hit && [hit.row, hit.color, hit.y])).toEqual([
+    [0, GREEN, 0.6],
+    [1, RED, 0.3],
+    [1, RED, 0.3],
+    null,
+    null,
+    [1, RED, 0.3],
+    null,
+  ]);
+
+  const fitted = host();
+  plot(fitted, {
+    ...frame,
+    x: { domain: 'data', label: '' },
+    marks: [candles()],
+    use: [c => ((chart = c), { destroy() {} })],
+  });
+  expect(chart.xPx(2)).toBeCloseTo(0);
+  expect(chart.xPx(8)).toBeCloseTo(100);
+});
+
+test('10,000 candles are drawn by WebGL as on the canvas, and the one pointed at stands out', () => {
+  const el = host();
+  plot(el, {
+    ...frame,
+    dim: 0.2,
+    marks: [candles(padded)],
+    use: [tooltip({ mode: 'nearest', text: () => 'tip' })],
+  });
+  expect(pixel(el, 25, 60, 1)).toEqual(GREEN_PIXEL);
+  expect(pixel(el, 30, 25, 1)).toEqual(GREEN_PIXEL);
+  expect(pixel(el, 25, 25, 1)[3]).toBe(0);
+  expect(pixel(el, 65, 50, 1)).toEqual(RED_PIXEL);
+  expect(pixel(el, 70, 15, 1)).toEqual(RED_PIXEL);
+  expect(pixel(el, 65, 75, 1)[3]).toBe(0);
+  hover(el, 30, 25);
+  expect(pixel(el, 25, 60, 1)).toEqual(GREEN_PIXEL);
+  expect(pixel(el, 65, 50, 1)[3]).toBeLessThan(100);
+});
+
+test('a candle with a number missing draws nothing and answers no pointer', () => {
+  const el = host();
+  const onClick = vi.fn();
+  plot(el, {
+    ...frame,
+    marks: [
+      candlestick({
+        x: [3, 7],
+        open: [0.2, 0.7],
+        high: [NaN, 0.9],
+        low: [0.1, 0.2],
+        close: [0.6, 0.3],
+        width: 2,
+        color: RED,
+      }),
+    ],
+    onClick,
+  });
+  expect(pixel(el, 25, 60)[3]).toBe(0);
+  expect(pixel(el, 65, 50)).toEqual(RED_PIXEL);
+  click(el, 25, 60);
+  expect(onClick.mock.calls[0]![0]).toBeNull();
+});
+
+const BLUE_PIXEL = [0, 0, 255, 255];
+const second = (y: number[], more: object = {}) =>
+  line({ x: [0, 10], y, curve: 'step', color: BLUE, width: 4, label: 'second', yAxis: 'y2', ...more });
+const y2 = { domain: [0, 100], label: '' } satisfies Axis;
+
+test('a mark given yAxis y2 is drawn against the second axis, and on y while the chart has none', () => {
+  const el = host();
+  const chart = plot(el, { ...frame, marks: [flat(0.5), second([0.25, 0.25])] });
+  expect(pixel(el, 50, 75)).toEqual(BLUE_PIXEL);
+  expect(pixel(el, 50, 50)).toEqual(RED_PIXEL);
+  chart.update({ y2: { domain: [0, 0.3125], label: '' } });
+  expect(pixel(el, 50, 20)).toEqual(BLUE_PIXEL);
+  expect(pixel(el, 50, 75)[3]).toBe(0);
+  expect(pixel(el, 50, 50)).toEqual(RED_PIXEL);
+  chart.update({ y2: undefined });
+  expect(pixel(el, 50, 75)).toEqual(BLUE_PIXEL);
+});
+
+test('each y axis takes its extent from its own marks, and the second has its ticks and label on the right', () => {
+  const { el, internals, chart } = windowed({
+    width: 300,
+    height: 200,
+    margin: {},
+    y: { domain: 'data', label: '' },
+    y2: { domain: 'data', label: 'Right' },
+    marks: [line({ x: [0, 10], y: [0.2, 0.8], color: RED }), second([200, 800], { curve: 'linear' })],
+  });
+  expect(internals.domain()).toEqual({ x: [0, 10], y: [0.2, 0.8], y2: [200, 800] });
+  const right = 300 - internals.margin().right;
+  expect(internals.margin().right).toBe(14 + 3 * 7 + 20);
+  const box = el.getBoundingClientRect();
+  const found = texts(el).filter(t => ['400', 'Right'].includes(t.text));
+  expect(found.map(t => t.text).sort()).toEqual(['400', 'Right']);
+  for (const t of found) expect(t.box.left - box.left).toBeGreaterThanOrEqual(right);
+  expect(internals.yPx(400, 'y2')).toBeCloseTo(internals.yPx(0.4));
+  const tick = found.find(t => t.text === '400')!.box;
+  expect(tick.top + tick.height / 2 - box.top).toBeCloseTo(internals.yPx(400, 'y2'), 0);
+  chart.update({ hidden: ['second'] });
+  expect(internals.domain()).toEqual({ x: [0, 10], y: [0.2, 0.8], y2: [200, 800] });
+});
+
+test('a y window takes y2 through the same pixels, both are reported, and y2 may be given a window of its own', () => {
+  const onViewChange = vi.fn();
+  const { internals, chart } = windowed({ y2, marks: [flat(0.5), second([25, 25])], onViewChange });
+  expect(internals.propose({ y: [0.25, 0.75] })).toBe(true);
+  expect(internals.view()).toEqual({ x: [0, 10], y: [0.25, 0.75], y2: [25, 75] });
+  expect(onViewChange).toHaveBeenLastCalledWith({ x: [0, 10], y: [0.25, 0.75], y2: [25, 75] });
+  internals.propose({ y: [0.5, 0.75] });
+  expect(internals.view().y2).toEqual([50, 75]);
+  internals.propose({ y: undefined });
+  expect(internals.view()).toEqual({ x: [0, 10], y: [0, 1], y2: [0, 100] });
+  chart.update({ view: { y2: [10, 20] } });
+  expect(internals.view()).toEqual({ x: [0, 10], y: [0, 1], y2: [10, 20] });
+  expect(onViewChange).toHaveBeenCalledTimes(3);
+  internals.propose({ x: [2, 6], y: [0, 1] });
+  expect(internals.view()).toEqual({ x: [2, 6], y: [0, 1], y2: [10, 20] });
+  internals.propose({ y: [0.25, 0.75] });
+  expect(internals.view().y2).toEqual([12.5, 17.5]);
+});
+
+test('with fit window each y axis fits its own marks inside the x window, and neither is reported as a window', () => {
+  const onViewChange = vi.fn();
+  const { internals } = windowed({
+    onViewChange,
+    y: { domain: 'data', label: '', fit: 'window' },
+    y2: { domain: 'data', label: '', fit: 'window' },
+    view: { x: [0, 5] },
+    marks: [line({ x: [0, 10], y: [0.2, 0.8], color: RED }), second([0, 100], { curve: 'linear' })],
+  });
+  expect(internals.view().y).toEqual([0.2, 0.5]);
+  expect(internals.view().y2).toEqual([0, 50]);
+  internals.propose({ x: [0, 2.5] });
+  expect(internals.view().y2).toEqual([0, 25]);
+  expect(onViewChange).toHaveBeenLastCalledWith({ x: [0, 2.5] });
+});
+
+test('a tooltip, a click and the pointer give a value on its mark’s own axis, and the values at the pointer on both', () => {
+  const value = vi.fn((v: number) => String(v));
+  const onClick = vi.fn();
+  const onPointerChange = vi.fn();
+  const { el, internals, chart } = windowed({
+    y2,
+    marks: [
+      line({ x: [0, 10], y: [0.5, 0.5], color: RED, width: 4, label: 'first' }),
+      second([25, 25]),
+      dots({ x: [5], y: [25], r: [3], color: BLUE, label: 'dot', yAxis: 'y2' }),
+    ],
+    use: [tooltip({ mode: 'x', title: String, value })],
+    onClick,
+    onPointerChange,
+  });
+  hover(el, 50, 40);
+  expect(value.mock.calls).toEqual([
+    [0.5, 'y'],
+    [25, 'y2'],
+  ]);
+  expect(onPointerChange).toHaveBeenLastCalledWith({ x: 5, y: 0.6, y2: 60 });
+  click(el, 50, 75);
+  const [hit, at] = onClick.mock.calls[0]!;
+  expect([hit.mark.label, hit.y, at]).toEqual(['dot', 25, { x: 5, y: 0.25, y2: 25 }]);
+  chart.update({ pointer: { x: 5, y2: 25 } });
+  expect(internals.pointer()).toEqual({ x: 50, y: 75 });
+});
+
+test('bars or areas stacked under one name on the two y axes are two stacks, and dodged bars still share their slots', () => {
+  const one = { domain: [0, 1], label: '' } satisfies Axis;
+  const bars = host();
+  plot(bars, {
+    ...frame,
+    y2: one,
+    marks: [
+      bar({ x: [5], y: [0.5], stack: 's', color: RED }),
+      bar({ x: [5], y: [0.25], stack: 's', color: BLUE, yAxis: 'y2' }),
+    ],
+  });
+  expect(pixel(bars, 50, 90)).toEqual(BLUE_PIXEL);
+  expect(pixel(bars, 50, 60)).toEqual(RED_PIXEL);
+  expect(pixel(bars, 50, 40)[3]).toBe(0);
+
+  const areas = host();
+  const level = (y: number, color: string, more: object = {}) =>
+    area({ x: [0, 10], y: [y, y], stack: 's', color, alpha: 1, ...more });
+  plot(areas, { ...frame, y2: one, marks: [level(0.5, RED), level(0.25, BLUE, { yAxis: 'y2' })] });
+  expect(pixel(areas, 50, 90)).toEqual(BLUE_PIXEL);
+  expect(pixel(areas, 50, 60)).toEqual(RED_PIXEL);
+  expect(pixel(areas, 50, 40)[3]).toBe(0);
+
+  const dodged = host();
+  plot(dodged, {
+    ...frame,
+    y2: one,
+    marks: [
+      bar({ x: [5], y: [0.5], dodge: 'g', color: RED }),
+      bar({ x: [5], y: [0.5], dodge: 'g', color: BLUE, yAxis: 'y2' }),
+    ],
+  });
+  expect(pixel(dodged, 48, 90)).toEqual(RED_PIXEL);
+  expect(pixel(dodged, 52, 90)).toEqual(BLUE_PIXEL);
+});
+
+test('a brush reports the second axis too, and a y rule may stand on it', () => {
+  const onSelect = vi.fn();
+  const { el } = windowed({
+    y2,
+    marks: [flat(0.5), rule({ y: 25, yAxis: 'y2', color: BLUE, width: 2 })],
+    use: [brush({ axes: 'xy', onSelect })],
+  });
+  drag(el, [20, 20], [60, 60]);
+  const range = onSelect.mock.calls[0]![0];
+  expect(range.y.map((v: number) => +v.toFixed(6))).toEqual([0.4, 0.8]);
+  expect(range.y2.map((v: number) => +v.toFixed(6))).toEqual([40, 80]);
+  const [ruled] = rulesOf(el);
+  expect(boxOf(el, ruled!).top + boxOf(el, ruled!).height / 2).toBeCloseTo(75, 0);
+});
+
+test('a second axis added or taken away by update() refits both axes to their own marks', () => {
+  const { internals, chart } = windowed({
+    y: { domain: 'data', label: '' },
+    marks: [line({ x: [0, 10], y: [0.2, 0.8], color: RED }), second([200, 800], { curve: 'linear' })],
+  });
+  expect(internals.domain()).toEqual({ x: [0, 10], y: [0.2, 800] });
+  chart.update({ y2: { domain: 'data', label: '' } });
+  expect(internals.domain()).toEqual({ x: [0, 10], y: [0.2, 0.8], y2: [200, 800] });
+  chart.update({ y2: undefined });
+  expect(internals.domain()).toEqual({ x: [0, 10], y: [0.2, 800] });
+});
+
+test('beside a log y, a value on y2 stays as given in a tooltip, a click, the pointer, a window and a brush', () => {
+  const y = log({ label: '', domain: [1, 10000] });
+  const text = vi.fn(() => 'tip');
+  const value = vi.fn(() => '');
+  const onClick = vi.fn();
+  const onPointerChange = vi.fn();
+  const onViewChange = vi.fn();
+  const onSelect = vi.fn();
+  const marks = [
+    dots({ x: [5], y: [25], r: [3], color: BLUE, label: 'dot', yAxis: 'y2' }),
+    second([50, 50]),
+    zone({ y1: 0, y2: 10, yAxis: 'y2', color: RED, alpha: 1 }),
+  ];
+  const options = { y, y2, marks, onClick, onPointerChange, onViewChange } satisfies Partial<Options>;
+  const near = windowed({ ...options, use: [tooltip({ mode: 'nearest', text })] });
+  expect(pixel(near.el, 20, 95)).toEqual(RED_PIXEL);
+  expect(pixel(near.el, 20, 85)[3]).toBe(0);
+  hover(near.el, 50, 75);
+  expect(text).toHaveBeenCalledWith('dot', 5, 25, 0);
+  const tip = texts(near.el).find(t => t.text === 'tip')!.box;
+  const top = near.el.getBoundingClientRect().top;
+  expect(Math.min(Math.abs(tip.top - top - 75), Math.abs(tip.bottom - top - 75))).toBeLessThan(20);
+  expect(onPointerChange).toHaveBeenLastCalledWith({ x: 5, y: 10, y2: 25 });
+  click(near.el, 50, 75);
+  const [hit, at] = onClick.mock.calls[0]!;
+  expect([hit.y, at.y2]).toEqual([25, 25]);
+  near.chart.update({ pointer: { x: 5, y2: 25 } });
+  expect(near.internals.pointer()).toEqual({ x: 50, y: 75 });
+  near.internals.propose({ y: [1, 3] });
+  expect(onViewChange).toHaveBeenLastCalledWith({ x: [0, 10], y: [10, 1000], y2: [25, 75] });
+
+  hover(windowed({ ...options, use: [tooltip({ mode: 'x', title: String, value })] }).el, 50, 40);
+  expect(value).toHaveBeenCalledWith(50, 'y2');
+
+  const brushed = windowed({ ...options, use: [brush({ axes: 'xy', onSelect })] });
+  drag(brushed.el, [20, 20], [60, 60]);
+  expect(onSelect.mock.calls[0]![0].y2.map((v: number) => +v.toFixed(6))).toEqual([40, 80]);
+});
+
+test('dots stay on the canvas below 20,000 points and go to WebGL from there', () => {
+  const [below, at] = [host(), host()];
+  plot(below, { ...frame, marks: [pile(19_999)] });
+  plot(at, { ...frame, marks: [pile(20_000)] });
+  expect(below.querySelectorAll('canvas').length).toBe(1);
+  expect(at.querySelectorAll('canvas').length).toBe(2);
+});
+
+const rounded = (v: object) =>
+  JSON.parse(JSON.stringify(v, (_, n) => (typeof n === 'number' ? +n.toFixed(6) : n)));
+// Two rising lines, one on each y axis, each axis fitted to the x window: [0.2, 0.5] and [0, 50] at the start.
+const fittedPair = (more: Partial<Options> = {}) =>
+  windowed({
+    width: 200,
+    y: { domain: 'data', label: '', fit: 'window' },
+    y2: { domain: 'data', label: '', fit: 'window' },
+    view: { x: [0, 5] },
+    marks: [line({ x: [0, 10], y: [0.2, 0.8], color: RED }), second([0, 100], { curve: 'linear' })],
+    use: [zoom({ axes: 'xy' })],
+    ...more,
+  });
+
+test('a drag along both axes pans x alone until it leaves the level, so fitted y axes go on fitting, and then holds both', async () => {
+  const onViewChange = vi.fn();
+  const { el, internals } = fittedPair({ onViewChange });
+  drag(el, [150, 50], [110, 57]);
+  await nextFrame();
+  expect(rounded(internals.view())).toEqual({ x: [1, 6], y: [0.26, 0.56], y2: [10, 60] });
+  expect(rounded(onViewChange.mock.lastCall![0])).toEqual({ x: [1, 6] });
+
+  drag(el, [150, 50], [150, 78]);
+  await nextFrame();
+  expect(rounded(internals.view())).toEqual({ x: [1, 6], y: [0.32, 0.62], y2: [20, 70] });
+  expect(rounded(onViewChange.mock.lastCall![0])).toEqual({ x: [1, 6], y: [0.32, 0.62], y2: [20, 70] });
+
+  drag(el, [150, 50], [110, 50]);
+  await nextFrame();
+  expect(rounded(internals.view())).toEqual({ x: [2, 7], y: [0.32, 0.62], y2: [20, 70] });
+});
+
+test('a drag that leaves the level on its way pans y from what was shown there, upwards as well, and stays lifted', async () => {
+  const slanted = fittedPair();
+  // Level at its midpoint, 12 px up at its end: y starts from the spans fitted to the x window of that moment.
+  drag(slanted.el, [150, 50], [110, 38]);
+  await nextFrame();
+  expect(rounded(slanted.internals.view())).toEqual({ x: [1, 6], y: [0.218, 0.518], y2: [3, 53] });
+
+  const back = fittedPair();
+  press(back.el, 'pointerdown', 150, 50);
+  press(back.el, 'pointermove', 150, 38);
+  press(back.el, 'pointermove', 150, 46);
+  release(back.el, 150, 46);
+  await nextFrame();
+  expect(rounded(back.internals.view())).toEqual({ x: [0, 5], y: [0.212, 0.512], y2: [2, 52] });
+});
+
+test('a lifted drag that cannot move an axis shown whole gives it no window', async () => {
+  const { el, internals, chart } = windowed({
+    y: { domain: 'data', label: '' },
+    marks: [line({ x: [0, 10], y: [0.2, 0.8], color: RED })],
+    use: [zoom({ axes: 'xy' })],
+  });
+  drag(el, [50, 50], [50, 80]);
+  await nextFrame();
+  chart.update({ marks: [line({ x: [0, 10], y: [0.2, 2], color: RED })] });
+  expect(internals.view().y).toEqual([0.2, 2]);
+});
+
+test('a drag that pans y alone pans it from the first pixels', async () => {
+  const { el, internals } = windowed({ view: { y: [0.25, 0.75] }, use: [zoom({ axes: 'y' })] });
+  drag(el, [50, 50], [50, 56]);
+  await nextFrame();
+  expect(internals.view().y.map(v => +v.toFixed(6))).toEqual([0.28, 0.78]);
 });

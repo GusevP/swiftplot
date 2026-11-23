@@ -46,7 +46,10 @@ const resolve = (a: Axis, of: () => [number, number], room: Room): Resolved => {
 const AUTO: Axis = { domain: 'nice', label: '' };
 const NONE: Axis = { domain: [0, 1], label: '', scale: () => ({ lo: 0, hi: 1, ticks: [] }) };
 const bare = (o: Options) => o.frame === 'polar' || o.frame === 'blank';
-const axisOf = (o: Options, which: 'x' | 'y') => (bare(o) ? NONE : (o[which] ?? AUTO));
+type YKey = 'y' | 'y2';
+type Key = 'x' | YKey;
+type Window = { x?: Span; y?: Span; y2?: Span };
+const axisOf = (o: Options, which: Key) => (bare(o) ? NONE : (o[which] ?? AUTO));
 const sameAxis = (a: Axis, b: Axis) =>
   same({ ...a, domain: String(a.domain) }, { ...b, domain: String(b.domain) });
 const within = (want: Span | undefined, [lo, hi]: Span, least = (hi - lo) * 1e-6): Span | undefined => {
@@ -173,12 +176,19 @@ export function plot(el: HTMLElement, options: Options): Chart {
     const relaid = showing();
     delete extents.x;
     delete extents.y;
-    scanned = undefined;
+    delete extents.y2;
+    scanned = {};
     return relaid;
   };
   let xs!: Resolved;
   let ys!: Resolved;
+  let ys2: Resolved | undefined;
   let view!: View;
+  // What a mark on y2 is given: the same plot with the second scale as its y.
+  let view2!: View;
+  const has2 = () => !!o.y2 && !bare(o);
+  const onAxis = (k: Mark): YKey => (k.yAxis === 'y2' && has2() ? 'y2' : 'y');
+  const keys = (): Key[] => (has2() ? ['x', 'y', 'y2'] : ['x', 'y']);
   let viewKey = '';
   let axesKey = '';
   let cache = new Map<Mark, { p: Prepared; gl: boolean }>();
@@ -380,20 +390,22 @@ export function plot(el: HTMLElement, options: Options): Chart {
   };
 
   // A column set is scanned at most once per list of marks, and only if its axis asks.
-  let extents: Partial<Record<'x' | 'y' | 'xAll' | 'yAll', Span>> = {};
+  let extents: Partial<Record<Key | `${Key}All`, Span>> = {};
   // With every series hidden an axis keeps the extent it last had.
-  const last: { x?: Span; y?: Span } = {};
-  const limits: { x: Span; y: Span } = { x: [0, 1], y: [0, 1] };
-  const wholes = {} as { x: Resolved; y: Resolved };
+  const last: Partial<Record<Key, Span>> = {};
+  const limits: Record<Key, Span> = { x: [0, 1], y: [0, 1], y2: [0, 1] };
+  const wholes = {} as { x: Resolved; y: Resolved; y2?: Resolved };
   // A proposal's scan is kept for the display of the same window that follows it.
-  let scanned: { key: string; span: Span | undefined } | undefined;
-  let lastWindowFit: Span | undefined;
-  let yFitted = false;
-  let yFit: { of: () => Span; room: Room } | undefined;
-  // The y extent of the shown marks between a and b on x, if any shows there. A connected mark's x
+  let scanned: Partial<Record<YKey, { key: string; span: Span | undefined }>> = {};
+  // Per y axis: whether it is fitted to the x window, what it fits when it is, and the last fit that found a mark.
+  const fits: Record<YKey, { fitted: boolean; fit?: { of: () => Span; room: Room }; last?: Span }> = {
+    y: { fitted: false },
+    y2: { fitted: false },
+  };
+  // The extent on one y axis of its shown marks between a and b on x, if any shows there. A connected mark's x
   // is ascending, so its rows are found by binary search, and its values at the two edges count too.
   // A row counts only where every value of it is a number, as a mark draws nothing of it otherwise.
-  const scan = (a: number, b: number): Span | undefined => {
+  const scan = (which: YKey, a: number, b: number): Span | undefined => {
     let lo = Infinity;
     let hi = -Infinity;
     let seen = false;
@@ -404,6 +416,7 @@ export function plot(el: HTMLElement, options: Options): Chart {
       if (v > hi) hi = v;
     };
     for (const k of visible) {
+      if (onAxis(k) !== which) continue;
       const n = k.points;
       const { x: X, y: Y } = k.channels;
       const rows = Y.filter(c => c.length === n);
@@ -460,37 +473,43 @@ export function plot(el: HTMLElement, options: Options): Chart {
   };
   const sorted = ([a, b]: Span): Span => [Math.min(a, b), Math.max(a, b)];
   const fitsWindow = (axis: Axis) => axis.fit === 'window' && typeof axis.domain === 'string';
-  const scanOnce = (a: number, b: number) => {
+  const scanOnce = (which: YKey, a: number, b: number) => {
     const key = `${a},${b}`;
-    if (scanned?.key !== key) scanned = { key, span: scan(a, b) };
-    return scanned.span;
+    const kept = scanned[which];
+    return kept?.key === key ? kept.span : (scanned[which] = { key, span: scan(which, a, b) }).span;
   };
-  const windowExtent = (whole: () => Span): Span => {
+  const windowExtent = (which: YKey, whole: () => Span): Span => {
     const [a, b] = sorted([xs.lo, xs.hi]);
-    lastWindowFit = scanOnce(a, b) ?? lastWindowFit;
-    return lastWindowFit ?? whole();
+    const f = fits[which];
+    f.last = scanOnce(which, a, b) ?? f.last;
+    return f.last ?? whole();
   };
-  const fitted = (which: 'x' | 'y', room: Room): Resolved => {
+  const fitted = (which: Key, room: Room): Resolved => {
+    // Each y axis takes its extent from its own marks.
+    const mine = (k: Mark) => which === 'x' || onAxis(k) === which;
+    const cols = (list: readonly Mark[]) =>
+      list.flatMap(k => (which === 'x' ? k.channels.x : mine(k) ? k.channels.y : []));
     const of = () =>
       axisOf(o, which).fit === 'all'
-        ? (extents[`${which}All`] ??= extent(every().flatMap(k => k.channels[which])))
+        ? (extents[`${which}All`] ??= extent(cols(every())))
         : (extents[which] ??=
-            visible.some(k => !k.backdrop) || !marks.length
-              ? (last[which] = extent(visible.flatMap(k => k.channels[which])))
-              : (last[which] ??= extent(every().flatMap(k => k.channels[which]))));
+            visible.some(k => !k.backdrop && mine(k)) || !marks.length
+              ? (last[which] = extent(cols(visible)))
+              : (last[which] ??= extent(cols(every()))));
     const whole = (wholes[which] = resolve(axisOf(o, which), of, room));
     limits[which] = [whole.lo, whole.hi];
     const w = bare(o) ? undefined : clamp(into(which, o.view?.[which]), limits[which]);
-    if (which === 'y') {
-      yFitted = false;
-      yFit = { of, room };
+    const f = which === 'x' ? undefined : fits[which];
+    if (f) {
+      f.fitted = false;
+      f.fit = { of, room };
     }
     if (!w) {
       const axis = axisOf(o, which);
-      if (which === 'x' || !fitsWindow(axis)) return whole;
-      yFitted = true;
-      if (xs !== wholes.x) return resolve(axis, () => windowExtent(of), room);
-      lastWindowFit = of();
+      if (which === 'x' || !f || !fitsWindow(axis)) return whole;
+      f.fitted = true;
+      if (xs !== wholes.x) return resolve(axis, () => windowExtent(which, of), room);
+      f.last = of();
       return whole;
     }
     if (w[0] === whole.lo && w[1] === whole.hi) return whole;
@@ -509,23 +528,24 @@ export function plot(el: HTMLElement, options: Options): Chart {
     const bottom = g.bottom ?? (axisOf(o, 'x').label ? 44 : 26);
     const [w, h] = laidOut
       ? [W - m.left - m.right, H - m.top - m.bottom]
-      : [W - (g.left ?? 44) - (g.right ?? 16), H - (g.top ?? 12) - bottom];
+      : [W - (g.left ?? 44) - (g.right ?? (has2() ? 44 : 16)), H - (g.top ?? 12) - bottom];
     xs = fitted('x', { length: w, horizontal: true });
     ys = fitted('y', { length: h, horizontal: false });
+    ys2 = has2() ? fitted('y2', { length: h, horizontal: false }) : undefined;
   };
 
   const theme = () => o.theme ?? light;
-  const real = (k: 'x' | 'y', v: number) => {
+  const real = (k: Key, v: number) => {
     const a = axisOf(o, k);
     return a.from ? a.from(v, a) : v;
   };
   // A window a gesture wrote is read back as the span it was made from, which a round trip through real values can miss by a float step.
   const exact = new WeakMap<Span, { axis: Axis; span: Span }>();
-  const inward = (k: 'x' | 'y', v: number) => {
+  const inward = (k: Key, v: number) => {
     const a = axisOf(o, k);
     return a.to ? a.to(v, a) : v;
   };
-  const into = (k: 'x' | 'y', s: Span | undefined): Span | undefined => {
+  const into = (k: Key, s: Span | undefined): Span | undefined => {
     const a = axisOf(o, k);
     if (!s || !a.to) return s;
     const e = exact.get(s);
@@ -534,27 +554,34 @@ export function plot(el: HTMLElement, options: Options): Chart {
     // A decreasing transform, such as a log base below 1, turns the window round; either order means the same window.
     return (s[0] - s[1]) * (r[0] - r[1]) < 0 ? sorted(r) : r;
   };
-  const out = (k: 'x' | 'y', s: Span): Span => {
+  const out = (k: Key, s: Span): Span => {
     const r: Span = [real(k, s[0]), real(k, s[1])];
     exact.set(r, { axis: axisOf(o, k), span: s });
     return r;
   };
   const xPx = (v: number) => (view.ox + v * view.kx) / dpr;
-  const yPx = (v: number) => (view.oy - v * view.ky) / dpr;
+  const yPx = (v: number, axis?: YKey) => {
+    const s = axis === 'y2' ? view2 : view;
+    return (s.oy - v * s.ky) / dpr;
+  };
 
   const layout = () => {
     // ponytail: tick labels are taken as 7 px a character, not measured, because measuring text
     // forces a layout before the first paint. Set the margin when labels are wider than that.
     const [xLabel, yLabel] = [axisOf(o, 'x').label, axisOf(o, 'y').label];
+    const y2Label = ys2 ? axisOf(o, 'y2').label : '';
     const given = o.margin ?? {};
     let widest = 0;
     if (given.left === undefined)
       for (const t of [...ys.ticks, ...wholes.y.ticks]) widest = Math.max(widest, t.label.length);
+    let widest2 = 0;
+    if (ys2 && given.right === undefined)
+      for (const t of [...ys2.ticks, ...wholes.y2!.ticks]) widest2 = Math.max(widest2, t.label.length);
     m = bare(o)
       ? { top: given.top ?? 8, right: given.right ?? 8, bottom: given.bottom ?? 8, left: given.left ?? 8 }
       : {
           top: given.top ?? 12,
-          right: given.right ?? 16,
+          right: given.right ?? (ys2 ? 14 + widest2 * 7 + (y2Label ? 20 : 0) : 16),
           bottom: given.bottom ?? (xLabel ? 44 : 26),
           left: given.left ?? 14 + widest * 7 + (yLabel ? 20 : 0),
         };
@@ -601,11 +628,13 @@ export function plot(el: HTMLElement, options: Options): Chart {
       ctx,
       theme: theme(),
     };
+    const ky2 = ys2 ? height / (ys2.hi - ys2.lo) : ky;
+    view2 = ys2 ? { ...view, ky: ky2, oy: top + height + ys2.lo * ky2 } : view;
     axes.style.color = theme().text;
     if (notes) notes.style.color = theme().text;
     uncover();
 
-    const key = JSON.stringify([W, H, m, xs, ys, xLabel, yLabel, xs !== wx]);
+    const key = JSON.stringify([W, H, m, xs, ys, ys2, xLabel, yLabel, y2Label, xs !== wx]);
     if (key !== axesKey) {
       axesKey = key;
       // Axis text is DOM, not fillText: the first text drawn on a canvas cost ~20 ms at 4x CPU slowdown.
@@ -622,19 +651,23 @@ export function plot(el: HTMLElement, options: Options): Chart {
         text(t.label, x, H - m.bottom + 8, 'translate(-50%,0)');
       }
       for (const t of ys.ticks) text(t.label, m.left - 8, yPx(t.value), 'translate(-100%,-50%)');
+      for (const t of ys2?.ticks ?? [])
+        text(t.label, W - m.right + 8, yPx(t.value, 'y2'), 'translate(0,-50%)');
       text(xLabel, m.left + width / dpr / 2, H - 2, 'translate(-50%,-100%)');
       text(yLabel, 10, m.top + height / dpr / 2, 'translate(-50%,-50%) rotate(-90deg)');
+      if (y2Label) text(y2Label, W - 10, m.top + height / dpr / 2, 'translate(-50%,-50%) rotate(90deg)');
       axes.replaceChildren(labels);
     }
 
     const described = () => {
       const names = [...new Set(marks.flatMap(k => k.label ?? []))].join(', ');
-      const axesNamed = yLabel && xLabel ? `${yLabel} by ${xLabel}` : yLabel || xLabel;
+      const yNamed = [yLabel, y2Label].filter(Boolean).join(' and ');
+      const axesNamed = yNamed && xLabel ? `${yNamed} by ${xLabel}` : yNamed || xLabel;
       return [axesNamed, names].filter(Boolean).join(': ') || 'Chart';
     };
     canvas.ariaLabel = o.description ?? described();
 
-    viewKey = [kx, view.ox, ky, view.oy, left, top, width, height].join();
+    viewKey = [kx, view.ox, ky, view.oy, view2.ky, view2.oy, left, top, width, height].join();
   };
 
   // The browser takes a context away when too many are open, so a lost layer gives its marks back to the canvas.
@@ -669,10 +702,12 @@ export function plot(el: HTMLElement, options: Options): Chart {
     const onLayer = (k: Mark) => layered.get(k)!;
     // ponytail: WebGL positions are 32-bit, a pixel off past ~4096x, so deeper zoom draws on the
     // canvas; 64-bit positions in the shader (a high and a low float) would lift this ceiling.
-    const deep = [xs, ys].some((s, i) => {
-      const whole = i ? wholes.y : wholes.x;
-      return (whole.hi - whole.lo) / (s.hi - s.lo) > 4096;
-    });
+    const scales: [Resolved, Resolved][] = [
+      [xs, wholes.x],
+      [ys, wholes.y],
+    ];
+    if (ys2) scales.push([ys2, wholes.y2!]);
+    const deep = scales.some(([s, whole]) => (whole.hi - whole.lo) / (s.hi - s.lo) > 4096);
     // Each mark fills its own share of the threshold, so a mark may ask for the layer sooner or later.
     let useGl =
       !deep &&
@@ -704,7 +739,8 @@ export function plot(el: HTMLElement, options: Options): Chart {
       let e = old.get(k);
       const changed = !e;
       if (!e || viewChanged || e.gl !== g) {
-        e = { p: g ? k.gl!.prepare(view, gl!) : k.prepare(view, replaced.get(k)), gl: g };
+        const v = onAxis(k) === 'y2' ? view2 : view;
+        e = { p: g ? k.gl!.prepare(v, gl!) : k.prepare(v, replaced.get(k)), gl: g };
         if (g) placed.add(k);
       }
       if (changed && e.p.morph && replaced.has(k)) morphs.push(e.p);
@@ -819,15 +855,15 @@ export function plot(el: HTMLElement, options: Options): Chart {
 
   const refresh = (data: boolean, also?: 'size' | 'focus', restyled = false, asked = false) => {
     const before = viewKey;
-    const shown = () => [xs.lo, xs.hi, ys.lo, ys.hi].join();
+    const shown = () => [xs.lo, xs.hi, ys.lo, ys.hi, ys2?.lo, ys2?.hi].join();
     const was = asked && shown();
     rescale(false);
     layout();
     // The scales were resolved for a guessed room; resolved again for the real one, their ticks or
     // bounds may differ, and then so may the margins. Once more is enough to be right in all but contrived cases.
-    const guessed = JSON.stringify([xs, ys, wholes]);
+    const guessed = JSON.stringify([xs, ys, ys2, wholes]);
     rescale(true);
-    if (JSON.stringify([xs, ys, wholes]) !== guessed) layout();
+    if (JSON.stringify([xs, ys, ys2, wholes]) !== guessed) layout();
     if (asked && shown() !== was) also = 'size';
     const viewChanged = viewKey !== before || restyled;
     drawable = W > m.left + m.right && H > m.top + m.bottom;
@@ -866,13 +902,39 @@ export function plot(el: HTMLElement, options: Options): Chart {
   };
 
   // In the marks' space, or with `stored` as o.view keeps it: in real values, a side not proposed as the app gave it.
-  const wanted = (want: { x?: Span; y?: Span } | null, stored = false) => {
-    const next: { x?: Span; y?: Span } = {};
-    for (const k of ['x', 'y'] as const) {
+  const wanted = (want: Window | null, stored = false) => {
+    const next: Window = {};
+    for (const k of keys()) {
       if (!want) continue;
       const given = o.view?.[k];
       const w = k in want ? clamp(want[k], limits[k]) : stored ? given : into(k, given);
       if (w) next[k] = stored && k in want ? out(k, w) : w;
+    }
+    return next;
+  };
+  // A y window takes y2 with it: the same pixels through the second scale, and the whole of it with the whole of y.
+  const linked = (want: Window | null): Window | null => {
+    if (!want || !ys2 || !('y' in want) || 'y2' in want) return want;
+    const y = clamp(want.y, limits.y);
+    // A y proposed as it is shown, as a pan along x does, leaves y2 its own window.
+    if (y && y[0] === ys.lo && y[1] === ys.hi) return want;
+    if (!y || (y[0] === limits.y[0] && y[1] === limits.y[1])) return { ...want, y2: undefined };
+    const { lo, hi } = ys2;
+    const through = (v: number) => lo + ((v - ys.lo) / (ys.hi - ys.lo)) * (hi - lo);
+    return { ...want, y2: [through(y[0]), through(y[1])] };
+  };
+  // A side proposed just as it is shown, with no window of its own, gets none: an axis that follows its
+  // marks goes on following them. update({ view }) is how an app holds a span that is already shown.
+  const loose = (want: Window | null): Window | null => {
+    if (!want) return want;
+    const next = { ...want };
+    const now = internals.view();
+    for (const k of keys()) {
+      if (next[k] === undefined || clamp(into(k, o.view?.[k]), limits[k])) continue;
+      const [w, shown] = [clamp(next[k], limits[k]), now[k]!];
+      // Clamped at an edge, a span comes back a float step off the one shown.
+      const slack = Math.abs(shown[1] - shown[0]) * 1e-9;
+      if (w && Math.abs(w[0] - shown[0]) <= slack && Math.abs(w[1] - shown[1]) <= slack) delete next[k];
     }
     return next;
   };
@@ -910,36 +972,48 @@ export function plot(el: HTMLElement, options: Options): Chart {
     xPx,
     yPx,
     xValue: px => (px * dpr - view.ox) / view.kx,
-    yValue: px => (view.oy - px * dpr) / view.ky,
-    view: () => ({ x: [xs.lo, xs.hi], y: [ys.lo, ys.hi] }),
-    domain: () => ({ ...limits }),
-    fit(want) {
-      if (bare(o)) return internals.view();
-      const next = wanted(want);
-      const x = clamp(next.x, limits.x) ?? limits.x;
-      const derived = () => {
-        const whole = x[0] === limits.x[0] && x[1] === limits.x[1];
-        if (whole || !yFit || !fitsWindow(axisOf(o, 'y'))) return limits.y;
-        const fit = resolve(
-          axisOf(o, 'y'),
-          () => scanOnce(...sorted(x)) ?? lastWindowFit ?? yFit!.of(),
-          yFit.room,
-        );
-        return [fit.lo, fit.hi] satisfies Span;
-      };
-      const y = clamp(next.y, limits.y) ?? derived();
-      return { x: [...x], y: [...y] };
+    yValue(px, axis) {
+      const s = axis === 'y2' ? view2 : view;
+      return (s.oy - px * dpr) / s.ky;
     },
-    propose(want) {
+    yAxis: onAxis,
+    view: () => ({ x: [xs.lo, xs.hi], y: [ys.lo, ys.hi], ...(ys2 && { y2: [ys2.lo, ys2.hi] }) }),
+    domain: () => ({ x: limits.x, y: limits.y, ...(ys2 && { y2: limits.y2 }) }),
+    fit(asked) {
+      if (bare(o)) return internals.view();
+      const next = wanted(loose(linked(asked)));
+      const x = clamp(next.x, limits.x) ?? limits.x;
+      const side = (which: YKey): Span => {
+        const w = clamp(next[which], limits[which]);
+        if (w) return [...w];
+        const whole = x[0] === limits.x[0] && x[1] === limits.x[1];
+        const f = fits[which];
+        if (whole || !f.fit || !fitsWindow(axisOf(o, which))) return [...limits[which]];
+        const { fit } = f;
+        const s = resolve(
+          axisOf(o, which),
+          () => scanOnce(which, ...sorted(x)) ?? f.last ?? fit.of(),
+          fit.room,
+        );
+        return [s.lo, s.hi];
+      };
+      return { x: [...x], y: side('y'), ...(ys2 && { y2: side('y2') }) };
+    },
+    propose(asked) {
       if (bare(o)) return false;
+      const want = loose(linked(asked));
       const [shown, will] = [internals.view(), internals.fit(want)];
-      if ((['x', 'y'] as const).every(k => String(will[k]) === String(shown[k]))) return false;
+      if (keys().every(k => String(will[k]) === String(shown[k]))) return false;
       letGo();
-      o = { ...o, view: want ? wanted(want, true) : undefined };
+      // A y2 window given while the chart has no second axis is kept for when it has one, unless y is shown whole again.
+      const whole = !want || ('y' in want && want.y === undefined);
+      const held = !has2() && !whole && o.view?.y2;
+      o = { ...o, view: want ? { ...(held && { y2: held }), ...wanted(want, true) } : undefined };
       if (refresh(false, 'size')) sync();
       o.onViewChange?.({
         x: [real('x', xs.lo), real('x', xs.hi)],
-        ...(!yFitted && { y: [real('y', ys.lo), real('y', ys.hi)] }),
+        ...(!fits.y.fitted && { y: [real('y', ys.lo), real('y', ys.hi)] }),
+        ...(ys2 && !fits.y2.fitted && { y2: [real('y2', ys2.lo), real('y2', ys2.hi)] }),
       });
       return true;
     },
@@ -968,15 +1042,17 @@ export function plot(el: HTMLElement, options: Options): Chart {
       if (!p || bare(o) || !drawable) return null;
       const x = xPx(inward('x', p.x));
       if (!(x >= m.left && x <= W - m.right)) return null;
-      if (p.y === undefined) return { x };
-      const y = yPx(inward('y', p.y));
+      const on: YKey = p.y2 !== undefined && ys2 ? 'y2' : 'y';
+      const v = p[on];
+      if (v === undefined) return { x };
+      const y = yPx(inward(on, v), on);
       return !(y >= m.top && y <= H - m.bottom) ? { x } : { x, y };
     },
     focus,
   };
 
   let pointed = false;
-  const tell = (p: { x: number; y: number } | null) => {
+  const tell = (p: { x: number; y: number; y2?: number } | null) => {
     if (!p && !pointed) return;
     pointed = !!p;
     o.onPointerChange?.(p);
@@ -990,8 +1066,13 @@ export function plot(el: HTMLElement, options: Options): Chart {
     aim();
     if (internals.drag.active) return tell(null);
     const { px, py, over } = locate(internals, e);
-    tell(over ? { x: real('x', internals.xValue(px)), y: real('y', internals.yValue(py)) } : null);
+    tell(over ? valuesAt(px, py) : null);
   };
+  const valuesAt = (px: number, py: number) => ({
+    x: real('x', internals.xValue(px)),
+    y: real('y', internals.yValue(py)),
+    ...(ys2 && { y2: real('y2', internals.yValue(py, 'y2')) }),
+  });
   const unpoint = () => {
     at = undefined;
     root.style.cursor = '';
@@ -1012,18 +1093,16 @@ export function plot(el: HTMLElement, options: Options): Chart {
     const c = o.onClick && clicked(e);
     if (!c) return;
     const { px, py, hit } = c;
+    const on = hit ? onAxis(hit.mark) : 'y';
     o.onClick!(
       hit && {
         ...hit,
         mark: declared.get(hit.mark) ?? hit.mark,
         x: real('x', hit.x),
-        y: real('y', hit.y),
-        ...(hit.value !== undefined && { value: real('y', hit.value) }),
+        y: real(on, hit.y),
+        ...(hit.value !== undefined && { value: real(on, hit.value) }),
       },
-      {
-        x: real('x', internals.xValue(px)),
-        y: real('y', internals.yValue(py)),
-      },
+      valuesAt(px, py),
     );
   });
   showing();
@@ -1102,7 +1181,16 @@ export function plot(el: HTMLElement, options: Options): Chart {
       o = { ...o, ...partial };
       const hid = 'hidden' in partial && !sameIds(partial.hidden, hiddenIds);
       if (hid) hiddenIds = [...(partial.hidden ?? [])];
-      let data = !sameAxis(axisOf(o, 'x'), axisOf(prev, 'x')) || !sameAxis(axisOf(o, 'y'), axisOf(prev, 'y'));
+      let data =
+        !o.y2 !== !prev.y2 || (['x', 'y', 'y2'] as const).some(k => !sameAxis(axisOf(o, k), axisOf(prev, k)));
+      // A second axis that comes or goes moves marks from one axis to the other, so no extent scanned before holds.
+      if (!o.y2 !== !prev.y2) {
+        extents = {};
+        scanned = {};
+        delete last.y;
+        delete last.y2;
+        fits.y.last = fits.y2.last = undefined;
+      }
       replaced = new Map();
       paired = true;
       let relaid = false;
@@ -1122,7 +1210,7 @@ export function plot(el: HTMLElement, options: Options): Chart {
           data = true;
           extents = {};
           everyLaid = undefined;
-          lastWindowFit = undefined;
+          fits.y.last = fits.y2.last = undefined;
           relaid = reshow();
           reshown = true;
         }
@@ -1148,7 +1236,7 @@ export function plot(el: HTMLElement, options: Options): Chart {
       const resized = measure();
       const restyled = theme() !== (prev.theme ?? light);
       // Ticks are DOM and change at once, so a new window must not cross-fade with new marks.
-      const moved = (['x', 'y'] as const).some(k => String(o.view?.[k]) !== String(prev.view?.[k]));
+      const moved = (['x', 'y', 'y2'] as const).some(k => String(o.view?.[k]) !== String(prev.view?.[k]));
       if (
         refresh(
           data,

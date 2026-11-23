@@ -2,7 +2,7 @@ import { glLayer } from '../gl.js';
 import { painter, stops, type Paint } from '../paint.js';
 import { bands, stack } from '../transforms.js';
 import type { Col, Mark, Prepared, View } from '../types.js';
-import { base } from './common.js';
+import { base, stackKey } from './common.js';
 import type { Common } from './common.js';
 import { focused, gpuRows, type Blend, type Part } from './rects.js';
 
@@ -83,7 +83,7 @@ export function bar(o: BarOptions): Mark {
     ...arranged([a])[0]!,
     options: o,
     arrange: {
-      key: a.stack !== undefined ? `bar:stack:${a.stack}` : `bar:dodge:${a.dodge}`,
+      key: a.stack !== undefined ? stackKey('bar', a) : `bar:dodge:${a.dodge}`,
       lay: members => arranged(members.map(k => k.options as Arranged)),
     },
   };

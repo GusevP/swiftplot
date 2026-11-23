@@ -85,6 +85,7 @@ export const Plot = bind(mount, {
   margin: null,
   x: null,
   y: null,
+  y2: null,
   frame: null,
   marks: null,
   use: null,

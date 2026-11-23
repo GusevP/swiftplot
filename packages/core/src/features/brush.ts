@@ -6,8 +6,8 @@ export type BrushOptions = {
   axes?: 'x' | 'y' | 'xy';
   /** Show the range brushed once it is reported, on the brushed axes, and drop the rectangle. */
   zoom?: boolean;
-  /** The range brushed, in axis values, on release; null once a range reported is cleared. */
-  onSelect?(range: { x: Span; y: Span } | null): void;
+  /** The range brushed, in axis values, on release, with y2 when the chart has a second axis; null once a range reported is cleared. */
+  onSelect?(range: { x: Span; y: Span; y2?: Span } | null): void;
 };
 
 export function brush(b: BrushOptions = {}): Feature {
@@ -101,14 +101,16 @@ export function brush(b: BrushOptions = {}): Feature {
       end();
       if (!kept) return;
       const asc = (p: number, q: number): Span => (p <= q ? [p, q] : [q, p]);
-      const span = (k: 'x' | 'y', [p, q]: Span) => asc(chart.real(k, p), chart.real(k, q));
+      const span = (k: 'x' | 'y' | 'y2', [p, q]: Span) => asc(chart.real(k, p), chart.real(k, q));
       const view = chart.view();
       const picked = {
         x: bx ? asc(chart.xValue(kept.left), chart.xValue(kept.right)) : view.x,
         y: by ? asc(chart.yValue(kept.bottom), chart.yValue(kept.top)) : view.y,
       };
+      const y2 =
+        view.y2 && (by ? asc(chart.yValue(kept.bottom, 'y2'), chart.yValue(kept.top, 'y2')) : view.y2);
       reported = !b.zoom;
-      b.onSelect?.({ x: span('x', picked.x), y: span('y', picked.y) });
+      b.onSelect?.({ x: span('x', picked.x), y: span('y', picked.y), ...(y2 && { y2: span('y2', y2) }) });
       if (!b.zoom || gone) return;
       clear();
       chart.propose({ ...(bx && { x: picked.x }), ...(by && { y: picked.y }) });
