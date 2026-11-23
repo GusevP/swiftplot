@@ -1,20 +1,11 @@
 import assert from 'node:assert/strict';
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readdirSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
 import test from 'node:test';
 import { entries, sha256, verify } from './check-tarballs.mjs';
 import { run as realRun } from './prepare.mjs';
 import { checks, release, tarballName } from './release.mjs';
-import { tar } from './testing.mjs';
+import { gitRepo, sh, tar } from './testing.mjs';
 
 const URL_OF_REPO = 'https://github.com/GusevP/swiftplot.git';
 const NAMES = { core: 'swiftplot', react: '@swiftplot/react', vue: '@swiftplot/vue' };
@@ -28,12 +19,6 @@ const READS = [
   /^node /,
 ];
 
-function sh(cwd, ...args) {
-  const out = realRun('git', args, { cwd });
-  if (out.code !== 0) throw new Error(`git ${args.join(' ')}: ${out.stderr}`);
-  return out.stdout.trim();
-}
-
 function setVersion(dir, version) {
   for (const [folder, name] of Object.entries(NAMES)) {
     const peers = name === 'swiftplot' ? {} : { peerDependencies: { swiftplot: 'workspace:^' } };
@@ -46,38 +31,22 @@ function setVersion(dir, version) {
 }
 
 function repo(t, { version = '0.1.0', changelog } = {}) {
-  const root = mkdtempSync(join(tmpdir(), 'swiftplot-release-test-'));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
-  const origin = join(root, 'origin.git');
-  const dir = join(root, 'work');
-  sh(root, 'init', '--bare', '-b', 'main', origin);
-  sh(root, 'init', '-b', 'main', dir);
-  for (const [key, value] of [
-    ['user.name', 'Test'],
-    ['user.email', 'test@example.com'],
-    ['commit.gpgsign', 'false'],
-    ['tag.gpgsign', 'false'],
-    ['core.autocrlf', 'false'],
-  ]) {
-    sh(dir, 'config', key, value);
-  }
-  sh(dir, 'remote', 'add', 'origin', origin);
-  setVersion(dir, version);
-  for (const folder of Object.keys(NAMES))
-    writeFileSync(join(dir, 'packages', folder, 'test/import.mjs'), '\n');
-  const files = {
-    'package.json': `${JSON.stringify({ name: 'workspace', private: true, repository: { url: `git+${URL_OF_REPO}` } })}\n`,
-    'pnpm-lock.yaml':
-      "lockfileVersion: '9.0'\n\npackages:\n\n  react@19.0.0:\n    resolution: {}\n\n  react-dom@19.0.0:\n    resolution: {}\n\n  vue@3.5.0:\n    resolution: {}\n",
-    '.gitignore': 'dist\n.release/\n',
-    'README.md': 'readme\n',
-    LICENSE: 'MIT\n',
-    'CHANGELOG.md': changelog ?? `# Changelog\n\n## Unreleased\n\n## ${version} - 2026-12-01\n\n- an entry\n`,
-  };
-  for (const [path, text] of Object.entries(files)) writeFileSync(join(dir, path), text);
-  sh(dir, 'add', '.');
-  sh(dir, 'commit', '-m', 'initial');
-  sh(dir, 'push', 'origin', 'main');
+  const { dir, origin } = gitRepo(t, 'swiftplot-release-test-', dir => {
+    setVersion(dir, version);
+    for (const folder of Object.keys(NAMES))
+      writeFileSync(join(dir, 'packages', folder, 'test/import.mjs'), '\n');
+    const files = {
+      'package.json': `${JSON.stringify({ name: 'workspace', private: true, repository: { url: `git+${URL_OF_REPO}` } })}\n`,
+      'pnpm-lock.yaml':
+        "lockfileVersion: '9.0'\n\npackages:\n\n  react@19.0.0:\n    resolution: {}\n\n  react-dom@19.0.0:\n    resolution: {}\n\n  vue@3.5.0:\n    resolution: {}\n",
+      '.gitignore': 'dist\n.release/\n',
+      'README.md': 'readme\n',
+      LICENSE: 'MIT\n',
+      'CHANGELOG.md':
+        changelog ?? `# Changelog\n\n## Unreleased\n\n## ${version} - 2026-12-01\n\n- an entry\n`,
+    };
+    for (const [path, text] of Object.entries(files)) writeFileSync(join(dir, path), text);
+  });
   return { dir, origin, head: () => sh(dir, 'rev-parse', 'HEAD') };
 }
 
@@ -464,7 +433,12 @@ test('the files are built from an export of the commit and stored in .release', 
   const h = harness(r, { runs: [ciRun(head)] });
   const result = await h.release();
 
-  assert.deepEqual({ ...snapshot(r), status: before.status, release: null }, { ...before, release: null });
+  const after = snapshot(r);
+  assert.deepEqual(
+    after.status.split('\n').filter(line => line !== '!! .release/'),
+    before.status.split('\n'),
+  );
+  assert.deepEqual({ ...after, status: null, release: null }, { ...before, status: null, release: null });
   assert.equal(readFileSync(join(r.dir, 'packages/core/dist/stale.js'), 'utf8'), 'stale\n');
   const builds = h.calls.filter(call => call.line.startsWith('pnpm '));
   assert.deepEqual(
@@ -533,6 +507,15 @@ for (const kind of ['tag only', 'draft']) {
     await assert.rejects(other.release(), /holds 0\.1\.0 of f{40}, not 0\.1\.0 of/);
     assert.deepEqual(other.writes, []);
     assert.deepEqual(other.asked, []);
+
+    const kept = snapshot(r).release;
+    const preview = harness(r, state);
+    const result = await preview.release({ dryRun: true });
+    assert.match(result.reasons.join('\n'), /holds 0\.1\.0 of f{40}, not 0\.1\.0 of/);
+    assert.equal(result.files.length, 4);
+    assert.ok(preview.calls.some(call => call.line === 'pnpm build'));
+    assert.deepEqual(snapshot(r).release, kept);
+    assert.deepEqual(preview.writes, []);
   });
 }
 

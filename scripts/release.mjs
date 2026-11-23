@@ -40,6 +40,8 @@ export async function checks({ api, commit, sleep, now, print = () => {}, wait =
       .filter(run => run.head_sha === commit && run.event === 'push' && run.head_branch === 'main')
       .sort((a, b) => b.id - a.id);
     if (latest?.status === 'completed') {
+      if (!Number.isSafeInteger(latest.id) || !Number.isSafeInteger(latest.run_attempt))
+        throw new Error(`GitHub returned the run ${latest.id}, attempt ${latest.run_attempt}, for ${commit}`);
       const { jobs } = api(`actions/runs/${latest.id}/attempts/${latest.run_attempt}/jobs`);
       const problems = latest.conclusion === 'success' ? [] : [`it concluded ${latest.conclusion}`];
       for (const name of JOBS) {
@@ -243,12 +245,18 @@ export async function release({
     }
 
     const cache = join(dir, '.release', version);
-    const files =
-      state === 'published'
-        ? fromRelease({ release: existing, version, tag, repo, out: join(temp, 'release'), call })
-        : existsSync(cache)
-          ? fromCache({ cache, version, commit })
-          : build({ source, out: join(temp, 'tarballs'), version, run, pnpmCommand });
+    const fresh = () => build({ source, out: join(temp, 'tarballs'), version, run, pnpmCommand });
+    let files;
+    if (state === 'published')
+      files = fromRelease({ release: existing, version, tag, repo, out: join(temp, 'release'), call });
+    else if (!existsSync(cache)) files = fresh();
+    else
+      try {
+        files = fromCache({ cache, version, commit });
+      } catch (error) {
+        stop(error.message);
+        files = fresh();
+      }
     const listing = readdirSync(files)
       .sort()
       .map(name => {

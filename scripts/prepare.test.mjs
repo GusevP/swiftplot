@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import test from 'node:test';
 import { prepare, run as realRun } from './prepare.mjs';
+import { gitRepo, sh } from './testing.mjs';
 
 const OXFMT = /[\\/]oxfmt[\\/]bin[\\/]oxfmt$/;
 
@@ -11,42 +11,18 @@ const CHANGELOG = '# Changelog\n\n## Unreleased\n\n- first entry\n';
 const PACKAGES = ['core', 'react', 'vue'];
 const FILES = ['CHANGELOG.md', ...PACKAGES.map(name => `packages/${name}/package.json`)];
 
-function sh(cwd, ...args) {
-  const out = realRun('git', args, { cwd });
-  if (out.code !== 0) throw new Error(`git ${args.join(' ')}: ${out.stderr}`);
-  return out.stdout.trim();
-}
-
 function repo(t, { versions = {}, changelog = CHANGELOG } = {}) {
-  const root = mkdtempSync(join(tmpdir(), 'swiftplot-prepare-'));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
-  const origin = join(root, 'origin.git');
-  const dir = join(root, 'work');
-  sh(root, 'init', '--bare', '-b', 'main', origin);
-  sh(root, 'init', '-b', 'main', dir);
-  for (const [key, value] of [
-    ['user.name', 'Test'],
-    ['user.email', 'test@example.com'],
-    ['commit.gpgsign', 'false'],
-    ['tag.gpgsign', 'false'],
-    ['core.autocrlf', 'false'],
-  ]) {
-    sh(dir, 'config', key, value);
-  }
-  sh(dir, 'remote', 'add', 'origin', origin);
-  for (const name of PACKAGES) {
-    mkdirSync(join(dir, 'packages', name), { recursive: true });
-    writeFileSync(
-      join(dir, 'packages', name, 'package.json'),
-      `{\n  "name": "${name}",\n  "version": "${versions[name] ?? '0.0.0'}",\n  "files": ["dist"]\n}\n`,
-    );
-  }
-  writeFileSync(join(dir, 'CHANGELOG.md'), changelog);
-  writeFileSync(join(dir, 'README.md'), 'readme\n');
-  sh(dir, 'add', '.');
-  sh(dir, 'commit', '-m', 'initial');
-  sh(dir, 'push', 'origin', 'main');
-  return { dir, origin };
+  return gitRepo(t, 'swiftplot-prepare-', dir => {
+    for (const name of PACKAGES) {
+      mkdirSync(join(dir, 'packages', name), { recursive: true });
+      writeFileSync(
+        join(dir, 'packages', name, 'package.json'),
+        `{\n  "name": "${name}",\n  "version": "${versions[name] ?? '0.0.0'}",\n  "files": ["dist"]\n}\n`,
+      );
+    }
+    writeFileSync(join(dir, 'CHANGELOG.md'), changelog);
+    writeFileSync(join(dir, 'README.md'), 'readme\n');
+  });
 }
 
 function runner({ formatCode = 0, onFormat } = {}) {
