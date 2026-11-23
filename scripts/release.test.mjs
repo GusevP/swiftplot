@@ -5,7 +5,7 @@ import test from 'node:test';
 import { entries, sha256, verify } from './check-tarballs.mjs';
 import { run as realRun } from './prepare.mjs';
 import { checks, release, tarballName } from './release.mjs';
-import { fakeGh, github, gitRepo, sh, tar } from './testing.mjs';
+import { fakeGh, fakeNpm, github, gitRepo, sh, tar } from './testing.mjs';
 
 const URL_OF_REPO = 'https://github.com/GusevP/swiftplot.git';
 const NAMES = { core: 'swiftplot', react: '@swiftplot/react', vue: '@swiftplot/vue' };
@@ -16,12 +16,14 @@ const READS = [
   /^gh release download /,
   /^pnpm (install --frozen-lockfile|build|pack --pack-destination \S+)$/,
   /^npm install /,
+  /^npm view /,
   /^node /,
 ];
 
-function setVersion(dir, version) {
+function setVersion(dir, version, { isPrivate = false } = {}) {
   for (const [folder, name] of Object.entries(NAMES)) {
     const peers = name === 'swiftplot' ? {} : { peerDependencies: { swiftplot: 'workspace:^' } };
+    if (isPrivate) peers.private = true;
     mkdirSync(join(dir, 'packages', folder, 'test'), { recursive: true });
     writeFileSync(
       join(dir, 'packages', folder, 'package.json'),
@@ -30,9 +32,9 @@ function setVersion(dir, version) {
   }
 }
 
-function repo(t, { version = '0.1.0', changelog } = {}) {
+function repo(t, { version = '0.1.0', changelog, isPrivate } = {}) {
   const { dir, origin } = gitRepo(t, 'swiftplot-release-test-', dir => {
-    setVersion(dir, version);
+    setVersion(dir, version, { isPrivate });
     for (const folder of Object.keys(NAMES))
       writeFileSync(join(dir, 'packages', folder, 'test/import.mjs'), '\n');
     const files = {
@@ -122,6 +124,7 @@ function harness(r, state = {}) {
   const ok = stdout => ({ code: 0, stdout, stderr: '' });
   state.remote = r.origin;
   const gh = fakeGh(state, now);
+  const npm = fakeNpm(state);
   const run = (command, args, options = {}) => {
     const name = command === process.execPath ? 'node' : basename(command).replace(/\.exe$/i, '');
     const line = `${name} ${args.join(' ')}`;
@@ -135,6 +138,7 @@ function harness(r, state = {}) {
       assert.ok(!state.noBuild, `built although it must not: ${line}`);
       return ok(fakePnpm(args, options.cwd));
     }
+    if (name === 'npm' && (args[0] === 'view' || args[0] === 'publish')) return npm(args, options);
     if (name === 'npm' || (name === 'node' && args[1] === 'install'))
       return ok(fakeNpmInstall(args, options.cwd));
     if (name === 'node') return ok('');
@@ -147,11 +151,13 @@ function harness(r, state = {}) {
     asked,
     beforeAsk: () => writes.slice(0, atAsk),
     now,
-    release: ({ dryRun = false, answer } = {}) =>
+    release: ({ dryRun = false, npm = false, answer } = {}) =>
       release({
         dir: r.dir,
         run,
         dryRun,
+        npm,
+        npmCommand: ['npm'],
         ask: async question => {
           asked.push(question);
           atAsk = writes.length;
@@ -671,4 +677,96 @@ test('a pre-release takes its notes from the tag commit, and every gh call names
   );
   assert.deepEqual(h.beforeAsk(), []);
   assert.ok(!h.writes.some(line => line.startsWith('git push')));
+});
+
+const published = (state, name, version = '0.1.0') => state.npm[`${name}@${version}`]?.bytes;
+
+test('without --npm no npm registry call is made at all', async t => {
+  const r = repo(t);
+  const state = { runs: [ciRun(r.head())] };
+  const h = harness(r, state);
+  await h.release();
+  assert.equal(state.releases[0].draft, false);
+  assert.deepEqual(state.npmCalls, []);
+  assert.ok(
+    h.printed.includes('npm: not published. To publish these files to npm later, run: pnpm release --npm'),
+  );
+});
+
+test('with --npm, private packages stop a new release in step 1 and a published one before any publish', async t => {
+  const r = repo(t, { isPrivate: true });
+  const head = r.head();
+  const blocked =
+    /npm refuses private packages: swiftplot, @swiftplot\/react, @swiftplot\/vue are "private" at [0-9a-f]{40}, so npm is blocked/;
+  const fresh = { runs: [ciRun(head)] };
+  const h = harness(r, fresh);
+  await assert.rejects(h.release({ npm: true }), blocked);
+  assert.deepEqual(h.writes, []);
+  assert.deepEqual(h.asked, []);
+  assert.equal(sh(r.origin, 'tag', '--list'), '');
+
+  const preview = harness(r, { runs: [ciRun(head)] });
+  const result = await preview.release({ npm: true, dryRun: true });
+  assert.ok(result.reasons.some(reason => blocked.test(reason)));
+  assert.match(
+    preview.printed.join('\n'),
+    /publish the release's files to npm \(https:\/\/registry\.npmjs\.org\/\)/,
+  );
+
+  await harness(r, fresh).release();
+  const done = harness(r, { ...fresh, noBuild: true });
+  await assert.rejects(done.release({ npm: true }), blocked);
+  assert.deepEqual(fresh.npmCalls, []);
+  assert.deepEqual(done.writes, []);
+});
+
+test('npm publishes the published release assets, not the local cache', async t => {
+  const r = repo(t, { version: '0.1.0-rc.0' });
+  const state = { runs: [ciRun(r.head())] };
+  const cached = join(releaseDir(r), '0.1.0-rc.0', 'files', 'swiftplot-0.1.0-rc.0.tgz');
+  state.fail = args => {
+    if (args[1] === 'edit') writeFileSync(cached, 'changed after the upload');
+  };
+  await assert.rejects(harness(r, { runs: state.runs }).release({ answer: 'no' }), /not confirmed/);
+  state.noBuild = true;
+  const h = harness(r, state);
+  const result = await h.release({ npm: true });
+  const asset = name => state.releases[0].assets.find(a => a.name === name).bytes;
+  for (const name of Object.values(NAMES))
+    assert.deepEqual(published(state, name, '0.1.0-rc.0'), asset(tarballName(name, '0.1.0-rc.0')), name);
+  assert.deepEqual(result.npm, Object.fromEntries(Object.values(NAMES).map(name => [name, 'public'])));
+  for (const call of state.npmCalls.filter(c => c.args[0] === 'publish')) {
+    assert.ok(!call.cwd.startsWith(releaseDir(r)), call.cwd);
+    assert.ok(call.args.includes('next'));
+  }
+
+  const assets = state.releases[0].assets;
+  for (const cache of ['corrupt', 'none']) {
+    if (cache === 'none') rmSync(releaseDir(r), { recursive: true });
+    else {
+      writeFileSync(cached, 'corrupt');
+      rmSync(join(releaseDir(r), '0.1.0-rc.0', 'npm.json'));
+    }
+    const again = {
+      releases: [{ tag: 'v0.1.0-rc.0', draft: false, prerelease: true, assets }],
+      noBuild: true,
+    };
+    await harness(r, again).release({ npm: true });
+    for (const name of Object.values(NAMES))
+      assert.deepEqual(published(again, name, '0.1.0-rc.0'), asset(tarballName(name, '0.1.0-rc.0')), cache);
+  }
+});
+
+test('an unpublished or incomplete release stops before any npm call', async t => {
+  const r = repo(t);
+  const head = r.head();
+  const draft = { runs: [ciRun(head)], fail: args => (args[1] === 'edit' ? 'before' : undefined) };
+  await assert.rejects(harness(r, draft).release({ npm: true }), /connection reset/);
+  assert.equal(draft.releases[0].draft, true);
+  assert.deepEqual(draft.npmCalls, []);
+
+  const assets = draft.releases[0].assets.filter(a => a.name !== 'swiftplot-vue-0.1.0.tgz');
+  const incomplete = { releases: [{ tag: 'v0.1.0', draft: false, assets }], noBuild: true };
+  await assert.rejects(harness(r, incomplete).release({ npm: true }), /has the assets .* not /);
+  assert.deepEqual(incomplete.npmCalls, []);
 });

@@ -3,7 +3,8 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
 import { gzipSync } from 'node:zlib';
-import { sha256 } from './check-tarballs.mjs';
+import { entries, sha256 } from './check-tarballs.mjs';
+import { integrity, REGISTRY } from './npm-publish.mjs';
 import { run } from './prepare.mjs';
 
 export function sh(cwd, ...args) {
@@ -183,5 +184,36 @@ export function fakeGh(state, now = () => 0) {
     if (fail === 'before') return refuse('connection reset');
     const out = apply(args, cwd);
     return fail === 'after' ? refuse('connection reset') : out;
+  };
+}
+
+// state.npm maps name@version to { integrity, public }; a publish is public unless state.staged.
+// state.npmFail(args) may return 'before' (rejected) or 'after' (accepted, the response was lost).
+export function fakeNpm(state) {
+  state.npm ??= {};
+  state.npmCalls ??= [];
+  return (args, { cwd, stdio } = {}) => {
+    state.npmCalls.push({ args, cwd, stdio });
+    const registry = args.indexOf('--registry');
+    assert.equal(args[registry + 1], REGISTRY);
+    assert.ok(args.includes(`--@swiftplot:registry=${REGISTRY}`));
+    const [verb, spec] = args;
+    if (verb === 'view') {
+      assert.deepEqual(args.slice(2, 4), ['dist.integrity', '--json']);
+      const entry = state.npm[spec];
+      return entry?.public
+        ? { code: 0, stdout: `${JSON.stringify(entry.integrity)}\n`, stderr: '' }
+        : { code: 1, stdout: JSON.stringify({ error: { code: 'E404' } }), stderr: 'npm error code E404' };
+    }
+    assert.equal(verb, 'publish');
+    assert.equal(stdio, 'inherit');
+    const fail = state.npmFail?.(args);
+    if (fail === 'before') return { code: 1, stdout: '', stderr: '' };
+    const bytes = readFileSync(resolve(cwd, spec));
+    const { name, version } = JSON.parse(entries(bytes).get('package/package.json').toString('utf8'));
+    const key = `${name}@${version}`;
+    if (state.npm[key]) return { code: 1, stdout: '', stderr: '' };
+    state.npm[key] = { integrity: integrity(bytes), public: !state.staged, bytes };
+    return { code: fail === 'after' ? 1 : 0, stdout: '', stderr: '' };
   };
 }

@@ -18,7 +18,8 @@ import { check, PACKAGES, sha256, smoke, SUMS, verify } from './check-tarballs.m
 import { caller, findRelease, githubRelease } from './github-release.mjs';
 import { pack, pnpm } from './pack.mjs';
 import { remoteTags, run as realRun } from './prepare.mjs';
-import { higher, highest, shared } from './version.mjs';
+import { npm as npmBin, npmPublish, REGISTRY } from './npm-publish.mjs';
+import { higher, highest, manifests, shared } from './version.mjs';
 
 const POLL = 20_000;
 const NO_RUN = 5 * 60_000;
@@ -30,6 +31,13 @@ const GITHUB =
 export const tarballName = (name, version) => `${name.replace(/^@/, '').replace('/', '-')}-${version}.tgz`;
 const expectedFiles = version => [...PACKAGES.map(name => tarballName(name, version)), SUMS].sort();
 const sameList = (a, b) => a.length === b.length && a.every((x, i) => x === b[i]);
+const describe = dir =>
+  readdirSync(dir)
+    .sort()
+    .map(name => {
+      const bytes = readFileSync(join(dir, name));
+      return { name, size: bytes.length, sha256: sha256(bytes) };
+    });
 const shown = url => {
   const repo = GITHUB.exec(url)?.[1];
   return repo ? `github.com/${repo}` : 'a URL that names no GitHub repository';
@@ -156,6 +164,8 @@ export async function release({
   dir,
   run,
   dryRun = false,
+  npm = false,
+  npmCommand,
   ask,
   print = console.log,
   sleep,
@@ -214,6 +224,16 @@ export async function release({
           throw new Error(`the tag ${tag} is on ${commit}, whose packages say ${there}, not ${version}`);
       }
     }
+    if (npm) {
+      const held = manifests(source)
+        .map(path => JSON.parse(readFileSync(path, 'utf8')))
+        .filter(pkg => pkg.private)
+        .map(pkg => pkg.name);
+      if (held.length)
+        stop(
+          `npm refuses private packages: ${held.join(', ')} ${held.length > 1 ? 'are' : 'is'} "private" at ${commit}, so npm is blocked`,
+        );
+    }
     const changelog = join(source, 'CHANGELOG.md');
     const notes = existsSync(changelog) ? (section(readFileSync(changelog, 'utf8'), version) ?? '') : '';
     if (!tags.has(version)) {
@@ -253,12 +273,7 @@ export async function release({
         stop(error.message);
         files = fresh();
       }
-    const listing = readdirSync(files)
-      .sort()
-      .map(name => {
-        const bytes = readFileSync(join(files, name));
-        return { name, size: bytes.length, sha256: sha256(bytes) };
-      });
+    const listing = describe(files);
     if (!dryRun && state !== 'published' && !existsSync(cache))
       store({ files, cache, version, commit, time: new Date(now()).toISOString() });
 
@@ -283,6 +298,10 @@ export async function release({
         published: `  the GitHub Release ${tag} is published and stays as it is`,
       }[state],
     );
+    if (npm)
+      print(
+        `  publish the release's files to npm (${REGISTRY}) in the order ${PACKAGES.join(', ')}${prerelease ? ' with the tag next' : ''}`,
+      );
     const result = { version, tag, commit, state, files: listing, notes, prerelease };
     if (dryRun) {
       print('Dry run: nothing was written.');
@@ -309,8 +328,31 @@ export async function release({
       print,
     });
     print(`Released ${tag}: the tag is on ${commit}, the GitHub Release is ${url}`);
-    print('npm: not published. To publish these files to npm later, run: pnpm release --npm');
-    return { ...result, url };
+    if (!npm) {
+      print('npm: not published. To publish these files to npm later, run: pnpm release --npm');
+      return { ...result, url };
+    }
+    let assets = files;
+    if (state !== 'published') {
+      const published = findRelease({ call, repo, tag });
+      if (published?.draft !== false)
+        throw new Error(`the release ${tag} is not published; nothing was sent to npm`);
+      assets = fromRelease({ release: published, version, tag, repo, out: join(temp, 'published'), call });
+      if (JSON.stringify(describe(assets)) !== JSON.stringify(listing))
+        throw new Error(
+          `the published release ${tag} does not hold the confirmed files; nothing was sent to npm`,
+        );
+    }
+    const npmStatus = npmPublish({
+      dir,
+      run,
+      version,
+      prerelease,
+      files: assets,
+      print,
+      npmCommand: npmCommand ?? npmBin(),
+    });
+    return { ...result, url, npm: npmStatus };
   } finally {
     rmSync(temp, { recursive: true, force: true });
   }
@@ -330,11 +372,13 @@ function ask(question) {
 if (fileURLToPath(import.meta.url) === process.argv[1]) {
   try {
     const args = process.argv.slice(2);
-    if (args.some(arg => arg !== '--dry-run')) throw new Error('usage: pnpm release [--dry-run]');
+    if (args.some(arg => arg !== '--dry-run' && arg !== '--npm'))
+      throw new Error('usage: pnpm release [--npm] [--dry-run]');
     await release({
       dir: fileURLToPath(new URL('..', import.meta.url)),
       run: realRun,
       dryRun: args.includes('--dry-run'),
+      npm: args.includes('--npm'),
       ask,
       sleep: ms => new Promise(resolve => setTimeout(resolve, ms)),
     });
