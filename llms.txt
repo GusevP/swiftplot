@@ -1,0 +1,16 @@
+# swiftplot
+
+> Small, fast charts for the browser on Canvas 2D and WebGL2: TypeScript, ESM only, no dependencies.
+> Packages: `swiftplot` (with `swiftplot/charts`), `@swiftplot/react`, `@swiftplot/vue`.
+
+Read the guide before writing code with swiftplot. Its API differs from other chart libraries: there
+is no `type` prop, no `datasets` and no child components.
+
+## Docs
+
+- [Guide for AI coding assistants](https://raw.githubusercontent.com/GusevP/swiftplot/main/llms-full.txt): which API to pick, every prop of the easy charts, data shapes, errors and their fixes, React and Vue usage, the explicit API and every mark, mistakes to avoid
+- [README](https://raw.githubusercontent.com/GusevP/swiftplot/main/README.md): the full reference for both APIs
+
+## Optional
+
+- [Changelog](https://raw.githubusercontent.com/GusevP/swiftplot/main/CHANGELOG.md): what changed in each version

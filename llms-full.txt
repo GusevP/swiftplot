@@ -1,0 +1,381 @@
+# swiftplot: guide for AI coding assistants
+
+swiftplot is a small, fast charting library for the browser (Canvas 2D and WebGL2, TypeScript, ESM
+only, no dependencies). This file tells you how to write correct code with it. Prefer it over
+guessing from other chart libraries: swiftplot has no `type` prop, no `datasets`, no `options`
+object, no child components such as `<Line />`, and no d3 scales.
+
+Packages: `swiftplot` (the core, with the entry `swiftplot/charts`), `@swiftplot/react` (React 18.3 or
+19), `@swiftplot/vue` (Vue 3.4+). Install the core beside a wrapper: `npm i swiftplot @swiftplot/react`
+(first published as 0.1.0; before that release the packages are not on npm).
+
+## 1. Pick the API
+
+| The user wants | Use |
+|---|---|
+| A line, area, bar or scatter chart from rows or columns of data | the easy charts: `lineChart`, `areaChart`, `barChart`, `scatterChart` from `swiftplot/charts`, or `<LineChart>` etc. from a wrapper |
+| Any other chart (pie, donut, heatmap, box plot, histogram, radar, radial bars, funnel, sankey, treemap, sunburst) | the explicit API: `plot()` from `swiftplot`, or `<Plot>` from a wrapper |
+| Several kinds of mark in one chart, reference lines, zones, a brush, a log axis | the explicit API |
+| A million points already in typed arrays | the explicit API |
+
+Start with an easy chart whenever it fits. `lineChart.spec(props)` returns the explicit options an
+easy chart would use, as a starting point to extend.
+
+## 2. Easy charts
+
+### Minimal code
+
+```ts
+// plain JavaScript or TypeScript
+import { lineChart } from 'swiftplot/charts';
+
+const rows = [
+  { date: '2026-11-01', api: 120, web: 80 },
+  { date: '2026-11-02', api: 140, web: 95 },
+];
+const chart = lineChart(document.getElementById('chart')!, { data: rows });
+chart.update({ data: rows.slice(1) }); // pass only the props that change
+chart.destroy();
+```
+
+```tsx
+// React
+import { LineChart } from '@swiftplot/react';
+
+export function Requests({ rows }: { rows: { date: string; api: number; web: number }[] }) {
+  return <LineChart data={rows} />;
+}
+```
+
+```vue
+<!-- Vue -->
+<script setup lang="ts">
+import { shallowRef } from 'vue';
+import { LineChart } from '@swiftplot/vue';
+
+const rows = shallowRef([{ date: '2026-11-01', api: 120, web: 80 }]);
+</script>
+
+<template>
+  <LineChart :data="rows" />
+</template>
+```
+
+With no other props the chart guesses the fields (here x is `date`, the series are `api` and `web`),
+picks a time axis, labels it, colours the series, and adds a tooltip and a legend.
+
+### Every prop (there are no others)
+
+| Prop | Type | Notes |
+|---|---|---|
+| `data` | rows, columns, number array, or pairs | see Data. `null` or missing draws an empty frame |
+| `x` | field name or `(row, i) => value` | which field is x. Not an axis config |
+| `y` | field name, accessor, or a list of them | which fields are series. A scatter chart takes one |
+| `series` | field name or accessor | for long data: one series per distinct value |
+| `xAxis` | `{ label, domain, step, format, fit, utc, unit, every }` | axis settings go here, not in `x` |
+| `yAxis` | `{ label, domain, step, format, fit }` | |
+| `colors` | `string[]` | series colours, in order |
+| `theme` | `'auto' \| 'light' \| 'dark' \| Theme` | `'auto'` (default) follows the page's CSS `color-scheme` |
+| `tooltip` | `boolean` | default on |
+| `legend` | `boolean \| { toggle?, rows? }` | default on with two or more series |
+| `zoom` | `boolean \| { axes?, wheel?, drag? }` | default off |
+| `animate` | `boolean \| { duration?, enter? }` | default off |
+| `width`, `height` | `number` (px) | default: follow the container |
+| `margin` | `{ top?, right?, bottom?, left? }` | |
+| `description` | `string` | accessible description |
+| `dataVersion` | `number` | bump after changing data in place |
+| `view`, `onViewChange` | `{ x?: [lo, hi], y?: [lo, hi] }` | the zoom window; kept by the chart unless given |
+| `hidden`, `onHiddenChange` | `string[]` | hidden series, by name |
+| `selected` | `{ id: string, rows: number[] }[] \| null` | rows picked out |
+| `onClick` | `(hit, at) => void` | |
+| `pointer`, `onPointerChange` | `{ x, y? } \| null` | show a tooltip from code; link two charts |
+| `curve` | `'linear' \| 'step' \| 'smooth'` | line and area only |
+| `join` | `boolean` | line and area only: draw across missing values |
+| `stack` | `boolean` | area and bar only |
+| `r` | `number` or a field | scatter only: radius in px (default 4) |
+
+### Data
+
+```ts
+// 1. row objects (the usual case)
+[{ date: '2026-11-01', api: 120 }]
+// 2. an object of columns (arrays or typed arrays, all the same length)
+{ date: ['2026-11-01', '2026-11-02'], api: Float64Array.of(120, 140) }
+// 3. a plain number array: y against its index
+[3, 5, 2, 8]
+// 4. [x, y] pairs, exactly two values each
+[[0, 3], [1, 5]]
+// 5. long rows: name the field that splits them into series
+lineChart(el, { data: [{ date: '2026-11-01', service: 'api', value: 120 }], series: 'service' });
+```
+
+A value is a number, a `Date`, an ISO 8601 string (`2026-11-01`, `2026-11-01T10:00`, with `Z` or an
+offset after a time) or other text. `null`, `undefined`, `''` and `NaN` are missing: a missing y is a
+gap, a row with a missing x is dropped.
+
+- **Numbers held as text are not numbers.** `{ amount: "12.5" }` is text. Convert first:
+  `rows.map(r => ({ ...r, amount: Number(r.amount) }))`.
+- **Dates without a time zone are read as UTC.** `xAxis: { utc: false }` reads and shows local time.
+- Only ISO date strings are dates. `"11/01/2026"` and `"Nov 1"` are text: parse them to `Date`.
+- Millisecond timestamps are numbers, so they get a number axis. Pass `Date` objects for a time axis.
+
+### How fields are guessed, and how to be explicit
+
+When `x` and `y` are not given, fields are taken in order:
+
+- `x`: the first date field, else the first text field, else the first number field (when `y` is
+  named or another number field is left), else the row index.
+- `y`: every number field left, one series each.
+- Scatter: `x` is the first date field, else the first number field; `y` is the next number field.
+
+Name fields whenever the data has number fields that are not measurements (`id`, `year`):
+
+```ts
+lineChart(el, { data: rows, x: 'date', y: ['api', 'web'] });
+```
+
+### Axis settings depend on the x field
+
+| x field | Axis | `xAxis` settings that apply |
+|---|---|---|
+| numbers, or the row index | linear | `label`, `domain`, `step`, `format`, `fit` |
+| dates | time | `label`, `utc`, `unit` with `every`, `format`, `fit`, `domain: [fromMs, toMs]` |
+| text, and every bar chart | category | `label` only |
+
+A bar chart always uses categories: one per row (or, with `series`, one per distinct x).
+
+### Errors and their fixes
+
+Errors are thrown from the chart function and from `update`, and start with the chart's name. They
+list the fields with their kinds and say which prop to pass.
+
+| Message contains | Cause | Fix |
+|---|---|---|
+| `there is no field of numbers for y` | no number field; often numbers held as text | convert the values with `Number()`, or name `y` |
+| `"<name>" is text, so the rows look like long data` | long data without `series` | pass `series: '<name>'` |
+| `there is no field "<name>"` | a misspelt or missing field | use one of the listed fields |
+| `y "<name>" is text, not numbers` | `y` names a text or date field | name a number field, or convert it |
+| `a scatter chart needs two fields of numbers or dates` | fewer than two usable fields | pass `x` and `y` |
+| `a scatter chart has one y` / `with series there is one y` | several `y` where one is allowed | pass one field |
+| `Row N is not an [x, y] pair` | an array row with another length | use row objects or exact pairs |
+| `Columns differ in length` | columns of unequal length | make them the same length |
+| `Accessors work on row objects only` | an accessor with columns, numbers or pairs | name a field instead |
+
+An update that throws leaves the previous chart on screen.
+
+### Updating
+
+- `chart.update({ ...changedProps })` merges the props given into the ones the chart has.
+- New data: pass a new array. After changing values **in place**, also bump `dataVersion`.
+- Call `chart.destroy()` when the element goes away (the wrappers do this for you).
+- Plain JavaScript only: the container must have a height, or pass `height`.
+
+## 3. React
+
+```tsx
+import { useMemo, useState } from 'react';
+import { LineChart } from '@swiftplot/react';
+
+type Row = { date: string; api: number; web: number };
+
+export function Requests({ rows }: { rows: Row[] }) {
+  const [view, setView] = useState<{ x?: [number, number]; y?: [number, number] }>();
+  const xAxis = useMemo(() => ({ label: 'Day', format: (ms: number) => new Date(ms).toISOString().slice(5, 10) }), []);
+  return (
+    <LineChart
+      data={rows}
+      x="date"
+      y={['api', 'web']}
+      xAxis={xAxis}
+      zoom
+      view={view}
+      onViewChange={setView}
+      onError={error => console.error(error)}
+      style={{ height: 320 }}
+    />
+  );
+}
+```
+
+- Components: `LineChart`, `AreaChart`, `BarChart`, `ScatterChart`, `Plot`. Props are the chart's
+  props plus `className`, `style`, `id` and `onError`.
+- Field names are type-checked against `data` in JSX.
+- With no height from `height`, `style` or CSS, the chart fills a parent that has a height, else is
+  300 px tall.
+- **Build `data`, accessors and `format` functions outside render or with `useMemo`.** Inline plain
+  objects and arrays (`y={['api', 'web']}`, `xAxis={{ label: 'Day' }}`) are fine.
+- Without `onError`, a chart error goes to the nearest error boundary. With it, the last good chart
+  stays on screen.
+- The package is marked `'use client'`; it renders one `div` on the server and draws after hydration.
+  Give a server-rendered chart a `height`.
+- There is no ref and no imperative API: control the chart through props.
+
+## 4. Vue
+
+```vue
+<script setup lang="ts">
+import { ref, shallowRef } from 'vue';
+import { LineChart } from '@swiftplot/vue';
+
+type Row = { date: string; api: number; web: number };
+const rows = shallowRef<Row[]>([]);
+const view = ref<{ x?: [number, number]; y?: [number, number] }>();
+const failed = ref<unknown>();
+</script>
+
+<template>
+  <LineChart
+    :data="rows"
+    x="date"
+    :y="['api', 'web']"
+    zoom
+    v-model:view="view"
+    style="height: 320px"
+    @error="failed = $event"
+  />
+</template>
+```
+
+- Changes are events: `v-model:view`, `v-model:hidden`, `v-model:pointer`, `@click`, `@error`.
+  `selected` is a plain prop.
+- **Keep data in a `shallowRef` and replace the array** (`rows.value = next`). Pushing into it is not
+  noticed unless `dataVersion` changes.
+- `class`, `style` and `id` go to the chart's `div`.
+
+## 5. The explicit API
+
+```ts
+import { area, legend, line, plot, rule, time, tooltip, zoom } from 'swiftplot';
+
+const x = Float64Array.from(rows, r => Date.parse(r.date)); // a time axis takes milliseconds
+const api = Float64Array.from(rows, r => r.api);
+const web = Float64Array.from(rows, r => r.web);
+const day = (ms: number) => new Date(ms).toISOString().slice(0, 10);
+const count = (v: number) => v.toFixed(0);
+
+const chart = plot(document.getElementById('chart')!, {
+  x: time({ label: 'Date' }),
+  y: { domain: 'nice', label: 'Requests' },
+  marks: [
+    area({ x, y: web, color: '#16a34a', label: 'web', alpha: 0.3 }),
+    line({ x, y: api, color: '#2563eb', label: 'api' }),
+    rule({ y: 150, color: '#dc2626', dashed: true, text: 'Target' }),
+  ],
+  use: [tooltip({ mode: 'x', title: day, value: count }), legend(), zoom()],
+});
+chart.update({ marks: [line({ x, y: api, color: '#2563eb', label: 'api' })] });
+chart.destroy();
+```
+
+Rules of the explicit API:
+
+- **Columns are numbers.** Every mark takes numeric columns (typed arrays or number arrays). Text
+  categories are indices on a `band({ label, categories })` axis; dates are milliseconds on `time()`.
+- **`line`, `area`, `bar`, `dots` and the other series marks need a `color`**; marks made of parts
+  (`arcs`, `funnel`, `treemap`…) take `colors`; `label` names a mark in the legend and tooltip. Use `palette` (eight colours) to give them out in order.
+- **Features are imported and listed in `use`**: `tooltip`, `legend`, `zoom`, `brush`, `animate`. `use`
+  is read once, when the chart is created.
+- **The tooltip has no defaults**: `tooltip({ mode: 'x', title, value })` (one row per
+  labelled series at the pointer's x, with a crosshair; for lines and areas) or `tooltip({ mode: 'nearest', text })` (the nearest point; every mark).
+- **Frames**: `'axes'` (default), `'polar'` (pie, donut, radar, radial bars, sunburst), `'blank'`
+  (funnel, sankey, treemap).
+- **The container must have a height**, or pass `width` and `height`. `plot()` needs a browser.
+- **The theme is `light` unless given**: `theme: dark` and `paletteDark` for a dark page.
+- Marks whose columns are the same arrays keep their geometry; after writing into an array, pass a
+  new array or a view of it (`x.subarray(0)`).
+- Define `format` functions and colour scales once, not inside the update.
+
+Marks, each with its smallest call:
+
+```ts
+line({ x, y, color })                                  // curve: 'step' | 'smooth', join, fill
+area({ x, y, color })                                  // or { x, y1, y2 }; stack: 'id'
+bar({ x1, x2, y, color })                              // bounds from bands(n); stack: 'id', dodge: 'id'
+dots({ x, y, r, color })                               // r is a column of radii in px
+errorBars({ x, y1, y2, color })
+box({ x, ...fiveNumbers(groups), color })
+heatmap({ values, columns })                           // color: sequential({ stops })
+arcs({ values, colors, labels })                       // frame: 'polar'; inner: 0.6 for a donut
+radar({ axes, series: [{ values, color, label }] })    // returns several marks: spread it
+radialBars({ values, max, colors, labels })            // frame: 'polar'
+funnel({ values, colors, labels })                     // frame: 'blank'
+sankey({ ...fromLinks(links), colors })                // frame: 'blank'; links: { source, target, value }[]
+treemap({ ...fromTree(tree), colors })                 // frame: 'blank'; tree: { name, value?, children? }
+sunburst({ ...fromTree(tree), colors })                // frame: 'polar'
+rule({ y: 50, color })                                 // a reference line; or { x }
+zone({ x1: 10, x2: 20, color })                        // a shaded band between two values; or { y1, y2 }
+ticks({ x, y, size, color })
+```
+
+Axes: `{ domain: 'nice' | 'data' | [lo, hi], label, step?, format?, fit? }`, `time({ label, utc?,
+unit?, every?, format? })`, `band({ label, categories })`, `log({ label, base? })`, `bare()`.
+Helpers: `bin(values, count)` for histograms, `stack(series)`, `bands(n, { slot, of })`,
+`fiveNumbers(groups)`, `fromTree(tree)`, `fromLinks(links)`, `gradient(from, to, direction)`,
+`sequential({ stops })`.
+
+### A pie chart
+
+```ts
+import { arcs, legend, palette, plot } from 'swiftplot';
+
+plot(el, {
+  frame: 'polar',
+  marks: [arcs({ values: [5, 3, 2], labels: ['A', 'B', 'C'], colors: palette.slice(0, 3), text: true })],
+  use: [legend()],
+});
+```
+
+### Bars over categories
+
+```ts
+import { band, bands, bar, plot } from 'swiftplot';
+
+const categories = ['Mon', 'Tue', 'Wed'];
+const [x1, x2] = bands(categories.length);
+plot(el, {
+  x: band({ label: 'Day', categories }),
+  y: { domain: 'nice', label: 'Orders' },
+  marks: [bar({ x1, x2, y: [12, 19, 7], color: '#2563eb', label: 'Orders' })],
+});
+```
+
+### In React and Vue
+
+`<Plot>` takes every `plot()` option as a prop. Build `marks` with `useMemo` (or a `computed`).
+
+```tsx
+import { useMemo } from 'react';
+import { arcs, legend, palette } from 'swiftplot';
+import { Plot } from '@swiftplot/react';
+
+export function Share({ values, labels }: { values: number[]; labels: string[] }) {
+  const marks = useMemo(
+    () => [arcs({ values, labels, colors: palette.slice(0, values.length) })],
+    [values, labels],
+  );
+  const use = useMemo(() => [legend()], []);
+  return <Plot frame="polar" marks={marks} use={use} style={{ height: 320 }} />;
+}
+```
+
+In plain JavaScript, `mount(el, options)` from `swiftplot/charts` is `plot()` with the easy charts'
+update rules: it sends the chart only what changed.
+
+## 6. Mistakes to avoid
+
+- Putting axis settings in `x` or `y` on an easy chart. There `x` and `y` name fields; settings go
+  in `xAxis` and `yAxis`. (In the explicit API `x` and `y` are the axes.)
+- Passing rows to the explicit API. Marks take numeric columns:
+  `Float64Array.from(rows, r => r.value)`.
+- Leaving numbers as strings, or dates in a non-ISO format.
+- Long data without `series`.
+- A chart in an element with no height (plain JavaScript and `plot()`).
+- Changing data in place without a new array or a `dataVersion` bump.
+- Creating `data`, accessors, `format` functions, marks or colour scales inside a React render
+  without `useMemo`.
+- Passing `tooltip`, `legend` or `zoom` props to `<Plot>` or `plot()`: there they are functions
+  listed in `use`. Only the easy charts take them as props.
+- Expecting `use` to change after the chart is created: on `<Plot>` change the component's `key`.
+- Calling `plot()` or an easy chart on the server. Importing is safe; drawing needs a browser.
+- Stacking on a log axis, or `bar({ x, y })` on a log axis (give both ends).
+- Inventing props. If a prop is not in this file or the package's types, it does not exist.
