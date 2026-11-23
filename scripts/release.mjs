@@ -29,6 +29,7 @@ const GITHUB =
 export const tarballName = (name, version) => `${name.replace(/^@/, '').replace('/', '-')}-${version}.tgz`;
 const expectedFiles = version => [...PACKAGES.map(name => tarballName(name, version)), SUMS].sort();
 const sameList = (a, b) => a.length === b.length && a.every((x, i) => x === b[i]);
+const withoutUserinfo = url => url.replace(/^([a-z+]+:\/\/)[^@/]*@/i, '$1');
 
 export async function checks({ api, commit, sleep, now, print = () => {}, wait = true }) {
   const start = now();
@@ -89,7 +90,13 @@ function fromRelease({ release, version, tag, repo, out, call }) {
   if (problems.length)
     throw new Error(`the published release ${tag} does not hold:\n  ${problems.join('\n  ')}`);
   verify(out);
-  if (check(out).version !== version) throw new Error(`the published release ${tag} holds another version`);
+  const held = check(out);
+  if (held.version !== version) throw new Error(`the published release ${tag} holds another version`);
+  for (const [name, file] of Object.entries(held.files))
+    if (file !== tarballName(name, version))
+      throw new Error(
+        `the published release ${tag} has ${name} in ${file}, not ${tarballName(name, version)}`,
+      );
   return out;
 }
 
@@ -163,9 +170,12 @@ export async function release({
     JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')).repository?.url ?? '',
   )?.[1];
   if (!repo) throw new Error('the root package.json names no GitHub repository');
+  const isRepo = url => GITHUB.exec(url)?.[1].toLowerCase() === repo.toLowerCase();
   const origin = git('remote', 'get-url', 'origin').trim();
-  if (GITHUB.exec(origin)?.[1].toLowerCase() !== repo.toLowerCase())
-    throw new Error(`origin is ${origin}, not github.com/${repo}`);
+  if (!isRepo(origin)) throw new Error(`origin is ${withoutUserinfo(origin)}, not github.com/${repo}`);
+  for (const push of git('remote', 'get-url', '--push', '--all', 'origin').split('\n').filter(Boolean))
+    if (!isRepo(push.trim()))
+      throw new Error(`origin pushes to ${withoutUserinfo(push.trim())}, not github.com/${repo}`);
   const api = path => JSON.parse(call('gh', ['api', '--hostname', 'github.com', `repos/${repo}/${path}`]));
 
   const reasons = [];
@@ -218,18 +228,18 @@ export async function release({
         stop(`${version} is not higher than the tag v${top} on origin`);
       if (!notes) stop(`CHANGELOG.md has no entries for ${version}`);
     }
-    const found = JSON.parse(
-      call('gh', [
-        'api',
-        '--hostname',
-        'github.com',
-        '--paginate',
-        '--slurp',
-        `repos/${repo}/releases?per_page=100`,
-      ]),
-    )
-      .flat()
-      .filter(r => r.tag_name === tag);
+    const found = call('gh', [
+      'api',
+      '--hostname',
+      'github.com',
+      '--paginate',
+      '--jq',
+      `.[] | select(.tag_name == ${JSON.stringify(tag)})`,
+      `repos/${repo}/releases?per_page=100`,
+    ])
+      .split('\n')
+      .filter(Boolean)
+      .map(line => JSON.parse(line));
     if (found.length > 1) throw new Error(`${found.length} releases on GitHub have the tag ${tag}`);
     const [existing] = found;
     const state = !existing ? 'none' : existing.draft ? 'draft' : 'published';

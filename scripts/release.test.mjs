@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { dirname, join, relative } from 'node:path';
+import { basename, dirname, join, relative } from 'node:path';
 import test from 'node:test';
 import { entries, sha256, verify } from './check-tarballs.mjs';
 import { run as realRun } from './prepare.mjs';
@@ -12,7 +12,7 @@ const NAMES = { core: 'swiftplot', react: '@swiftplot/react', vue: '@swiftplot/v
 const READS = [
   /^git (remote get-url|rev-parse|ls-remote|status|archive|cat-file) /,
   /^tar -xf /,
-  /^gh api --hostname github\.com (--paginate --slurp )?repos\/GusevP\/swiftplot\/\S+$/,
+  /^gh api --hostname github\.com (--paginate --jq .+ )?repos\/GusevP\/swiftplot\/\S+$/,
   /^gh release download /,
   /^pnpm (install --frozen-lockfile|build|pack --pack-destination \S+)$/,
   /^npm install /,
@@ -71,19 +71,17 @@ function github(state, now) {
     const url = new URL(path, 'https://api.github.com/');
     const rest = url.pathname.slice(1);
     if (rest === 'releases')
-      return [
-        (state.releases ?? []).map(r => ({
-          tag_name: r.tag,
-          draft: r.draft,
-          prerelease: r.prerelease ?? false,
-          assets: r.assets.map(a => ({
-            name: a.name,
-            state: a.state ?? 'uploaded',
-            size: a.size ?? a.bytes.length,
-            digest: a.digest ?? `sha256:${sha256(a.bytes)}`,
-          })),
+      return (state.releases ?? []).map(r => ({
+        tag_name: r.tag,
+        draft: r.draft,
+        prerelease: r.prerelease ?? false,
+        assets: r.assets.map(a => ({
+          name: a.name,
+          state: a.state ?? 'uploaded',
+          size: a.size ?? a.bytes.length,
+          digest: a.digest ?? `sha256:${sha256(a.bytes)}`,
         })),
-      ];
+      }));
     const runs = typeof state.runs === 'function' ? state.runs(now()) : (state.runs ?? []);
     if (rest === 'actions/workflows/ci.yml/runs') {
       const q = url.searchParams;
@@ -179,18 +177,27 @@ function harness(r, state = {}) {
   const ok = stdout => ({ code: 0, stdout, stderr: '' });
   const api = github(state, now);
   const run = (command, args, options = {}) => {
-    const name = command === process.execPath ? 'node' : command;
+    const name = command === process.execPath ? 'node' : basename(command).replace(/\.exe$/i, '');
     const line = `${name} ${args.join(' ')}`;
     calls.push({ line, cwd: options.cwd });
     if (!READS.some(re => re.test(line))) writes.push(line);
     if (name === 'git' && args[0] === 'remote' && args[1] === 'get-url')
-      return ok(`${state.origin ?? URL_OF_REPO}\n`);
+      return ok(`${(args[2] === '--push' && state.pushUrls) || state.origin || URL_OF_REPO}\n`);
     if (name === 'git' || name === 'tar') return realRun(command, args, options);
     if (name === 'gh' && args[0] === 'api') {
       const path = args.at(-1);
       assert.ok(path.startsWith('repos/GusevP/swiftplot/'), path);
       const body = api(path.slice('repos/GusevP/swiftplot/'.length));
-      return body ? ok(JSON.stringify(body)) : { code: 1, stdout: '', stderr: 'HTTP 404' };
+      if (!body) return { code: 1, stdout: '', stderr: 'HTTP 404' };
+      const jq = args.indexOf('--jq');
+      if (jq === -1) return ok(JSON.stringify(body));
+      const tag = JSON.parse(/^\.\[\] \| select\(\.tag_name == (".*")\)$/.exec(args[jq + 1])[1]);
+      return ok(
+        body
+          .filter(r => r.tag_name === tag)
+          .map(r => `${JSON.stringify(r)}\n`)
+          .join(''),
+      );
     }
     if (name === 'gh' && args[0] === 'release' && args[1] === 'download') {
       assert.deepEqual(args.slice(3, 5), ['--repo', 'GusevP/swiftplot']);
@@ -202,7 +209,8 @@ function harness(r, state = {}) {
       assert.ok(!state.noBuild, `built although it must not: ${line}`);
       return ok(fakePnpm(args, options.cwd));
     }
-    if (name === 'npm') return ok(fakeNpmInstall(args, options.cwd));
+    if (name === 'npm' || (name === 'node' && args[1] === 'install'))
+      return ok(fakeNpmInstall(args, options.cwd));
     if (name === 'node') return ok('');
     assert.fail(`unexpected call: ${line}`);
   };
@@ -329,13 +337,33 @@ test('step 1 stops, naming the reason, before anything is written', async t => {
       error: /origin is git@github\.com:someone\/swiftplot\.git, not github\.com\/GusevP\/swiftplot/,
       only: ['git remote get-url origin'],
     },
+    {
+      name: 'origin is another repository, behind a token',
+      origin: 'https://x-access-token:s3cret@github.com/someone/swiftplot.git',
+      error: e =>
+        !e.message.includes('s3cret') &&
+        /origin is https:\/\/github\.com\/someone\/swiftplot\.git, not github\.com\/GusevP\/swiftplot/.test(
+          e.message,
+        ),
+      only: ['git remote get-url origin'],
+    },
+    {
+      name: 'origin pushes to another repository',
+      pushUrls: `${URL_OF_REPO}\nhttps://user:s3cret@github.com/someone/swiftplot.git\n`,
+      error: e =>
+        !e.message.includes('s3cret') &&
+        /origin pushes to https:\/\/github\.com\/someone\/swiftplot\.git, not github\.com\/GusevP\/swiftplot/.test(
+          e.message,
+        ),
+      only: ['git remote get-url origin', 'git remote get-url --push --all origin'],
+    },
   ];
   for (const c of cases) {
     await t.test(c.name, async t => {
       const r = repo(t, c);
       c.setup?.(r);
       const before = snapshot(r);
-      const h = harness(r, { origin: c.origin, runs: [ciRun(r.head())] });
+      const h = harness(r, { origin: c.origin, pushUrls: c.pushUrls, runs: [ciRun(r.head())] });
       await assert.rejects(h.release(), c.error);
       if (c.only)
         assert.deepEqual(
@@ -552,6 +580,22 @@ test('a published release supplies its own files, whatever the local cache holds
       'a digest that does not match',
       assets.map(a => (a.name === 'SHA256SUMS' ? { ...a, digest: `sha256:${'0'.repeat(64)}` } : a)),
       /SHA256SUMS does not match the digest GitHub reports/,
+    ],
+    [
+      "two tarballs under each other's names",
+      (() => {
+        const bytesOf = name => assets.find(a => a.name === name).bytes;
+        const swap = {
+          'swiftplot-react-0.1.0.tgz': 'swiftplot-vue-0.1.0.tgz',
+          'swiftplot-vue-0.1.0.tgz': 'swiftplot-react-0.1.0.tgz',
+        };
+        const tarballs = assets
+          .filter(a => a.name !== 'SHA256SUMS')
+          .map(a => ({ name: a.name, bytes: bytesOf(swap[a.name] ?? a.name) }));
+        const sums = tarballs.map(a => `${sha256(a.bytes)}  ${a.name}\n`).join('');
+        return [...tarballs, { name: 'SHA256SUMS', bytes: Buffer.from(sums) }];
+      })(),
+      /has @swiftplot\/vue in swiftplot-react-0\.1\.0\.tgz, not swiftplot-vue-0\.1\.0\.tgz/,
     ],
   ]) {
     const h = harness(r, published(wrong));
