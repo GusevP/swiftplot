@@ -10,12 +10,12 @@ import { fakeGh, gitRepo, sh } from './testing.mjs';
 
 const NAMES = ['SHA256SUMS', 'swiftplot-0.1.0.tgz', 'swiftplot-react-0.1.0.tgz', 'swiftplot-vue-0.1.0.tgz'];
 
-function setup(t) {
+function setup(t, filesName = 'files') {
   const { dir, origin } = gitRepo(t, 'swiftplot-github-release-test-', dir =>
     writeFileSync(join(dir, 'README.md'), 'readme\n'),
   );
   const commit = sh(dir, 'rev-parse', 'HEAD');
-  const files = join(dir, '..', 'files');
+  const files = join(dir, '..', filesName);
   mkdirSync(files);
   for (const name of NAMES) writeFileSync(join(files, name), `the bytes of ${name}\n`);
   const bytes = name => readFileSync(join(files, name));
@@ -24,7 +24,7 @@ function setup(t) {
   const tagAt = () => sh(origin, 'for-each-ref', '--format=%(objectname)', 'refs/tags/v0.1.0');
   const asset = name => ({ name, bytes: bytes(name) });
 
-  const go = ({ lostPush = false, prerelease = false, checked = true, filesDir = files } = {}) => {
+  const go = ({ lostPush = false, prerelease = false, checked = true } = {}) => {
     const temp = mkdtempSync(join(tmpdir(), 'swiftplot-github-release-temp-'));
     t.after(() => rmSync(temp, { recursive: true, force: true }));
     const gh = fakeGh(state);
@@ -36,11 +36,11 @@ function setup(t) {
             .filter(Boolean)
             .join(' '),
         );
-      if (command === 'gh') return gh(args);
+      if (command === 'gh') return gh(args, options);
       assert.equal(command, 'git');
       if (args[0] !== 'push') return realRun(command, args, options);
       writes.push('push');
-      assert.deepEqual(args, ['push', 'origin', `${commit}:refs/tags/v0.1.0`]);
+      assert.deepEqual(args, ['push', '--no-follow-tags', 'origin', `${commit}:refs/tags/v0.1.0`]);
       const out = realRun(command, args, options);
       return lostPush ? { ...out, code: 1, stderr: 'fatal: the remote end hung up unexpectedly' } : out;
     };
@@ -53,7 +53,7 @@ function setup(t) {
         commit,
         prerelease,
         notes: '- an entry\n',
-        files: filesDir,
+        files,
         listing,
         checked,
         temp,
@@ -112,13 +112,66 @@ test('a tag on another commit stops with no write', async t => {
   assert.deepEqual(s.state.releases, []);
 });
 
-test('a "#" in the files path stops before any write', async t => {
+test('with push.followTags set, only the release tag is pushed', async t => {
   const s = setup(t);
-  const { writes, error } = s.go({ filesDir: join(s.dir, '..', 'C#') });
-  assert.match(error.message, /gh reads "#" in it as a label; nothing was written/);
-  assert.deepEqual(writes, []);
-  assert.equal(s.tagAt(), '');
-  assert.deepEqual(s.state.releases, []);
+  sh(s.dir, 'config', 'push.followTags', 'true');
+  sh(s.dir, 'tag', '-a', 'unrelated', '-m', 'unrelated');
+  const { error } = s.go();
+  assert.ifError(error);
+  assert.equal(s.tagAt(), s.commit);
+  assert.equal(sh(s.state.remote, 'tag', '--list'), 'v0.1.0');
+});
+
+test('a draft with other notes is published with the confirmed notes', async t => {
+  const s = setup(t);
+  s.tagHere();
+  s.state.releases.push({ tag: 'v0.1.0', draft: true, notes: 'stale\n', assets: NAMES.map(s.asset) });
+  const { writes, error } = s.go();
+  assert.ifError(error);
+  assert.deepEqual(writes, ['edit']);
+  s.complete();
+  assert.equal(s.state.releases[0].notes, '- an entry\n');
+});
+
+test('a draft published by another run during the uploads is only checked', async t => {
+  const s = setup(t);
+  s.tagHere();
+  s.state.fail = args => {
+    if (args[1] === 'upload' && args[3] === NAMES.at(-1)) s.state.releases[0].draft = false;
+  };
+  const { writes, error } = s.go();
+  assert.ifError(error);
+  assert.deepEqual(writes, FULL.slice(0, -1));
+  s.complete();
+});
+
+test('a tag moved during the uploads stops before publishing', async t => {
+  const s = setup(t);
+  s.tagHere();
+  sh(s.dir, 'commit', '--allow-empty', '-m', 'other');
+  s.state.fail = args => {
+    if (args[1] === 'upload' && args[3] === NAMES.at(-1))
+      sh(s.dir, 'push', '--force', 'origin', 'HEAD:refs/tags/v0.1.0');
+  };
+  const { writes, error } = s.go();
+  assert.match(
+    error.message,
+    /the draft release v0\.1\.0 was not published:\n {2}the tag v0\.1\.0 is on [0-9a-f]+, not /,
+  );
+  assert.deepEqual(writes, FULL.slice(0, -1));
+  assert.equal(s.state.releases[0].draft, true);
+});
+
+test('a cache under a directory with "#" in its name is uploaded on a retry', async t => {
+  const s = setup(t, 'C#');
+  let uploads = 0;
+  s.state.fail = args => (args[1] === 'upload' && ++uploads === 2 ? 'before' : undefined);
+  assert.match(s.go().error.message, /connection reset/);
+  s.state.fail = undefined;
+  const { writes, error } = s.go();
+  assert.ifError(error);
+  assert.deepEqual(writes, [...NAMES.slice(1).map(name => `upload ${name}`), 'edit']);
+  s.complete();
 });
 
 test('a tag push whose response was lost is seen as present on the next run', async t => {

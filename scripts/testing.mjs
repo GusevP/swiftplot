@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { basename, join } from 'node:path';
+import { basename, join, resolve } from 'node:path';
 import { gzipSync } from 'node:zlib';
 import { sha256 } from './check-tarballs.mjs';
 import { run } from './prepare.mjs';
@@ -115,7 +115,7 @@ export function fakeGh(state, now = () => 0) {
   const api = github(state, now);
   const ok = stdout => ({ code: 0, stdout, stderr: '' });
   const refuse = stderr => ({ code: 1, stdout: '', stderr });
-  const apply = args => {
+  const apply = (args, cwd) => {
     if (args[0] === 'api') {
       assert.deepEqual(args.slice(1, 3), ['--hostname', 'github.com']);
       const path = args.at(-1);
@@ -155,9 +155,10 @@ export function fakeGh(state, now = () => 0) {
       return ok('');
     }
     if (verb === 'upload') {
-      const name = basename(args[3]);
+      const [path] = args[3].split('#');
+      const name = basename(path);
       if (release.assets.some(a => a.name === name)) return refuse(`asset ${name} already exists`);
-      release.assets.push({ name, bytes: readFileSync(args[3]) });
+      release.assets.push({ name, bytes: readFileSync(resolve(cwd ?? '.', path)) });
       return ok('');
     }
     if (verb === 'delete-asset') {
@@ -167,17 +168,20 @@ export function fakeGh(state, now = () => 0) {
       return ok('');
     }
     assert.equal(verb, 'edit');
-    for (const arg of args.slice(5)) {
+    const rest = args.slice(5);
+    const notes = rest.indexOf('--notes-file');
+    if (notes !== -1) release.notes = readFileSync(rest.splice(notes, 2)[1], 'utf8');
+    for (const arg of rest) {
       const m = /^--(draft|prerelease)=(true|false)$/.exec(arg);
       assert.ok(m, arg);
       release[m[1]] = m[2] === 'true';
     }
     return ok('');
   };
-  return args => {
+  return (args, { cwd } = {}) => {
     const fail = state.fail?.(args);
     if (fail === 'before') return refuse('connection reset');
-    const out = apply(args);
+    const out = apply(args, cwd);
     return fail === 'after' ? refuse('connection reset') : out;
   };
 }

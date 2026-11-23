@@ -130,7 +130,7 @@ function harness(r, state = {}) {
     if (name === 'git' && args[0] === 'remote' && args[1] === 'get-url')
       return ok(`${(args[2] === '--push' && state.pushUrls) || state.origin || URL_OF_REPO}\n`);
     if (name === 'git' || name === 'tar') return realRun(command, args, options);
-    if (name === 'gh') return gh(args);
+    if (name === 'gh') return gh(args, options);
     if (name === 'pnpm') {
       assert.ok(!state.noBuild, `built although it must not: ${line}`);
       return ok(fakePnpm(args, options.cwd));
@@ -656,7 +656,17 @@ test('a pre-release takes its notes from the tag commit, and every gh call names
         '--prerelease',
       ],
       ...names.map(name => ['release', 'upload', tag, name, '--repo', 'GusevP/swiftplot']),
-      ['release', 'edit', tag, '--repo', 'GusevP/swiftplot', '--draft=false', '--prerelease=true'],
+      [
+        'release',
+        'edit',
+        tag,
+        '--repo',
+        'GusevP/swiftplot',
+        '--notes-file',
+        notesFile,
+        '--draft=false',
+        '--prerelease=true',
+      ],
     ],
   );
   assert.deepEqual(h.beforeAsk(), []);

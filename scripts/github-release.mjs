@@ -61,10 +61,6 @@ export function githubRelease({
   temp,
   print,
 }) {
-  const labelled = listing.map(file => join(files, file.name)).find(path => path.includes('#'));
-  // gh release upload reads "#" in a file argument as the start of a label.
-  if (labelled)
-    throw new Error(`cannot upload ${labelled}: gh reads "#" in it as a label; nothing was written`);
   const call = caller(run, dir);
   const tag = `v${version}`;
   const tagAt = () => remoteTags(dir, run).get(version);
@@ -79,9 +75,15 @@ export function githubRelease({
       `the release ${tag} is no longer published with its tag, and its checks were not looked at; run again`,
     );
 
+  const notesFile = join(temp, 'notes.md');
+  writeFileSync(notesFile, notes);
+
   if (!tagged) {
     print(`Creating the tag ${tag} on ${commit} on origin.`);
-    if (run('git', ['push', 'origin', `${commit}:refs/tags/${tag}`], { cwd: dir }).code !== 0)
+    if (
+      run('git', ['push', '--no-follow-tags', 'origin', `${commit}:refs/tags/${tag}`], { cwd: dir }).code !==
+      0
+    )
       throw new Error(`pushing the tag ${tag} on ${commit} to origin failed; run again to continue`);
     if (tagAt() !== commit)
       throw new Error(`origin does not show the tag ${tag} on ${commit} after the push`);
@@ -89,8 +91,6 @@ export function githubRelease({
 
   if (!release) {
     print(`Creating the draft GitHub Release ${tag}.`);
-    const notesFile = join(temp, 'notes.md');
-    writeFileSync(notesFile, notes);
     call('gh', [
       'release',
       'create',
@@ -123,14 +123,31 @@ export function githubRelease({
         call('gh', ['release', 'delete-asset', tag, file.name, '--repo', repo, '--yes']);
       }
       print(`Uploading ${file.name}.`);
-      call('gh', ['release', 'upload', tag, join(files, file.name), '--repo', repo]);
+      // gh release upload reads "#" in a file argument as the start of a label, so pass the bare name.
+      call('gh', ['release', 'upload', tag, file.name, '--repo', repo], files);
     }
     release = find();
-    const problems = release ? differences(release, listing) : ['it is gone'];
+    if (!release) throw new Error(`the draft release ${tag} was not published: it is gone`);
+  }
+
+  if (release.draft) {
+    const problems = differences(release, listing);
+    const at = tagAt();
+    if (at !== commit) problems.push(`the tag ${tag} is on ${at ?? 'no commit'}, not ${commit}`);
     if (problems.length)
       throw new Error(`the draft release ${tag} was not published:\n  ${problems.join('\n  ')}`);
     print(`Publishing the GitHub Release ${tag}.`);
-    call('gh', ['release', 'edit', tag, '--repo', repo, '--draft=false', `--prerelease=${prerelease}`]);
+    call('gh', [
+      'release',
+      'edit',
+      tag,
+      '--repo',
+      repo,
+      '--notes-file',
+      notesFile,
+      '--draft=false',
+      `--prerelease=${prerelease}`,
+    ]);
     release = find();
     if (release?.draft !== false) throw new Error(`GitHub does not show the release ${tag} as published`);
   }
