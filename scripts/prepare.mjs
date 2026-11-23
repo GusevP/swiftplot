@@ -62,22 +62,19 @@ export function prepare({ dir, arg, run, today = localDate() }) {
   const changelog = join(dir, 'CHANGELOG.md');
   const promoted = promote(readFileSync(changelog, 'utf8'), version, today);
 
-  const files = [changelog, ...manifests(dir)].map(path => relative(dir, path));
+  const packages = manifests(dir);
+  const files = [changelog, ...packages].map(path => relative(dir, path));
   try {
     writeFileSync(changelog, promoted);
-    setShared(dir, version);
+    setShared(packages, version);
     const format = run(process.execPath, [oxfmt, ...files], { cwd: dir });
     if (format.code !== 0) throw new Error(`oxfmt failed: ${format.stderr.trim()}`);
-    git('add', '--', ...files);
     git('commit', '-m', `release: v${version}`, '--', ...files);
     return { version, files };
   } catch (error) {
-    const restore = [['checkout', 'HEAD', '--', ...files]];
-    if (!restore.every(args => run('git', args, { cwd: dir }).code === 0)) {
-      error.message += `; the release files may be left changed, restore them with: ${restore
-        .map(args => `git ${args.join(' ')}`)
-        .join(' && ')}`;
-    }
+    const restore = ['checkout', 'HEAD', '--', ...files];
+    if (run('git', restore, { cwd: dir }).code !== 0)
+      error.message += `; the release files may be left changed, restore them with: git ${restore.join(' ')}`;
     throw error;
   }
 }

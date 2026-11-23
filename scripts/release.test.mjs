@@ -642,39 +642,34 @@ test('a pre-release takes its notes from the tag commit, and every gh call names
     'swiftplot-react-0.1.0-rc.0.tgz',
     'swiftplot-vue-0.1.0-rc.0.tgz',
   ];
-  assert.deepEqual(
-    writes.map(args =>
-      args[1] === 'upload' ? [...args.slice(0, 3), basename(args[3]), ...args.slice(4)] : args,
-    ),
+  assert.deepEqual(writes, [
     [
-      [
-        'release',
-        'create',
-        tag,
-        '--repo',
-        'GusevP/swiftplot',
-        '--draft',
-        '--verify-tag',
-        '--title',
-        tag,
-        '--notes-file',
-        notesFile,
-        '--prerelease',
-      ],
-      ...names.map(name => ['release', 'upload', tag, name, '--repo', 'GusevP/swiftplot']),
-      [
-        'release',
-        'edit',
-        tag,
-        '--repo',
-        'GusevP/swiftplot',
-        '--notes-file',
-        notesFile,
-        '--draft=false',
-        '--prerelease=true',
-      ],
+      'release',
+      'create',
+      tag,
+      '--repo',
+      'GusevP/swiftplot',
+      '--draft',
+      '--verify-tag',
+      '--title',
+      tag,
+      '--notes-file',
+      notesFile,
+      '--prerelease',
     ],
-  );
+    ...names.map(name => ['release', 'upload', tag, name, '--repo', 'GusevP/swiftplot']),
+    [
+      'release',
+      'edit',
+      tag,
+      '--repo',
+      'GusevP/swiftplot',
+      '--notes-file',
+      notesFile,
+      '--draft=false',
+      '--prerelease=true',
+    ],
+  ]);
   assert.deepEqual(h.beforeAsk(), []);
   assert.ok(!h.writes.some(line => line.startsWith('git push')));
 });

@@ -33,16 +33,15 @@ export function shared(dir) {
   return version;
 }
 
-export function setShared(dir, version) {
+export function setShared(paths, version) {
   parse(version);
-  return manifests(dir).map(path => {
+  for (const path of paths) {
     const text = readFileSync(path, 'utf8');
     if (!VERSION_LINE.test(text)) throw new Error(`${path} has no top-level "version" line`);
     const out = text.replace(VERSION_LINE, (_, key) => `${key}"${version}"`);
     if (JSON.parse(out).version !== version) throw new Error(`could not set the version in ${path}`);
     writeFileSync(path, out);
-    return path;
-  });
+  }
 }
 
 export function next(current, arg) {

@@ -13,12 +13,13 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
+import { isDeepStrictEqual } from 'node:util';
 import { section } from './changelog.mjs';
 import { check, PACKAGES, sha256, smoke, SUMS, verify } from './check-tarballs.mjs';
 import { caller, findRelease, githubRelease } from './github-release.mjs';
 import { pack, pnpm } from './pack.mjs';
 import { remoteTags, run as realRun } from './prepare.mjs';
-import { npm as npmBin, npmPublish, REGISTRY } from './npm-publish.mjs';
+import { npmPublish, REGISTRY } from './npm-publish.mjs';
 import { higher, highest, manifests, shared } from './version.mjs';
 
 const POLL = 20_000;
@@ -30,7 +31,6 @@ const GITHUB =
 
 export const tarballName = (name, version) => `${name.replace(/^@/, '').replace('/', '-')}-${version}.tgz`;
 const expectedFiles = version => [...PACKAGES.map(name => tarballName(name, version)), SUMS].sort();
-const sameList = (a, b) => a.length === b.length && a.every((x, i) => x === b[i]);
 const describe = dir =>
   readdirSync(dir)
     .sort()
@@ -82,7 +82,7 @@ export async function checks({ api, commit, sleep, now, print = () => {}, wait =
 function fromRelease({ release, version, tag, repo, out, call }) {
   const expected = expectedFiles(version);
   const names = release.assets.map(asset => asset.name).sort();
-  if (!sameList(names, expected))
+  if (!isDeepStrictEqual(names, expected))
     throw new Error(
       `the published release ${tag} has the assets ${names.join(', ') || 'none'}, not ${expected.join(', ')}`,
     );
@@ -97,7 +97,7 @@ function fromRelease({ release, version, tag, repo, out, call }) {
     if (asset.digest !== `sha256:${sha256(bytes)}`)
       problems.push(`${asset.name} does not match the digest GitHub reports (${asset.digest})`);
   }
-  if (!sameList(readdirSync(out).sort(), expected))
+  if (!isDeepStrictEqual(readdirSync(out).sort(), expected))
     problems.push(`the download holds ${readdirSync(out).join(', ')}`);
   if (problems.length)
     throw new Error(`the published release ${tag} does not hold:\n  ${problems.join('\n  ')}`);
@@ -121,7 +121,7 @@ function fromCache({ cache, version, commit }) {
       `${cache} holds ${held.version} of ${held.commit}, not ${version} of ${commit}; remove it to build again`,
     );
   const files = join(cache, 'files');
-  if (!sameList(readdirSync(files).sort(), expectedFiles(version)))
+  if (!isDeepStrictEqual(readdirSync(files).sort(), expectedFiles(version)))
     throw new Error(
       `${files} holds ${readdirSync(files).join(', ')}, not ${expectedFiles(version).join(', ')}`,
     );
@@ -157,7 +157,6 @@ function store({ files, cache, version, commit, time }) {
     rmSync(staging, { recursive: true, force: true });
     throw error;
   }
-  return join(cache, 'files');
 }
 
 export async function release({
@@ -338,7 +337,7 @@ export async function release({
       if (published?.draft !== false)
         throw new Error(`the release ${tag} is not published; nothing was sent to npm`);
       assets = fromRelease({ release: published, version, tag, repo, out: join(temp, 'published'), call });
-      if (JSON.stringify(describe(assets)) !== JSON.stringify(listing))
+      if (!isDeepStrictEqual(describe(assets), listing))
         throw new Error(
           `the published release ${tag} does not hold the confirmed files; nothing was sent to npm`,
         );
@@ -350,7 +349,7 @@ export async function release({
       prerelease,
       files: assets,
       print,
-      npmCommand: npmCommand ?? npmBin(),
+      npmCommand,
     });
     return { ...result, url, npm: npmStatus };
   } finally {

@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
-import { higher, next, setShared, shared } from './version.mjs';
+import { higher, manifests, next, setShared, shared } from './version.mjs';
 
 function workspace(versions) {
   const dir = mkdtempSync(join(tmpdir(), 'swiftplot-version-'));
@@ -29,13 +29,13 @@ test('setShared changes only the top-level version line', t => {
   const dir = workspace({ core: '0.0.0', react: '0.0.0' });
   t.after(() => rmSync(dir, { recursive: true }));
   const before = readFileSync(join(dir, 'packages/core/package.json'), 'utf8');
-  setShared(dir, '0.1.0-rc.0');
+  setShared(manifests(dir), '0.1.0-rc.0');
   assert.equal(shared(dir), '0.1.0-rc.0');
   assert.equal(
     readFileSync(join(dir, 'packages/core/package.json'), 'utf8'),
     before.replace('"0.0.0"', '"0.1.0-rc.0"'),
   );
-  assert.throws(() => setShared(dir, '1.0'), /not a version/);
+  assert.throws(() => setShared(manifests(dir), '1.0'), /not a version/);
 });
 
 test('next bumps patch, minor and major, takes an exact version and rejects anything else', () => {
