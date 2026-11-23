@@ -19,9 +19,16 @@ import { isVersion, manifests } from './version.mjs';
 export const PACKAGES = ['swiftplot', '@swiftplot/react', '@swiftplot/vue'];
 const WRAPPERS = PACKAGES.slice(1);
 const REQUIRED = ['package.json', 'README.md', 'LICENSE', 'dist/index.js', 'dist/index.d.ts'];
-const DEPENDENCY_FIELDS = ['dependencies', 'devDependencies', 'peerDependencies', 'optionalDependencies'];
 const SUMS = 'SHA256SUMS';
 
+const workspaceRanges = (value, path = []) =>
+  typeof value === 'string'
+    ? value.startsWith('workspace:')
+      ? [`${path.join('.')} is ${value}`]
+      : []
+    : value && typeof value === 'object'
+      ? Object.entries(value).flatMap(([key, inner]) => workspaceRanges(inner, [...path, key]))
+      : [];
 const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
 const cString = (block, start, length) => {
   const end = block.indexOf(0, start);
@@ -61,11 +68,7 @@ function inspect(path) {
   }
   for (const name of REQUIRED) if (!files.has(name)) problems.push(`it has no ${name}`);
   const manifest = files.has('package.json') ? JSON.parse(files.get('package.json').toString('utf8')) : {};
-  for (const field of DEPENDENCY_FIELDS) {
-    for (const [dep, range] of Object.entries(manifest[field] ?? {})) {
-      if (String(range).startsWith('workspace:')) problems.push(`${field}.${dep} is ${range}`);
-    }
-  }
+  problems.push(...workspaceRanges(manifest));
   return { manifest, problems };
 }
 

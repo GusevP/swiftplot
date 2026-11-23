@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import {
   existsSync,
   mkdirSync,
@@ -131,6 +132,16 @@ for (const [what, make, problem] of [
     new RegExp(`swiftplot-vue\\.tgz: ${field}\\.swiftplot is workspace:\\^`),
   ]),
   [
+    'a workspace: range outside the dependency fields',
+    t =>
+      tarballs(t, {
+        '@swiftplot/vue': tarball('@swiftplot/vue', '0.1.0', {
+          manifest: { pnpm: { overrides: { swiftplot: 'workspace:*' } } },
+        }),
+      }),
+    /swiftplot-vue\.tgz: pnpm\.overrides\.swiftplot is workspace:\*/,
+  ],
+  [
     'a wrapper whose swiftplot peer is not the caret of the version',
     t =>
       tarballs(t, {
@@ -155,7 +166,16 @@ test('SHA256SUMS lists every tarball, and verify catches a changed byte, a missi
     lines.map(line => line.split('  ')[1]),
     ['swiftplot-react.tgz', 'swiftplot-vue.tgz', 'swiftplot.tgz'],
   );
-  for (const line of lines) assert.match(line, /^[0-9a-f]{64} {2}\S+\.tgz$/);
+  for (const line of lines) {
+    const [digest, file] = line.split('  ');
+    assert.equal(
+      digest,
+      createHash('sha256')
+        .update(readFileSync(join(dir, file)))
+        .digest('hex'),
+      file,
+    );
+  }
   verify(dir);
 
   const path = join(dir, 'swiftplot.tgz');
