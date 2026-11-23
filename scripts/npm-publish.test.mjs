@@ -184,7 +184,7 @@ test('after core succeeds and React fails, the next runs skip core and go on wit
   assert.deepEqual(s.printed.slice(-3), [
     'npm: swiftplot@0.1.0 is public',
     'npm: @swiftplot/react@0.1.0 is not published',
-    'npm: @swiftplot/vue@0.1.0 is not published',
+    'npm: @swiftplot/vue@0.1.0 was not checked',
   ]);
 
   s.state.npmFail = undefined;
@@ -232,4 +232,41 @@ test('an answer from npm view that is neither an integrity nor E404 stops', t =>
     /npm view swiftplot@0\.1\.0 gave no integrity and no E404/,
   );
   assert.equal(existsSync(s.receipts), false);
+});
+
+test('a package npm view fails on, or the run never reached, is reported as not checked, not as not published', t => {
+  const s = setup(t);
+  s.state.npm = { [key('swiftplot')]: { integrity: s.sri.swiftplot, public: true } };
+  const npm = fakeNpm(s.state);
+  let views = 0;
+  const run = failAt => (command, args, options) =>
+    args[0] === 'view' && ++views === failAt
+      ? { code: 1, stdout: '{"error":{"code":"E401"}}', stderr: '' }
+      : npm(args, options);
+  const publishWith = failAt => {
+    views = 0;
+    s.printed.length = 0;
+    return npmPublish({
+      dir: s.dir,
+      version: '0.1.0',
+      prerelease: false,
+      files: s.files,
+      print: line => s.printed.push(line),
+      npmCommand: ['npm'],
+      run: run(failAt),
+    });
+  };
+
+  assert.throws(() => publishWith(3), /npm view @swiftplot\/react@0\.1\.0 gave no integrity/);
+  assert.deepEqual(s.printed.slice(-3), [
+    'npm: swiftplot@0.1.0 is public',
+    'npm: @swiftplot/react@0.1.0 is waiting (for approval on npmjs.com, or not visible yet)',
+    'npm: @swiftplot/vue@0.1.0 was not checked',
+  ]);
+
+  assert.throws(() => publishWith(1), /npm view swiftplot@0\.1\.0 gave no integrity/);
+  assert.deepEqual(
+    s.printed.slice(-3),
+    NAMES.map(name => `npm: ${name}@0.1.0 was not checked`),
+  );
 });

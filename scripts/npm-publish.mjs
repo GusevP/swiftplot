@@ -67,7 +67,7 @@ export function npmPublish({ dir, run, version, prerelease, files, print, npmCom
   const clear = name =>
     `it is probably waiting for approval on npmjs.com (staged publishing); if it was rejected, remove "${name}" from ${path} and run again`;
   const view = name => published({ run, npmCommand, cwd: files, name, version });
-  const status = Object.fromEntries(PACKAGES.map(name => [name, 'not published']));
+  const status = Object.fromEntries(PACKAGES.map(name => [name, 'not checked']));
 
   try {
     for (const name of PACKAGES) {
@@ -90,6 +90,7 @@ export function npmPublish({ dir, run, version, prerelease, files, print, npmCom
         print(`npm: ${name}@${version} was published before and is not public: ${clear(name)}.`);
         continue;
       }
+      status[name] = 'not published';
       receipts[name] = { state: 'started', integrity: ours };
       writeReceipts(path, version, receipts);
       print(`Publishing ${file} to npm.`);
@@ -113,13 +114,15 @@ export function npmPublish({ dir, run, version, prerelease, files, print, npmCom
         );
       receipts[name] = { state: 'finished', integrity: ours };
       writeReceipts(path, version, receipts);
-      status[name] = view(name) === ours ? 'public' : 'waiting';
+      status[name] = 'waiting';
+      if (view(name) === ours) status[name] = 'public';
     }
   } finally {
     const words = {
       public: 'is public',
       waiting: 'is waiting (for approval on npmjs.com, or not visible yet)',
       'not published': 'is not published',
+      'not checked': 'was not checked',
     };
     for (const name of PACKAGES) print(`npm: ${name}@${version} ${words[status[name]]}`);
   }
