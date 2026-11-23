@@ -47,13 +47,13 @@ function repo(t, { versions = {}, changelog = CHANGELOG } = {}) {
   return { dir, origin };
 }
 
-function runner() {
+function runner({ formatCode = 0 } = {}) {
   const formatted = [];
   const run = (command, args, options) => {
     if (command === 'git') return realRun(command, args, options);
     assert.deepEqual([command, ...args.slice(0, 2)], ['pnpm', 'exec', 'oxfmt']);
     formatted.push(args.slice(2));
-    return { code: 0, stdout: '', stderr: '' };
+    return { code: formatCode, stdout: '', stderr: formatCode ? 'boom' : '' };
   };
   return { run, formatted };
 }
@@ -153,6 +153,30 @@ test('release:prepare stops and changes nothing', async t => {
       assert.throws(() => prepare({ dir: r.dir, arg: c.arg, run, today: '2026-12-01' }), c.error);
       assert.deepEqual(snapshot(r), before);
       assert.deepEqual(formatted, []);
+    });
+  }
+});
+
+test('release:prepare restores the files when a step after the writes fails', async t => {
+  const cases = [
+    { name: 'oxfmt fails', formatCode: 1, error: /oxfmt failed: boom/ },
+    {
+      name: 'the commit hook rejects the commit',
+      setup: ({ dir }) => {
+        const hooks = join(dir, '.git', 'hooks');
+        writeFileSync(join(hooks, 'pre-commit'), '#!/bin/sh\necho rejected >&2\nexit 1\n', { mode: 0o755 });
+      },
+      error: /git commit failed: rejected/,
+    },
+  ];
+  for (const c of cases) {
+    await t.test(c.name, t => {
+      const r = repo(t);
+      c.setup?.(r);
+      const before = snapshot(r);
+      const { run } = runner(c);
+      assert.throws(() => prepare({ dir: r.dir, arg: 'minor', run, today: '2026-12-01' }), c.error);
+      assert.deepEqual(snapshot(r), before);
     });
   }
 });
