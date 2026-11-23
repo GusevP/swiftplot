@@ -51,6 +51,7 @@ test('next bumps patch, minor and major, takes an exact version and rejects anyt
     assert.throws(() => next('0.1.0', bad), /not a version/);
   }
   assert.throws(() => next('0.1', 'patch'), /not a version/);
+  assert.equal(next('9007199254740992.0.0', 'major'), '9007199254740993.0.0');
 });
 
 test('higher orders versions, pre-releases below their release and numerically', () => {
@@ -61,9 +62,13 @@ test('higher orders versions, pre-releases below their release and numerically',
     '0.1.0-rc.9',
     '0.1.0-rc.10',
     '0.1.0',
+    '0.1.1-rc.9007199254740992',
+    '0.1.1-rc.9007199254740993',
     '0.1.1',
     '0.2.0',
     '1.0.0',
+    '9007199254740992.0.0',
+    '9007199254740993.0.0',
   ];
   for (let i = 1; i < ordered.length; i++) {
     assert.equal(higher(ordered[i], ordered[i - 1]), true, `${ordered[i]} > ${ordered[i - 1]}`);

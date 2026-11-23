@@ -1,9 +1,13 @@
 import { spawnSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
-import { join, relative } from 'node:path';
+import { createRequire } from 'node:module';
+import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promote } from './changelog.mjs';
-import { higher, isVersion, next, setShared, shared } from './version.mjs';
+import { higher, isVersion, manifests, next, setShared, shared } from './version.mjs';
+
+const require = createRequire(import.meta.url);
+const oxfmt = join(dirname(require.resolve('oxfmt/package.json')), require('oxfmt/package.json').bin.oxfmt);
 
 export function run(command, args, options = {}) {
   const result = spawnSync(command, args, { encoding: 'utf8', ...options });
@@ -31,30 +35,29 @@ export function prepare({ dir, arg, run, today = localDate() }) {
     if (out.code !== 0) throw new Error(`git ${args[0]} failed: ${out.stderr.trim()}`);
     return out.stdout;
   };
-  if (git('status', '--porcelain').trim()) throw new Error('the working tree is not clean');
+  if (git('status', '--porcelain', '--untracked-files=normal').trim())
+    throw new Error('the working tree is not clean');
   const current = shared(dir);
   const version = next(current, arg);
   if (!higher(version, current))
     throw new Error(`${version} is not higher than the current version ${current}`);
-  const top = remoteTags(dir, run).reduce((a, b) => (higher(b, a) ? b : a), '0.0.0');
-  if (!higher(version, top)) throw new Error(`${version} is not higher than the tag v${top} on origin`);
+  const top = remoteTags(dir, run).reduce((a, b) => (a === undefined || higher(b, a) ? b : a), undefined);
+  if (top !== undefined && !higher(version, top))
+    throw new Error(`${version} is not higher than the tag v${top} on origin`);
   const changelog = join(dir, 'CHANGELOG.md');
   const promoted = promote(readFileSync(changelog, 'utf8'), version, today);
 
-  const touched = ['CHANGELOG.md', 'packages'];
+  const files = [changelog, ...manifests(dir)].map(path => relative(dir, path));
   try {
     writeFileSync(changelog, promoted);
-    const files = [changelog, ...setShared(dir, version)].map(path => relative(dir, path));
-    const format = run('pnpm', ['exec', 'oxfmt', ...files], { cwd: dir });
+    setShared(dir, version);
+    const format = run(process.execPath, [oxfmt, ...files], { cwd: dir });
     if (format.code !== 0) throw new Error(`oxfmt failed: ${format.stderr.trim()}`);
     git('add', '--', ...files);
-    git('commit', '-m', `release: v${version}`);
+    git('commit', '-m', `release: v${version}`, '--', ...files);
     return { version, files };
   } catch (error) {
-    const restore = [
-      ['reset', '-q', '--', ...touched],
-      ['checkout', 'HEAD', '--', ...touched],
-    ];
+    const restore = [['checkout', 'HEAD', '--', ...files]];
     if (!restore.every(args => run('git', args, { cwd: dir }).code === 0)) {
       error.message += `; the release files may be left changed, restore them with: ${restore
         .map(args => `git ${args.join(' ')}`)

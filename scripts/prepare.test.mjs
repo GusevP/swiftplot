@@ -5,6 +5,8 @@ import { join } from 'node:path';
 import test from 'node:test';
 import { prepare, run as realRun } from './prepare.mjs';
 
+const OXFMT = /[\\/]oxfmt[\\/]bin[\\/]oxfmt$/;
+
 const CHANGELOG = '# Changelog\n\n## Unreleased\n\n- first entry\n';
 const PACKAGES = ['core', 'react', 'vue'];
 const FILES = ['CHANGELOG.md', ...PACKAGES.map(name => `packages/${name}/package.json`)];
@@ -47,12 +49,14 @@ function repo(t, { versions = {}, changelog = CHANGELOG } = {}) {
   return { dir, origin };
 }
 
-function runner({ formatCode = 0 } = {}) {
+function runner({ formatCode = 0, onFormat } = {}) {
   const formatted = [];
   const run = (command, args, options) => {
     if (command === 'git') return realRun(command, args, options);
-    assert.deepEqual([command, ...args.slice(0, 2)], ['pnpm', 'exec', 'oxfmt']);
-    formatted.push(args.slice(2));
+    assert.equal(command, process.execPath);
+    assert.match(args[0], OXFMT);
+    formatted.push(args.slice(1));
+    onFormat?.(options.cwd);
     return { code: formatCode, stdout: '', stderr: formatCode ? 'boom' : '' };
   };
   return { run, formatted };
@@ -108,7 +112,10 @@ test('release:prepare stops and changes nothing', async t => {
     },
     {
       name: 'an untracked file',
-      setup: ({ dir }) => writeFileSync(join(dir, 'new.txt'), 'x\n'),
+      setup: ({ dir }) => {
+        sh(dir, 'config', 'status.showUntrackedFiles', 'no');
+        writeFileSync(join(dir, 'new.txt'), 'x\n');
+      },
       arg: 'minor',
       error: /not clean/,
     },
@@ -179,6 +186,45 @@ test('release:prepare restores the files when a step after the writes fails', as
       assert.deepEqual(snapshot(r), before);
     });
   }
+});
+
+test('release:prepare leaves alone a tracked file a rejecting hook changes', t => {
+  const r = repo(t);
+  writeFileSync(join(r.dir, '.git', 'hooks', 'pre-commit'), '#!/bin/sh\necho hooked > README.md\nexit 1\n', {
+    mode: 0o755,
+  });
+  const before = snapshot(r);
+  assert.throws(
+    () => prepare({ dir: r.dir, arg: 'minor', run: runner().run, today: '2026-12-01' }),
+    /git commit failed/,
+  );
+  assert.equal(readFileSync(join(r.dir, 'README.md'), 'utf8'), 'hooked\n');
+  assert.equal(sh(r.dir, 'status', '--porcelain'), 'M README.md');
+  assert.deepEqual({ ...snapshot(r), status: before.status }, before);
+});
+
+test('release:prepare commits only the release files and leaves another staged change staged', t => {
+  const r = repo(t);
+  const { run } = runner({
+    onFormat: dir => {
+      writeFileSync(join(dir, 'README.md'), 'staged\n');
+      sh(dir, 'add', 'README.md');
+    },
+  });
+  prepare({ dir: r.dir, arg: 'minor', run, today: '2026-12-01' });
+  assert.deepEqual(
+    sh(r.dir, 'show', '--name-only', '--format=', 'HEAD').split('\n').sort(),
+    [...FILES].sort(),
+  );
+  assert.equal(sh(r.dir, 'diff', '--cached', '--name-only'), 'README.md');
+});
+
+test('release:prepare 0.0.0 from 0.0.0-rc.0 with no tags on origin', t => {
+  const r = repo(t, { versions: { core: '0.0.0-rc.0', react: '0.0.0-rc.0', vue: '0.0.0-rc.0' } });
+  assert.equal(
+    prepare({ dir: r.dir, arg: '0.0.0', run: runner().run, today: '2026-12-01' }).version,
+    '0.0.0',
+  );
 });
 
 test('release:prepare 0.1.0-rc.0, new entries, then 0.1.0 keeps the rc section', t => {

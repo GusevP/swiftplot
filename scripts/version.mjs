@@ -10,10 +10,10 @@ export const isVersion = version => SEMVER.test(version);
 export function parse(version) {
   const m = SEMVER.exec(version);
   if (!m) throw new Error(`not a version: ${JSON.stringify(version)}`);
-  return { core: [+m[1], +m[2], +m[3]], pre: m[4] ? m[4].split('.') : [] };
+  return { core: [BigInt(m[1]), BigInt(m[2]), BigInt(m[3])], pre: m[4] ? m[4].split('.') : [] };
 }
 
-const manifests = dir => {
+export const manifests = dir => {
   const root = join(dir, 'packages');
   return readdirSync(root, { withFileTypes: true })
     .filter(entry => entry.isDirectory())
@@ -48,9 +48,9 @@ export function setShared(dir, version) {
 export function next(current, arg) {
   const { core, pre } = parse(current);
   const [major, minor, patch] = core;
-  if (arg === 'major') return pre.length && !minor && !patch ? `${major}.0.0` : `${major + 1}.0.0`;
-  if (arg === 'minor') return pre.length && !patch ? `${major}.${minor}.0` : `${major}.${minor + 1}.0`;
-  if (arg === 'patch') return pre.length ? `${major}.${minor}.${patch}` : `${major}.${minor}.${patch + 1}`;
+  if (arg === 'major') return pre.length && !minor && !patch ? `${major}.0.0` : `${major + 1n}.0.0`;
+  if (arg === 'minor') return pre.length && !patch ? `${major}.${minor}.0` : `${major}.${minor + 1n}.0`;
+  if (arg === 'patch') return pre.length ? `${major}.${minor}.${patch}` : `${major}.${minor}.${patch + 1n}`;
   parse(arg);
   return arg;
 }
@@ -61,7 +61,7 @@ const comparePre = (a, b) => {
     if (a[i] === b[i]) continue;
     const an = /^\d+$/.test(a[i]);
     const bn = /^\d+$/.test(b[i]);
-    if (an && bn) return Number(a[i]) - Number(b[i]);
+    if (an && bn) return BigInt(a[i]) < BigInt(b[i]) ? -1 : 1;
     if (an !== bn) return an ? -1 : 1;
     return a[i] < b[i] ? -1 : 1;
   }
@@ -71,6 +71,6 @@ const comparePre = (a, b) => {
 export function higher(a, b) {
   const x = parse(a);
   const y = parse(b);
-  const core = x.core.map((n, i) => n - y.core[i]).find(d => d !== 0);
+  const core = x.core.map((n, i) => (n < y.core[i] ? -1 : n > y.core[i] ? 1 : 0)).find(d => d !== 0);
   return (core ?? comparePre(x.pre, y.pre)) > 0;
 }
