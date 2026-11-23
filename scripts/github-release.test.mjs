@@ -24,19 +24,25 @@ function setup(t, filesName = 'files') {
   const tagAt = () => sh(origin, 'for-each-ref', '--format=%(objectname)', 'refs/tags/v0.1.0');
   const asset = name => ({ name, bytes: bytes(name) });
 
-  const go = ({ lostPush = false, prerelease = false, checked = true } = {}) => {
+  const go = ({ lostPush = false, prerelease = false, checked = true, after } = {}) => {
     const temp = mkdtempSync(join(tmpdir(), 'swiftplot-github-release-temp-'));
     t.after(() => rmSync(temp, { recursive: true, force: true }));
     const gh = fakeGh(state);
     const writes = [];
     const run = (command, args, options) => {
+      if (command === 'gh' && args[0] === 'release' && state.releases[0]?.draft === false)
+        writes.push(`${args[1]} while published`);
       if (command === 'gh' && args[0] === 'release')
         writes.push(
           [args[1], { upload: basename(args[3]), 'delete-asset': args[3] }[args[1]]]
             .filter(Boolean)
             .join(' '),
         );
-      if (command === 'gh') return gh(args, options);
+      if (command === 'gh') {
+        const out = gh(args, options);
+        after?.(args);
+        return out;
+      }
       assert.equal(command, 'git');
       if (args[0] !== 'push') return realRun(command, args, options);
       writes.push('push');
@@ -133,16 +139,27 @@ test('a draft with other notes is published with the confirmed notes', async t =
   assert.equal(s.state.releases[0].notes, '- an entry\n');
 });
 
-test('a draft published by another run during the uploads is only checked', async t => {
+test('a draft published by another run after the last upload is only checked', async t => {
   const s = setup(t);
   s.tagHere();
-  s.state.fail = args => {
+  const after = args => {
     if (args[1] === 'upload' && args[3] === NAMES.at(-1)) s.state.releases[0].draft = false;
   };
-  const { writes, error } = s.go();
+  const { writes, error } = s.go({ after });
   assert.ifError(error);
   assert.deepEqual(writes, FULL.slice(0, -1));
   s.complete();
+});
+
+test('a draft published by another run between two uploads gets no more writes', async t => {
+  const s = setup(t);
+  s.tagHere();
+  const after = args => {
+    if (args[1] === 'upload' && args[3] === NAMES[1]) s.state.releases[0].draft = false;
+  };
+  const { writes, error } = s.go({ after });
+  assert.match(error.message, /the published release v0\.1\.0 is not the one confirmed/);
+  assert.deepEqual(writes, FULL.slice(0, 3));
 });
 
 test('a tag moved during the uploads stops before publishing', async t => {

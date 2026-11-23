@@ -115,12 +115,15 @@ export function githubRelease({
       throw new Error(
         `the draft release ${tag} has assets that are not expected: ${unexpected.map(a => JSON.stringify(a.name)).join(', ')}; delete them on GitHub and run again. Nothing was published`,
       );
+    const stillDraft = () => (release = find())?.draft;
     for (const file of listing) {
+      if (!stillDraft()) break;
       const asset = release.assets.find(a => a.name === file.name);
       if (asset && matches(asset, file)) continue;
       if (asset) {
         print(`Deleting ${file.name} from the draft: it is not the expected file.`);
         call('gh', ['release', 'delete-asset', tag, file.name, '--repo', repo, '--yes']);
+        if (!stillDraft()) break;
       }
       print(`Uploading ${file.name}.`);
       // gh release upload reads "#" in a file argument as the start of a label, so pass the bare name.
