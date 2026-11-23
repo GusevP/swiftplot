@@ -4,7 +4,9 @@ import { create, type Build, type EasyChart } from '../src/charts/controller.js'
 import {
   areaChart,
   barChart,
+  equal,
   lineChart,
+  mount,
   scatterChart,
   type AreaChartProps,
   type BarChartProps,
@@ -17,9 +19,9 @@ import { bandTitle, colorsFor, formatNumber, themeOf, timeTitle } from '../src/c
 import { assign, type Assigned, type Family, type FieldProps } from '../src/charts/fields.js';
 import { source, type Data } from '../src/charts/source.js';
 import type { AreaProps, Base, Input, ScatterProps } from '../src/charts/types.js';
-import { legend, line, plot, tooltip, zoom } from '../src/index.js';
+import { dots, legend, line, plot, time, tooltip, zoom } from '../src/index.js';
 import type { BandAxis } from '../src/scales/band.js';
-import type { Col, Internals, Mark, Options } from '../src/types.js';
+import type { Col, Feature, Internals, Mark, Options } from '../src/types.js';
 import { palette, paletteDark } from '../src/paint.js';
 import { dark, light, type Theme } from '../src/theme.js';
 import {
@@ -2134,4 +2136,496 @@ test("scatterChart tooltip is the nearest dot's series, x and y in the axis form
   });
   hover(named, 50, 50);
   expect(tipRows(named)).toEqual(['v: east, 5']);
+});
+
+const DAY = 864e5;
+const XS = Float64Array.from({ length: 11 }, (_, i) => i * DAY);
+const HALF = new Float64Array(11).fill(0.5);
+const QUARTER = new Float64Array(11).fill(0.25);
+const grab: Feature = c => ((grabbed = c), { destroy() {} });
+const twoLines = (a = RED, b = BLUE) => [
+  line({ key: 'a', label: 'a', x: XS, y: HALF, color: a, width: 4 }),
+  line({ key: 'b', label: 'b', x: XS, y: QUARTER, color: b, width: 4 }),
+];
+const explicit = (): Options => ({
+  width: 200,
+  height: 100,
+  margin: ZERO,
+  x: time({ label: '' }),
+  y: { domain: [0, 1], label: '' },
+  marks: [line({ key: 'a', label: 'a', x: XS, y: HALF, color: RED, width: 4 })],
+});
+
+test('mount draws what plot draws, draws new marks, exposes the core chart and is gone after destroy', () => {
+  const [a, b] = [host(), host()];
+  const m = mount(a, { ...explicit(), use: [legend()] });
+  plot(b, { ...explicit(), use: [legend()] });
+  expect(drawn(a)).toBe(drawn(b));
+  expect(a.textContent).toBe(b.textContent);
+  expect(shows(a, RED)).toBe(true);
+  const spy = vi.spyOn(m.chart, 'update');
+  m.update({ marks: [line({ key: 'a', label: 'a', x: XS, y: QUARTER, color: BLUE, width: 4 })] });
+  expect(spy).toHaveBeenCalledTimes(1);
+  expect(shows(a, BLUE)).toBe(true);
+  expect(shows(a, RED)).toBe(false);
+  m.destroy();
+  expect(a.childElementCount).toBe(0);
+  m.update({ marks: [] });
+  expect(a.childElementCount).toBe(0);
+});
+
+test('mount sends nothing for an equal copy of the options, so a tapped tooltip stays', () => {
+  const el = host();
+  const m = mount(el, { ...explicit(), use: [tooltip({ mode: 'x', title: String, value: String })] });
+  const spy = vi.spyOn(m.chart, 'update');
+  m.update(explicit());
+  m.update({ ...explicit(), x: { ...explicit().x! }, y: { domain: [0, 1], label: '' } });
+  expect(spy).not.toHaveBeenCalled();
+  tap(el, 100, 50);
+  const shown = tipOf(el);
+  expect(shown()).toBe(true);
+  m.update(explicit());
+  expect(shown()).toBe(true);
+});
+
+test('mount keeps an uncontrolled window and hidden series, sends given state and drops it once undefined', async () => {
+  const el = host();
+  const m = mount(el, { ...explicit(), marks: twoLines(), use: [zoom(), legend(), grab] });
+  await zoomIn(el);
+  const zoomed = grabbed.view().x;
+  narrower(zoomed, grabbed.domain().x);
+  hideFirst(el);
+  expect(grabbed.hidden()).toEqual(['a']);
+  m.update({ marks: twoLines(BLUE, RED) });
+  expect(grabbed.view().x).toEqual(zoomed);
+  expect(grabbed.hidden()).toEqual(['a']);
+  const spy = vi.spyOn(m.chart, 'update');
+  const view = { x: [2 * DAY, 4 * DAY] as [number, number] };
+  m.update({ view, hidden: ['b'] });
+  expect(keysOf(spy)).toEqual([['hidden', 'view']]);
+  expect(grabbed.view().x).toEqual(view.x);
+  expect(grabbed.hidden()).toEqual(['b']);
+  m.update({ view: undefined, hidden: undefined, marks: twoLines() });
+  expect(keysOf(spy).at(-1)).toEqual(['marks']);
+  expect(grabbed.view().x).toEqual(view.x);
+  m.update({ view, hidden: ['b'] });
+  expect(keysOf(spy).at(-1)).toEqual(['hidden', 'view']);
+});
+
+test('mount sends an option set to undefined, so the core goes back to its default', () => {
+  const [el, ref] = [host(), host()];
+  const m = mount(el, { ...explicit(), dim: 0.5, x: { domain: [0, 100 * DAY], label: '' } });
+  const spy = vi.spyOn(m.chart, 'update');
+  m.update({ dim: undefined });
+  m.update({ x: undefined });
+  expect(spy.mock.calls.map(([o]) => Object.entries(o))).toEqual([[['dim', undefined]], [['x', undefined]]]);
+  plot(ref, { ...explicit(), x: undefined });
+  expect(drawn(el)).toBe(drawn(ref));
+});
+
+test('mount reads use once and takes the theme as given, light when there is none, with no media listener', () => {
+  const el = host();
+  const m = mount(el, { ...explicit(), use: [grab] });
+  const root = el.firstElementChild;
+  const spy = vi.spyOn(m.chart, 'update');
+  m.update({ use: [zoom()] });
+  expect(spy).not.toHaveBeenCalled();
+  expect(el.firstElementChild).toBe(root);
+  expect(el.childElementCount).toBe(1);
+
+  const { spy: media } = mockMedia(true);
+  const watching = () => media.mock.calls.filter(([q]) => q === '(prefers-color-scheme: dark)').length;
+  const darkPage = schemed('dark');
+  mount(darkPage, { ...explicit(), use: [grab] });
+  expect(grabbed.theme()).toBe(light);
+  mount(schemed('light dark'), { ...explicit(), use: [grab] });
+  expect(grabbed.theme()).toBe(light);
+  const both = schemed('light dark');
+  const given = mount(both, { ...explicit(), theme: dark, use: [grab] });
+  expect(grabbed.theme()).toBe(dark);
+  given.update({ marks: twoLines() });
+  expect(grabbed.theme()).toBe(dark);
+  given.update({ theme: undefined });
+  expect(grabbed.theme()).toBe(light);
+  expect(watching()).toBe(0);
+});
+
+test('equal compares plain objects and arrays by value and anything else by identity', () => {
+  const f = () => 0;
+  const typed = new Float64Array([1]);
+  expect(equal({ a: [1, { b: 2 }], f }, { a: [1, { b: 2 }], f })).toBe(true);
+  expect(equal(Object.assign(Object.create(null), { a: 1 }), { a: 1 })).toBe(true);
+  expect(equal({ a: 1 }, { a: 1, b: undefined })).toBe(false);
+  expect(equal({ a: undefined }, { b: undefined })).toBe(false);
+  expect(equal([1, 2], { 0: 1, 1: 2 })).toBe(false);
+  expect(equal(typed, typed)).toBe(true);
+  expect(equal(typed, new Float64Array([1]))).toBe(false);
+  expect(
+    equal(
+      () => 0,
+      () => 0,
+    ),
+  ).toBe(false);
+  expect(equal(dark, { ...dark })).toBe(true);
+  expect(equal(new Date(0), new Date(0))).toBe(false);
+  expect(equal(NaN, NaN)).toBe(true);
+  expect(equal([], Array(1))).toBe(false);
+  const holed = [1];
+  holed.length = 2;
+  expect(equal([1], holed)).toBe(false);
+  const cycle = (leaf: number) => {
+    const o: Record<string, unknown> = { leaf };
+    o.self = o;
+    o.list = [o];
+    return o;
+  };
+  expect(equal(cycle(1), cycle(1))).toBe(true);
+  expect(equal(cycle(1), cycle(2))).toBe(false);
+});
+
+test('mount installs a mark whose key alone changed and prepares it', () => {
+  const el = host();
+  const m = mount(el, explicit());
+  const old = explicit().marks[0]!;
+  const prepare = vi.fn((...a: Parameters<Mark['prepare']>) => old.prepare(...a));
+  const spy = vi.spyOn(m.chart, 'update');
+  m.update({ marks: [{ ...old, key: 'replacement', prepare }] });
+  expect(spy).toHaveBeenCalledTimes(1);
+  expect(prepare).toHaveBeenCalled();
+});
+
+const capture = (o: unknown) =>
+  typeof o === 'boolean' ? o : !!(o as AddEventListenerOptions | undefined)?.capture;
+/** The document listeners added since the call and not removed since, by type, handler and capture. */
+const documentListeners = () => {
+  const add = vi.spyOn(document, 'addEventListener');
+  const remove = vi.spyOn(document, 'removeEventListener');
+  return {
+    added: () => add.mock.calls.length,
+    left: () => {
+      const left = add.mock.calls.map(([t, f, o]) => [t, f, capture(o)] as const);
+      for (const [t, f, o] of remove.mock.calls) {
+        const i = left.findIndex(([a, b, c]) => a === t && b === f && c === capture(o));
+        if (i >= 0) left.splice(i, 1);
+      }
+      return left;
+    },
+  };
+};
+const throwing: Mark = {
+  type: 'throwing',
+  key: 'throwing',
+  label: 'throwing',
+  color: RED,
+  options: {},
+  points: 0,
+  channels: { x: [], y: [] },
+  prepare: () => {
+    throw new Error('boom');
+  },
+};
+const boom = () => {
+  throw new Error('boom');
+};
+type Pair = { x: number; a: number; b: number };
+
+test('props rebuilt on every call with equal values read no column again and send nothing', () => {
+  let reads = 0;
+  const x = (d: Pair) => (reads++, d.x);
+  const data = pair();
+  const props = (): LineChartProps<Pair[]> => ({
+    data,
+    x,
+    y: ['a', 'b'],
+    xAxis: { label: 'x' },
+    yAxis: { label: 'v' },
+    colors: [RED, BLUE],
+    ...BOX,
+  });
+  const c = lineChart(host(), props());
+  const r = reads;
+  expect(r).toBeGreaterThan(0);
+  const spy = vi.spyOn(c.chart, 'update');
+  c.update(props());
+  c.update(props());
+  expect(reads).toBe(r);
+  expect(spy).not.toHaveBeenCalled();
+});
+
+test('a prop removed by an update goes back to what the chart does without it', async () => {
+  const el = host();
+  const like = (p: LineChartProps<Pair[]>) => {
+    const ref = host();
+    const r = lineChart(ref, p);
+    expect(drawn(el)).toBe(drawn(ref));
+    expect(el.textContent).toBe(ref.textContent);
+    r.destroy();
+    ref.remove();
+  };
+  const data = pair();
+  const c = lineChart(el, { data, ...BOX, zoom: true, y: 'a', xAxis: { domain: [0, 20] } });
+  const zoomed = c.chart;
+  c.update({ zoom: undefined });
+  expect(c.chart).not.toBe(zoomed);
+  const before = drawn(el);
+  await zoomIn(el);
+  expect(drawn(el)).toBe(before);
+  like({ data, ...BOX, y: 'a', xAxis: { domain: [0, 20] } });
+  c.update({ y: undefined });
+  like({ data, ...BOX, xAxis: { domain: [0, 20] } });
+  c.update({ xAxis: undefined });
+  like({ data, ...BOX });
+  c.update({ data: undefined });
+  like({ ...BOX });
+});
+
+test('a new inline callback on every call prepares and paints nothing, and the newest one is called', async () => {
+  const fns = () => ({
+    onClick: vi.fn(),
+    onViewChange: vi.fn(),
+    onHiddenChange: vi.fn(),
+    onPointerChange: vi.fn(),
+  });
+  const props = (f: ReturnType<typeof fns>): TestProps => ({
+    data: pair(),
+    y: ['a', 'b'],
+    zoom: true,
+    legend: true,
+    ...f,
+  });
+  const data = pair();
+  const first = fns();
+  const { el, c } = easy({ ...props(first), data });
+  const [p, q] = [prepares, paints];
+  const calls = [fns(), fns(), fns()];
+  for (const f of calls) c.update({ ...props(f), data });
+  expect([prepares, paints]).toEqual([p, q]);
+  const newest = calls.at(-1)!;
+  await zoomIn(el);
+  hideFirst(el);
+  hover(el, 50, 60);
+  click(el, 50, 60);
+  for (const k of Object.keys(newest) as (keyof typeof newest)[]) {
+    expect(newest[k]).toHaveBeenCalled();
+    for (const f of [first, ...calls.slice(0, -1)]) expect(f[k]).not.toHaveBeenCalled();
+  }
+});
+
+test('a failed first lineChart leaves nothing behind, and good props on the same element draw', () => {
+  const { media } = mockMedia(false);
+  const el = schemed('light dark');
+  expect(() => lineChart(el, { data: pair(), y: 'nope' as 'a', ...BOX })).toThrow(/no field "nope"/);
+  expect(el.childElementCount).toBe(0);
+  expect(media.listeners.size).toBe(0);
+  lineChart(el, { data: pair(), ...BOX });
+  expect(el.childElementCount).toBe(1);
+  expect(shows(el, palette[0]!)).toBe(true);
+});
+
+test('create, destroy and create again on one element leave one root and one set of listeners', () => {
+  const { media } = mockMedia(false);
+  const el = schemed('light dark');
+  const props: LineChartProps<Pair[]> = { data: pair(), y: ['a', 'b'], legend: true, ...BOX };
+  const once = documentListeners();
+  const baseline = lineChart(schemed('light dark'), props);
+  const one = once.left().length;
+  expect(one).toBeGreaterThan(0);
+  const watched = media.listeners.size;
+  baseline.destroy();
+  vi.restoreAllMocks();
+  const { media: again } = mockMedia(false);
+  const docs = documentListeners();
+  lineChart(el, props).destroy();
+  const survivor = lineChart(el, props);
+  expect(el.childElementCount).toBe(1);
+  expect(docs.left()).toHaveLength(one);
+  expect(again.listeners.size).toBe(watched);
+  survivor.destroy();
+});
+
+test('a failed first draw destroys the features, removes their listeners and only its own root', () => {
+  for (const draw of [plot, mount] as const) {
+    const el = host();
+    const other = el.appendChild(document.createElement('p'));
+    let destroyed = 0;
+    const observed: Feature = () => ({ destroy: () => void destroyed++ });
+    const docs = documentListeners();
+    expect(() =>
+      draw(el, {
+        ...explicit(),
+        marks: [...twoLines(), throwing],
+        use: [tooltip({ mode: 'x', title: String, value: String }), legend(), observed],
+      }),
+    ).toThrow('boom');
+    expect(docs.added()).toBeGreaterThanOrEqual(2);
+    expect(docs.left()).toEqual([]);
+    expect(destroyed).toBe(1);
+    expect([...el.children]).toEqual([other]);
+    vi.restoreAllMocks();
+  }
+});
+
+test('a failed first draw runs every cleanup when one throws and rethrows the draw error', () => {
+  const el = host();
+  const other = el.appendChild(document.createElement('p'));
+  let destroyed = 0;
+  const failing: Feature = () => ({
+    destroy: () => {
+      throw new Error('cleanup');
+    },
+  });
+  const observed: Feature = () => ({ destroy: () => void destroyed++ });
+  const docs = documentListeners();
+  expect(() =>
+    plot(el, { ...explicit(), marks: [...twoLines(), throwing], use: [failing, legend(), observed] }),
+  ).toThrow('boom');
+  expect(destroyed).toBe(1);
+  expect(docs.left()).toEqual([]);
+  expect([...el.children]).toEqual([other]);
+});
+
+test('a plot whose density query throws unwinds the observer and listeners it set up', () => {
+  const el = host();
+  const other = el.appendChild(document.createElement('p'));
+  const docs = documentListeners();
+  const observe = vi.spyOn(ResizeObserver.prototype, 'observe');
+  const disconnect = vi.spyOn(ResizeObserver.prototype, 'disconnect');
+  vi.spyOn(window, 'matchMedia').mockImplementation(() => {
+    throw new Error('no media');
+  });
+  expect(() =>
+    plot(el, { ...explicit(), width: undefined, height: undefined, marks: twoLines(), use: [legend()] }),
+  ).toThrow('no media');
+  expect(observe).toHaveBeenCalled();
+  expect(disconnect).toHaveBeenCalled();
+  expect(docs.left()).toEqual([]);
+  expect([...el.children]).toEqual([other]);
+});
+
+test('a mount whose rollback fails before its features start restores the series hidden before the failure', () => {
+  const el = host();
+  let inits = 0;
+  const flaky: Feature = () => {
+    if (++inits === 2) throw new Error('flaky');
+    return { destroy() {} };
+  };
+  const good = (): Options => ({ ...explicit(), marks: twoLines(), use: [flaky, legend(), grab] });
+  const m = mount(el, good());
+  hideFirst(el);
+  expect(() => m.update({ hidden: ['b'], marks: [throwing] })).toThrow('boom');
+  expect(el.childElementCount).toBe(0);
+  m.update(good());
+  expect(grabbed.hidden()).toEqual(['a']);
+  expect(shows(el, RED)).toBe(false);
+  expect(shows(el, BLUE)).toBe(true);
+});
+
+test('a mark release that throws while features are recreated fails the update and keeps a live chart', () => {
+  const el = host();
+  let releases = 0;
+  const leaky: Mark = {
+    ...throwing,
+    prepare: () => ({ paint() {} }),
+    release: () => {
+      if (++releases === 1) throw new Error('release');
+    },
+  };
+  const c = create<TestProps>(el, {}, p => ({
+    options: { ...explicit(), marks: [...twoLines(), leaky] },
+    features: { zoom: p.zoom },
+    use: () => [...(p.zoom ? [zoom()] : []), grab],
+  }));
+  expect(() => c.update({ zoom: true })).toThrow('release');
+  expect(releases).toBe(1);
+  expect(el.childElementCount).toBe(1);
+  expect(shows(el, RED)).toBe(true);
+  c.destroy();
+  expect(el.childElementCount).toBe(0);
+});
+
+test('a mount whose rollback fails plots again on the next update, even an unchanged one', () => {
+  const el = host();
+  let inits = 0;
+  const flaky: Feature = () => {
+    if (++inits === 2) throw new Error('flaky');
+    return { destroy() {} };
+  };
+  const good = (): Options => ({ ...explicit(), marks: twoLines(), use: [flaky, grab] });
+  const m = mount(el, good());
+  expect(() => m.update({ marks: [throwing] })).toThrow('boom');
+  expect(inits).toBe(2);
+  expect(el.childElementCount).toBe(0);
+  m.update(good());
+  expect(inits).toBe(3);
+  expect(el.childElementCount).toBe(1);
+  expect(shows(el, RED)).toBe(true);
+  const live = m.chart;
+  m.update({ ...good(), marks: twoLines(BLUE, BLUE) });
+  expect(m.chart).toBe(live);
+  expect(shows(el, RED)).toBe(false);
+  m.destroy();
+  expect(el.childElementCount).toBe(0);
+});
+
+test('a lineChart whose first tick layout throws removes the listeners and only its own root', () => {
+  const el = host();
+  const other = el.appendChild(document.createElement('p'));
+  const docs = documentListeners();
+  expect(() =>
+    lineChart(el, { data: pair(), y: ['a', 'b'], legend: true, xAxis: { format: boom }, ...BOX }),
+  ).toThrow('boom');
+  expect(docs.added()).toBeGreaterThanOrEqual(2);
+  expect(docs.left()).toEqual([]);
+  expect([...el.children]).toEqual([other]);
+});
+
+test('a failed update recovers: the last good options draw, answer hits and keep the window and hidden series', async () => {
+  const el = host();
+  el.style.cssText = 'width:200px;height:100px';
+  const onPointerChange = vi.fn();
+  const r = new Float64Array(11).fill(3);
+  const good = (): Options => ({
+    ...explicit(),
+    onPointerChange,
+    width: undefined,
+    height: undefined,
+    marks: [...twoLines(), dots({ label: 'b', x: XS, y: QUARTER, r, color: BLUE })],
+    use: [zoom(), legend(), grab],
+  });
+  const m = mount(el, good());
+  await zoomIn(el);
+  const zoomed = grabbed.view().x;
+  narrower(zoomed, grabbed.domain().x);
+  hideFirst(el);
+  expect(() => m.update({ marks: [throwing] })).toThrow('boom');
+  const spy = vi.spyOn(m.chart, 'update');
+  m.update(good());
+  expect(spy).not.toHaveBeenCalled();
+  expect(el.childElementCount).toBe(1);
+  expect(grabbed.view().x).toEqual(zoomed);
+  expect(grabbed.hidden()).toEqual(['a']);
+  expect(shows(el, BLUE)).toBe(true);
+  expect(shows(el, RED)).toBe(false);
+  hover(el, 100, 75);
+  expect(onPointerChange).toHaveBeenLastCalledWith(expect.objectContaining({ x: expect.any(Number) }));
+  expect(grabbed.hit(100, 75, 100)?.mark.label).toBe('b');
+  el.style.width = '300px';
+  await nextFrame();
+  await nextFrame();
+  expect(el.querySelector('canvas')!.style.width).toBe('300px');
+  expect(grabbed.view().x).toEqual(zoomed);
+  expect(grabbed.hidden()).toEqual(['a']);
+  expect(shows(el, BLUE)).toBe(true);
+  expect(() => m.update({ marks: [throwing] })).toThrow('boom');
+});
+
+test('a failed update rolls back to a controlled view it dropped and to a pointer kept after its prop was dropped', () => {
+  const el = host();
+  const view = { x: [2 * DAY, 6 * DAY] as [number, number] };
+  const m = mount(el, { ...explicit(), marks: twoLines(), view, pointer: { x: 5 * DAY }, use: [grab] });
+  m.update({ pointer: undefined });
+  expect(grabbed.pointer()).not.toBeNull();
+  expect(() => m.update({ view: undefined, marks: [throwing] })).toThrow('boom');
+  expect(grabbed.view().x).toEqual(view.x);
+  expect(grabbed.pointer()).not.toBeNull();
 });

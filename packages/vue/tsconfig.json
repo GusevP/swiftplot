@@ -1,0 +1,10 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "paths": {
+      "swiftplot": ["../core/src/index.ts"],
+      "swiftplot/charts": ["../core/src/charts/index.ts"]
+    }
+  },
+  "include": ["src", "test", "vitest.config.ts"]
+}

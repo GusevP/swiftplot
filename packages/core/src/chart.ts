@@ -5,6 +5,7 @@ import { light } from './theme.js';
 import type {
   Axis,
   Chart,
+  Feature,
   GlLayer,
   Hit,
   Internals,
@@ -636,9 +637,6 @@ export function plot(el: HTMLElement, options: Options): Chart {
     viewKey = [kx, view.ox, ky, view.oy, left, top, width, height].join();
   };
 
-  const release = () => {
-    for (const k of new Set([...marks, ...declared.keys()])) k.release?.(gl ?? null);
-  };
   // The browser takes a context away when too many are open, so a lost layer gives its marks back to the canvas.
   const dropLost = () => {
     if (!gl?.gl.isContextLost()) return false;
@@ -1029,9 +1027,7 @@ export function plot(el: HTMLElement, options: Options): Chart {
     );
   });
   showing();
-  el.appendChild(root);
-  measure();
-  const features = (o.use ?? []).map(feature => feature(internals));
+  const features: ReturnType<Feature>[] = [];
   const sync = () => {
     for (const f of features) f.update?.();
     aim();
@@ -1039,22 +1035,17 @@ export function plot(el: HTMLElement, options: Options): Chart {
   const letGo = () => {
     for (const f of features) f.letGo?.();
   };
-  if (refresh(true)) sync();
-  const observer = new ResizeObserver(() => {
-    letGo();
-    if (refresh(false, measure() ? 'size' : undefined)) sync();
-  });
+  let observer: ResizeObserver | undefined;
   let observing = false;
   const observe = () => {
     const auto = o.width === undefined || o.height === undefined;
     if (auto === observing) return;
     observing = auto;
-    if (auto) observer.observe(root);
-    else observer.disconnect();
+    if (auto) observer!.observe(root);
+    else observer!.disconnect();
   };
-  observe();
   // A density query matches one value only, so each change is listened for once and asked for again.
-  let density: MediaQueryList;
+  let density: MediaQueryList | undefined;
   const redensify = () => {
     dpr = devicePixelRatio;
     fit(canvas);
@@ -1067,7 +1058,41 @@ export function plot(el: HTMLElement, options: Options): Chart {
     density = matchMedia(`(resolution: ${dpr}dppx)`);
     density.addEventListener('change', redensify, { once: true });
   };
-  watch();
+  const teardown = () => {
+    let failed: { e: unknown } | undefined;
+    const run = (f: () => void) => {
+      try {
+        f();
+      } catch (e) {
+        failed ??= { e };
+      }
+    };
+    run(() => observer?.disconnect());
+    run(() => density?.removeEventListener('change', redensify));
+    for (const f of features) run(() => f.destroy());
+    for (const k of new Set([...marks, ...declared.keys()])) run(() => k.release?.(gl ?? null));
+    run(() => glCanvas?.removeEventListener('webglcontextlost', onLost));
+    run(() => gl?.destroy());
+    root.remove();
+    if (failed) throw failed.e;
+  };
+  el.appendChild(root);
+  try {
+    measure();
+    for (const feature of o.use ?? []) features.push(feature(internals));
+    if (refresh(true)) sync();
+    observer = new ResizeObserver(() => {
+      letGo();
+      if (refresh(false, measure() ? 'size' : undefined)) sync();
+    });
+    observe();
+    watch();
+  } catch (e) {
+    try {
+      teardown();
+    } catch {}
+    throw e;
+  }
 
   return {
     update(partial) {
@@ -1139,14 +1164,6 @@ export function plot(el: HTMLElement, options: Options): Chart {
         sync();
       else aim();
     },
-    destroy() {
-      for (const f of features) f.destroy();
-      observer.disconnect();
-      density.removeEventListener('change', redensify);
-      release();
-      glCanvas?.removeEventListener('webglcontextlost', onLost);
-      gl?.destroy();
-      root.remove();
-    },
+    destroy: teardown,
   };
 }

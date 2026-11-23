@@ -108,7 +108,49 @@ export const middleOf = (e: Element) => {
 
 export const nextFrame = () => new Promise(requestAnimationFrame);
 
+export const twoFrames = async () => {
+  for (let i = 0; i < 2; i++) await nextFrame();
+};
+
+/** A wrapper's Mount that records its calls, the host's height when created, and marks the host with one element. */
+export function fake<P>() {
+  const calls = {
+    create: [] as { el: HTMLElement; props: P; height: number }[],
+    update: [] as Partial<P>[],
+    destroy: 0,
+  };
+  const mount = (el: HTMLElement, props: P) => {
+    calls.create.push({ el, props, height: el.clientHeight });
+    const mark = el.appendChild(document.createElement('i'));
+    mark.dataset.fake = '';
+    return {
+      update: (partial: Partial<P>) => void calls.update.push(partial),
+      destroy() {
+        calls.destroy++;
+        mark.remove();
+      },
+    };
+  };
+  return { mount, calls };
+}
+
 export const tipOf = (el: HTMLElement) => {
   const tip = [...el.querySelectorAll('div')].find(d => d.style.zIndex === '100')!;
   return () => tip.style.display !== 'none';
 };
+
+/** A fake whose update throws for every partial that sets label to 'B'. */
+export function failingOnB<P extends { label?: string }>() {
+  const { mount: inner, calls } = fake<P>();
+  const chart = (el: HTMLElement, props: P) => {
+    const c = inner(el, props);
+    return {
+      update(partial: Partial<P>) {
+        c.update(partial);
+        if (partial.label === 'B') throw new Error('B');
+      },
+      destroy: () => c.destroy(),
+    };
+  };
+  return { chart, calls };
+}

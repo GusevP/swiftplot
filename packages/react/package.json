@@ -1,0 +1,44 @@
+{
+  "name": "@swiftplot/react",
+  "version": "0.0.0",
+  "private": true,
+  "description": "React components for swiftplot charts",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/GusevP/swiftplot.git",
+    "directory": "packages/react"
+  },
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:import": "node test/import.mjs"
+  },
+  "peerDependencies": {
+    "react": "^18.3 || ^19",
+    "swiftplot": "workspace:^"
+  },
+  "devDependencies": {
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitest/browser-playwright": "^5.1.1",
+    "playwright": "^1.65.1",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "swiftplot": "workspace:*",
+    "typescript": "^7.0.2",
+    "vitest": "^5.1.1"
+  }
+}

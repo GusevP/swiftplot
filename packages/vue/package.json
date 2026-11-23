@@ -1,0 +1,42 @@
+{
+  "name": "@swiftplot/vue",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Vue components for swiftplot charts",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/GusevP/swiftplot.git",
+    "directory": "packages/vue"
+  },
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit && vue-tsc --noEmit",
+    "test": "vitest run",
+    "test:import": "node test/import.mjs"
+  },
+  "peerDependencies": {
+    "swiftplot": "workspace:^",
+    "vue": "^3.4"
+  },
+  "devDependencies": {
+    "@vitest/browser-playwright": "^5.1.1",
+    "playwright": "^1.65.1",
+    "swiftplot": "workspace:*",
+    "typescript": "~5.9.3",
+    "vitest": "^5.1.1",
+    "vue": "^3.5.46",
+    "vue-tsc": "^3.3.14"
+  }
+}

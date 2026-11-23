@@ -123,7 +123,7 @@ for (const [i, mark] of marks.entries()) {
 
 deepStrictEqual(
   Object.keys(charts).sort(),
-  ['areaChart', 'barChart', 'lineChart', 'scatterChart'],
+  ['areaChart', 'barChart', 'equal', 'lineChart', 'mount', 'plain', 'scatterChart'],
   'charts exports',
 );
 strictEqual(await import('swiftplot/charts'), charts, 'swiftplot/charts');

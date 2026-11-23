@@ -34,22 +34,31 @@ const STATE = ['view', 'hidden', 'selected', 'pointer'] as const;
 const CALLBACKS = ['onHiddenChange', 'onClick', 'onPointerChange'] as const;
 export const PASSED = new Set<string>([...STATE, ...CALLBACKS, 'onViewChange']);
 
-const plain = (v: unknown): v is Record<string, unknown> =>
+export const plain = (v: unknown): v is Record<string, unknown> =>
   typeof v === 'object' &&
   v !== null &&
   (Array.isArray(v) || Object.getPrototypeOf(v) === Object.prototype || Object.getPrototypeOf(v) === null);
 
 /** Plain objects and arrays by value, anything else (typed arrays, functions, themes) by identity. */
-export function equal(a: unknown, b: unknown): boolean {
+export const equal = (a: unknown, b: unknown): boolean => same(a, b, new Map());
+
+function same(a: unknown, b: unknown, seen: Map<object, Set<object>>): boolean {
   if (Object.is(a, b)) return true;
   if (!plain(a) || !plain(b) || Array.isArray(a) !== Array.isArray(b)) return false;
+  if (Array.isArray(a) && a.length !== b.length) return false;
+  const pairs = seen.get(a) ?? seen.set(a, new Set()).get(a)!;
+  if (pairs.has(b)) return true;
+  pairs.add(b);
   const keys = Object.keys(a);
-  return keys.length === Object.keys(b).length && keys.every(k => Object.hasOwn(b, k) && equal(a[k], b[k]));
+  return (
+    keys.length === Object.keys(b).length && keys.every(k => Object.hasOwn(b, k) && same(a[k], b[k], seen))
+  );
 }
 
-/** As the core keeps a mark: by type and options. */
+/** As the core keeps a mark: by key, type and options. */
 const sameMarks = (a: readonly Mark[], b: readonly Mark[]) =>
-  a.length === b.length && a.every((m, i) => m.type === b[i]!.type && equal(m.options, b[i]!.options));
+  a.length === b.length &&
+  a.every((m, i) => m.key === b[i]!.key && m.type === b[i]!.type && equal(m.options, b[i]!.options));
 
 const lengthsOf = (d: unknown) =>
   d == null
@@ -136,6 +145,8 @@ export function create<P extends ControllerProps>(
   }
   if (props.view) remember(props.view);
   let destroyed = false;
+  let live = true;
+  let held: readonly string[] = [];
 
   /** With r, the options are built again from it; without, only passed props changed. */
   function apply(next: P, r?: Read) {
@@ -154,50 +165,70 @@ export function create<P extends ControllerProps>(
       }
     }
     const want = wanted(next, b);
-    if (uses) {
-      const hidden = internals!.hidden();
-      const carried = (p: P) => ({
-        ...(p.view === undefined && Object.keys(windowed).length && { view: { ...windowed } }),
-        ...(p.hidden === undefined && hidden.length && { hidden: [...hidden] }),
-      });
-      chart.destroy();
-      const last = el.lastChild;
+    const hidden = live ? internals!.hidden() : held;
+    const carried = (p: P) => ({
+      ...(p.view === undefined && Object.keys(windowed).length && { view: { ...windowed } }),
+      ...(p.hidden === undefined && hidden.length && { hidden: [...hidden] }),
+    });
+    const fail = (e: unknown): never => {
+      if (t !== themed) t.dispose();
+      held = hidden;
       try {
-        chart = plot(el, { ...want, ...carried(next), use: [...uses, keep] } as Options);
-      } catch (e) {
-        while (el.lastChild !== last) el.lastChild!.remove();
-        if (t !== themed) t.dispose();
-        try {
-          chart = plot(el, { ...sent, ...carried(props), use: [...built.use(), keep] } as Options);
-        } catch {
-          while (el.lastChild !== last) el.lastChild!.remove();
-        }
-        throw e;
+        chart = plot(el, { ...sent, ...carried(props), use: [...built.use(), keep] } as Options);
+        live = true;
+      } catch {}
+      throw e;
+    };
+    const drop = () => {
+      if (!live) return;
+      live = false;
+      chart.destroy();
+    };
+    const commit = (s: Record<string, unknown>) => {
+      props = next;
+      if (r) read = r;
+      built = b;
+      theme = th;
+      if (t !== themed) {
+        themed.dispose();
+        themed = t;
       }
-    }
-    props = next;
-    if (r) read = r;
-    built = b;
-    theme = th;
-    if (t !== themed) {
-      themed.dispose();
-      themed = t;
-    }
+      sent = s;
+    };
+    if (!live) uses ??= b.use();
     if (uses) {
-      sent = want;
+      try {
+        drop();
+        chart = plot(el, { ...want, ...carried(next), use: [...uses, keep] } as Options);
+        live = true;
+      } catch (e) {
+        fail(e);
+      }
+      commit(want);
       if (next.view) remember(next.view);
       return;
     }
-    for (const k of STATE) if (!(k in want)) delete sent[k];
+    // view and hidden come back from the live chart through carried(); selected and pointer only from sent.
+    const kept = { ...sent };
+    for (const k of ['view', 'hidden'] as const) if (!(k in want)) delete kept[k];
     const partial: Record<string, unknown> = {};
-    for (const k of new Set([...Object.keys(sent), ...Object.keys(want)])) {
-      const [was, now] = [sent[k], want[k]];
+    for (const k of new Set([...Object.keys(kept), ...Object.keys(want)])) {
+      if (!(k in want) && (STATE as readonly string[]).includes(k)) continue;
+      const [was, now] = [kept[k], want[k]];
       const same = k === 'marks' ? sameMarks(was as Mark[], now as Mark[]) : equal(was, now);
       if (!same) partial[k] = now;
     }
-    if (!Object.keys(partial).length) return;
-    sent = { ...sent, ...partial };
-    chart.update(partial);
+    if (Object.keys(partial).length) {
+      try {
+        chart.update(partial);
+      } catch (e) {
+        try {
+          drop();
+        } catch {}
+        fail(e);
+      }
+    }
+    commit(Object.assign(kept, partial));
     if (partial.view) remember(partial.view as { x?: Span; y?: Span });
   }
 
@@ -218,7 +249,7 @@ export function create<P extends ControllerProps>(
       if (destroyed) return;
       destroyed = true;
       themed.dispose();
-      chart.destroy();
+      if (live) chart.destroy();
     },
   };
 }

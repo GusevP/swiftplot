@@ -12,13 +12,13 @@
   },
   "type": "module",
   "scripts": {
-    "build": "pnpm --filter swiftplot run build",
-    "typecheck": "pnpm --filter swiftplot run typecheck",
+    "build": "pnpm -r run build",
+    "typecheck": "pnpm -r run typecheck",
     "lint": "oxlint --type-aware --deny-warnings",
     "format": "oxfmt",
     "format:check": "oxfmt --check",
-    "test": "pnpm --filter swiftplot run test",
-    "test:import": "pnpm --filter swiftplot run test:import"
+    "test": "pnpm -r --workspace-concurrency=1 run test",
+    "test:import": "pnpm -r run test:import"
   },
   "devDependencies": {
     "oxfmt": "0.79.0",

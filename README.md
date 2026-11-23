@@ -9,7 +9,7 @@
 
 Small, fast charts on Canvas 2D and WebGL2. MIT, TypeScript, ESM only, no dependencies.
 
-**Status: prototype.** It draws lines and areas (straight or stepped), bars, box plots, error bars, heatmaps, tick marks and scatter dots on linear, time and category axes, and pies, donuts, radars, radial bars, funnels, sankey diagrams, treemaps and sunbursts, with a hover tooltip, dim-the-others on hover and optional animation. A chart can be updated and follows its container when no size is given. `swiftplot/charts` builds line, area, bar and scatter charts from the data alone. There is a legend that hides and shows series, zoom and pan, a brush, a click event, the pointer from code for linked charts, light and dark themes, reference lines and zones, log axes, and tick steps and formats. The repository is a pnpm workspace with the package in `packages/core`; nothing is published yet.
+**Status: prototype.** It draws lines and areas (straight or stepped), bars, box plots, error bars, heatmaps, tick marks and scatter dots on linear, time and category axes, and pies, donuts, radars, radial bars, funnels, sankey diagrams, treemaps and sunbursts, with a hover tooltip, dim-the-others on hover and optional animation. A chart can be updated and follows its container when no size is given. `swiftplot/charts` builds line, area, bar and scatter charts from the data alone, and `@swiftplot/react` and `@swiftplot/vue` make React and Vue components of them. There is a legend that hides and shows series, zoom and pan, a brush, a click event, the pointer from code for linked charts, light and dark themes, reference lines and zones, log axes, and tick steps and formats. The repository is a pnpm workspace with the core in `packages/core` and the wrappers in `packages/react` and `packages/vue`; nothing is published yet.
 
 ## Charts from data
 
@@ -62,6 +62,58 @@ chart.destroy();
 - **`dataVersion`:** conversion is cached on the data's identity and length (each column's, for an object of columns). Pass new data, or after changing values in place, bump `dataVersion`: `chart.update({ dataVersion: ++version })`.
 - **Theme:** `theme` defaults to `'auto'`, which follows the computed CSS `color-scheme` of the chart's element: `dark` gives the dark theme, `light dark` follows the system setting and switches with it, anything else gives light. It is read when the chart is created, when the system setting changes and when the `theme` prop changes.
 - **`.spec()`** is the way out to the explicit API: `lineChart.spec({ data: rows, x: 'date', y: ['api', 'web'] })` returns the `plot()` options the chart would use. It needs no element and runs in Node; with the `'auto'` theme it gives no theme and the light palette.
+- **`mount(el, options)`** is `plot()` behind the same controller, for the explicit API in plain JavaScript: it takes the `plot()` options and returns `{ update(options), destroy(), chart }`. An update sends the core only the options that changed (marks compared by key, type and options), and leaves `view`, `hidden`, `selected` and `pointer` alone unless given. `use` is read once; `theme` is `light` unless given. `equal(a, b)`, which mount uses for that comparison, compares plain objects and arrays by value (cycles included) and anything else (typed arrays, functions, `Date`s) by identity; `plain(v)` tells whether `v` is a plain object or array.
+
+## React and Vue
+
+`@swiftplot/react` (React 18.3 or 19) and `@swiftplot/vue` (Vue 3.4 or later) make components of the charts above: `LineChart`, `AreaChart`, `BarChart`, `ScatterChart`, and `Plot` for the explicit API. Each takes the props of its function, renders one `div`, creates the chart after mount, sends it only what changed on each render and destroys it on unmount. Install `swiftplot` beside the wrapper, which has it as a peer dependency (neither is published yet):
+
+```sh
+pnpm add swiftplot @swiftplot/react   # or @swiftplot/vue
+```
+
+```tsx
+import { LineChart } from '@swiftplot/react';
+
+<LineChart data={rows} />;
+```
+
+```vue
+<script setup lang="ts">
+import { LineChart } from '@swiftplot/vue';
+</script>
+
+<template>
+  <LineChart :data="rows" />
+</template>
+```
+
+- **Props** are the chart function's, checked against the data's type in JSX and in Vue templates (`y="nope"` on rows without that field is a type error). `createElement` and `h()` do not infer the data's type: give it, `h(LineChart<Row[]>, props)`, and the field names are checked as in a template. `className` (React) or `class` (Vue), `style` and `id` go to the `div`.
+- **State** (`view`, `hidden`, `selected`, `pointer`) is kept by the chart unless the prop is given. To control the zoom window, pass `view` and set it from the change:
+
+  ```tsx
+  const [view, setView] = useState<{ x?: [number, number]; y?: [number, number] }>();
+  <LineChart data={rows} x="date" y={['api', 'web']} zoom view={view} onViewChange={setView} />;
+  ```
+
+  In Vue the changes are events: `v-model:view`, `v-model:hidden` and `v-model:pointer`, `@click` and `@error` (`<LineChart :data="rows" zoom v-model:view="view" />`). `selected` is a plain prop: the app sets it, from a click for example.
+
+- **`Plot`** takes every `plot()` option as a prop, for a chart type with no easy version yet, for mixing marks and for large typed-array data. `use` is read when it mounts, as in `plot()`: change the component's `key` to change features. Its theme is `light` unless given; it does not follow the page as the easy charts do.
+
+  ```tsx
+  import { arcs, legend } from 'swiftplot';
+  import { Plot } from '@swiftplot/react';
+
+  const marks = [
+    arcs({ values: [5, 3, 2], labels: ['A', 'B', 'C'], colors: ['#2563eb', '#16a34a', '#f59e0b'] }),
+  ];
+  <Plot frame="polar" marks={marks} use={[legend()]} />;
+  ```
+
+- **Size:** `width` and `height` (px) size the `div`, and `style` wins over them; the chart measures the `div` and follows whatever resizes it (a class, a parent, a media query). With no height from `height`, `style` or CSS, the `div` fills a parent that has a height, else is 300 px tall, so `<LineChart data={rows} />` shows a chart on an ordinary page and a class added later wins, in a cascade layer (Tailwind) or not. The fallback is a `<style>` kept first in the document head (or the shadow root), inserted only for a chart with no height: under a Content Security Policy that blocks inline styles, give every chart a height (`height`, `style` or CSS). A chart mounted in a detached element falls back once the element is attached.
+- **Errors** (a missing field, an accessor or formatter that throws) go to `onError` in React or `@error` in Vue, and the last good chart stays; without a handler they are thrown to the nearest error boundary, or to Vue's error handling (`onErrorCaptured`, `app.config.errorHandler`). A failed render is tried again when a chart prop other than a callback changes; a changed callback still reaches the last good chart. A failure is reported once until its error message, the data's length (each column's, for an object of columns) or another prop that is not a function changes, so inline props, data rebuilt during render and a handler that sets state cannot loop, unless the message itself changes on every attempt. Rows are never read, so new data of the same length that fails with the same message is not reported again.
+- **Server rendering:** the server renders the `div` alone, the client hydrates the same markup and creates the chart after hydration. The React entry is marked `'use client'`. The 300 px fallback is applied in the browser, so give a server-rendered chart a `height` (or a CSS height) to reserve its space before hydration.
+- **Performance:** each render compares props by identity and the chart then by value, so inline objects such as `xAxis={{ label: 'Day' }}` cost little. `data` built during render and inline accessors are converted again on every render, and an inline `xAxis.format` redraws the axis: build them outside render, or with `useMemo` and `useCallback`. In Vue keep the data in a `shallowRef` and replace the array: a deep `ref` makes the app wrap every row for nothing the chart uses. Data changed in place with every prop unchanged is not noticed: pass a new array or bump `dataVersion`.
 
 ## Use
 
@@ -236,15 +288,16 @@ The same step at 1,000,000 points with `fit: 'window'` on the y axis, 2026-11-22
 
 ## Develop
 
-From the repository root:
+From the repository root. `build`, `test:import`, `test` and `typecheck` run in every package under `packages/`:
 
 ```sh
 pnpm install
 pnpm --filter swiftplot exec playwright install chromium   # once, for the tests
 pnpm build
-pnpm test:import # imports packages/core/dist/ in Node, after pnpm build
-pnpm test        # Vitest in a real browser
+pnpm test:import # imports each package's dist/ in Node, after pnpm build
+pnpm test        # Vitest in a real browser, one package at a time
 pnpm typecheck
+pnpm --filter swiftplot run test   # one package
 pnpm lint        # oxlint, type-aware
 pnpm format      # oxfmt
 ```
