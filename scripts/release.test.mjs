@@ -5,7 +5,7 @@ import test from 'node:test';
 import { entries, sha256, verify } from './check-tarballs.mjs';
 import { run as realRun } from './prepare.mjs';
 import { checks, release, tarballName } from './release.mjs';
-import { gitRepo, sh, tar } from './testing.mjs';
+import { fakeGh, github, gitRepo, sh, tar } from './testing.mjs';
 
 const URL_OF_REPO = 'https://github.com/GusevP/swiftplot.git';
 const NAMES = { core: 'swiftplot', react: '@swiftplot/react', vue: '@swiftplot/vue' };
@@ -66,62 +66,6 @@ const ciRun = (sha, over = {}) => ({
   ...over,
 });
 
-function github(state, now) {
-  return path => {
-    const url = new URL(path, 'https://api.github.com/');
-    const rest = url.pathname.slice(1);
-    if (rest === 'releases')
-      return (state.releases ?? []).map(r => ({
-        tag_name: r.tag,
-        draft: r.draft,
-        prerelease: r.prerelease ?? false,
-        assets: r.assets.map(a => ({
-          name: a.name,
-          state: a.state ?? 'uploaded',
-          size: a.size ?? a.bytes.length,
-          digest: a.digest ?? `sha256:${sha256(a.bytes)}`,
-        })),
-      }));
-    const runs = typeof state.runs === 'function' ? state.runs(now()) : (state.runs ?? []);
-    if (rest === 'actions/workflows/ci.yml/runs') {
-      const q = url.searchParams;
-      return {
-        workflow_runs: runs
-          .filter(
-            run =>
-              (!q.has('head_sha') || run.sha === q.get('head_sha')) &&
-              (!q.has('branch') || run.branch === q.get('branch')) &&
-              (!q.has('event') || run.event === q.get('event')),
-          )
-          .map(run => {
-            const last = run.attempts.at(-1);
-            return {
-              id: run.id,
-              event: run.event,
-              head_branch: run.branch,
-              head_sha: run.sha,
-              html_url: `https://github.com/GusevP/swiftplot/actions/runs/${run.id}`,
-              run_attempt: run.attempts.length,
-              status: last.status,
-              conclusion: last.conclusion ?? null,
-            };
-          }),
-      };
-    }
-    const m = /^actions\/runs\/(\d+)\/attempts\/(\d+)\/jobs$/.exec(rest);
-    const attempt = m && runs.find(run => run.id === Number(m[1]))?.attempts[Number(m[2]) - 1];
-    if (attempt)
-      return {
-        jobs: Object.entries(attempt.jobs).map(([name, conclusion]) => ({
-          name,
-          status: conclusion ? 'completed' : 'in_progress',
-          conclusion,
-        })),
-      };
-    return null;
-  };
-}
-
 const clock = () => {
   let t = 0;
   return { now: () => t, sleep: async ms => void (t += ms) };
@@ -174,37 +118,19 @@ function harness(r, state = {}) {
   const writes = [];
   const printed = [];
   const asked = [];
+  let atAsk;
   const ok = stdout => ({ code: 0, stdout, stderr: '' });
-  const api = github(state, now);
+  state.remote = r.origin;
+  const gh = fakeGh(state, now);
   const run = (command, args, options = {}) => {
     const name = command === process.execPath ? 'node' : basename(command).replace(/\.exe$/i, '');
     const line = `${name} ${args.join(' ')}`;
-    calls.push({ line, cwd: options.cwd });
+    calls.push({ line, name, args, cwd: options.cwd });
     if (!READS.some(re => re.test(line))) writes.push(line);
     if (name === 'git' && args[0] === 'remote' && args[1] === 'get-url')
       return ok(`${(args[2] === '--push' && state.pushUrls) || state.origin || URL_OF_REPO}\n`);
     if (name === 'git' || name === 'tar') return realRun(command, args, options);
-    if (name === 'gh' && args[0] === 'api') {
-      const path = args.at(-1);
-      assert.ok(path.startsWith('repos/GusevP/swiftplot/'), path);
-      const body = api(path.slice('repos/GusevP/swiftplot/'.length));
-      if (!body) return { code: 1, stdout: '', stderr: 'HTTP 404' };
-      const jq = args.indexOf('--jq');
-      if (jq === -1) return ok(JSON.stringify(body));
-      const tag = JSON.parse(/^\.\[\] \| select\(\.tag_name == (".*")\)$/.exec(args[jq + 1])[1]);
-      return ok(
-        body
-          .filter(r => r.tag_name === tag)
-          .map(r => `${JSON.stringify(r)}\n`)
-          .join(''),
-      );
-    }
-    if (name === 'gh' && args[0] === 'release' && args[1] === 'download') {
-      assert.deepEqual(args.slice(3, 5), ['--repo', 'GusevP/swiftplot']);
-      const release = state.releases.find(rel => rel.tag === args[2]);
-      for (const asset of release.assets) writeFileSync(join(args[6], asset.name), asset.bytes);
-      return ok('');
-    }
+    if (name === 'gh') return gh(args);
     if (name === 'pnpm') {
       assert.ok(!state.noBuild, `built although it must not: ${line}`);
       return ok(fakePnpm(args, options.cwd));
@@ -219,6 +145,7 @@ function harness(r, state = {}) {
     writes,
     printed,
     asked,
+    beforeAsk: () => writes.slice(0, atAsk),
     now,
     release: ({ dryRun = false, answer } = {}) =>
       release({
@@ -227,6 +154,7 @@ function harness(r, state = {}) {
         dryRun,
         ask: async question => {
           asked.push(question);
+          atAsk = writes.length;
           return answer === undefined ? question.split(' ')[1] : answer;
         },
         print: line => printed.push(line),
@@ -283,7 +211,11 @@ test('an existing tag needs a passing push run on main for its commit, even afte
   assert.notEqual(head, tagged);
   assert.equal(result.commit, tagged);
   assert.equal(result.state, 'none');
-  assert.deepEqual(passing.writes, []);
+  assert.deepEqual(passing.beforeAsk(), []);
+  assert.deepEqual(
+    passing.writes.map(line => line.split(' ').slice(0, 3).join(' ')),
+    ['gh release create', ...Array(4).fill('gh release upload'), 'gh release edit'],
+  );
   assert.equal(passing.asked.length, 1);
 });
 
@@ -295,7 +227,8 @@ test('with the tag present it continues on the tag commit from another branch', 
   commit(r, 'elsewhere', { push: false });
   const h = harness(r, { runs: [ciRun(tagged)] });
   assert.equal((await h.release()).commit, tagged);
-  assert.deepEqual(h.writes, []);
+  assert.deepEqual(h.beforeAsk(), []);
+  assert.ok(!h.writes.some(line => line.startsWith('git push')));
 });
 
 test('step 1 stops, naming the reason, before anything is written', async t => {
@@ -482,7 +415,10 @@ test('the files are built from an export of the commit and stored in .release', 
     after.status.split('\n').filter(line => line !== '!! .release/'),
     before.status.split('\n'),
   );
-  assert.deepEqual({ ...after, status: null, release: null }, { ...before, status: null, release: null });
+  assert.deepEqual(
+    { ...after, status: null, release: null },
+    { ...before, status: null, release: null, remote: `${before.remote}\n${head} commit\trefs/tags/v0.1.0` },
+  );
   assert.equal(readFileSync(join(r.dir, 'packages/core/dist/stale.js'), 'utf8'), 'stale\n');
   const builds = h.calls.filter(call => call.line.startsWith('pnpm '));
   assert.deepEqual(
@@ -514,7 +450,7 @@ test('the files are built from an export of the commit and stored in .release', 
     }),
   );
   assert.ok(h.printed.includes('  pre-release: no'));
-  assert.deepEqual(h.writes, []);
+  assert.deepEqual(h.beforeAsk(), []);
 });
 
 for (const kind of ['tag only', 'draft']) {
@@ -526,11 +462,12 @@ for (const kind of ['tag only', 'draft']) {
       runs: [ciRun(head)],
       releases: kind === 'draft' ? [{ tag: 'v0.1.0', draft: true, assets: [] }] : [],
     };
-    await harness(r, state).release();
+    const notConfirmed = /not confirmed/;
+    await assert.rejects(harness(r, state).release({ answer: 'no' }), notConfirmed);
     const stored = snapshot(r).release;
 
     const again = harness(r, { ...state, noBuild: true });
-    await again.release();
+    await assert.rejects(again.release({ answer: 'no' }), notConfirmed);
     assert.deepEqual(snapshot(r).release, stored);
     assert.deepEqual(again.writes, []);
 
@@ -566,7 +503,7 @@ for (const kind of ['tag only', 'draft']) {
 test('a published release supplies its own files, whatever the local cache holds', async t => {
   const r = repo(t);
   const head = r.head();
-  await harness(r, { runs: [ciRun(head)] }).release();
+  await assert.rejects(harness(r, { runs: [ciRun(head)] }).release({ answer: 'no' }), /not confirmed/);
   const files = join(releaseDir(r), '0.1.0', 'files');
   const assets = readdirSync(files).map(name => ({ name, bytes: readFileSync(join(files, name)) }));
   sh(r.dir, 'push', 'origin', 'HEAD:refs/tags/v0.1.0');
@@ -663,4 +600,65 @@ test('--dry-run on another branch at 0.0.0 previews the tarballs and writes noth
   assert.match(out, /- there is no ci\.yml push run on main for [0-9a-f]+: no successful workflow run/);
   assert.match(out, /swiftplot-0\.0\.0\.tgz {2}\d+ bytes {2}sha256 [0-9a-f]{64}/);
   assert.equal(result.files.length, 4);
+});
+
+test('a pre-release takes its notes from the tag commit, and every gh call names the repository', async t => {
+  const r = repo(t, { version: '0.1.0-rc.0' });
+  const tagged = r.head();
+  sh(r.dir, 'push', 'origin', 'HEAD:refs/tags/v0.1.0-rc.0');
+  writeFileSync(
+    join(r.dir, 'CHANGELOG.md'),
+    '# Changelog\n\n## Unreleased\n\n## 0.1.0-rc.0 - 2026-12-01\n\n- rewritten on main later\n',
+  );
+  commit(r, 'later');
+  const state = { runs: [ciRun(tagged)] };
+  const h = harness(r, state);
+  const result = await h.release();
+
+  assert.equal(result.url, 'https://github.com/GusevP/swiftplot/releases/tag/v0.1.0-rc.0');
+  assert.ok(h.printed.some(line => line.includes(result.url)));
+  const [published] = state.releases;
+  assert.deepEqual(
+    { draft: published.draft, prerelease: published.prerelease, notes: published.notes },
+    { draft: false, prerelease: true, notes: '- an entry' },
+  );
+  const gh = h.calls.filter(call => call.name === 'gh').map(call => call.args);
+  for (const args of gh.filter(args => args[0] === 'api')) {
+    assert.deepEqual(args.slice(0, 3), ['api', '--hostname', 'github.com']);
+    assert.match(args.at(-1), /^repos\/GusevP\/swiftplot\//);
+  }
+  const writes = gh.filter(args => args[0] === 'release');
+  const notesFile = writes[0][writes[0].indexOf('--notes-file') + 1];
+  const tag = 'v0.1.0-rc.0';
+  const names = [
+    'SHA256SUMS',
+    'swiftplot-0.1.0-rc.0.tgz',
+    'swiftplot-react-0.1.0-rc.0.tgz',
+    'swiftplot-vue-0.1.0-rc.0.tgz',
+  ];
+  assert.deepEqual(
+    writes.map(args =>
+      args[1] === 'upload' ? [...args.slice(0, 3), basename(args[3]), ...args.slice(4)] : args,
+    ),
+    [
+      [
+        'release',
+        'create',
+        tag,
+        '--repo',
+        'GusevP/swiftplot',
+        '--draft',
+        '--verify-tag',
+        '--title',
+        tag,
+        '--notes-file',
+        notesFile,
+        '--prerelease',
+      ],
+      ...names.map(name => ['release', 'upload', tag, name, '--repo', 'GusevP/swiftplot']),
+      ['release', 'edit', tag, '--repo', 'GusevP/swiftplot', '--draft=false', '--prerelease=true'],
+    ],
+  );
+  assert.deepEqual(h.beforeAsk(), []);
+  assert.ok(!h.writes.some(line => line.startsWith('git push')));
 });

@@ -15,6 +15,7 @@ import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
 import { section } from './changelog.mjs';
 import { check, PACKAGES, sha256, smoke, SUMS, verify } from './check-tarballs.mjs';
+import { caller, findRelease, githubRelease } from './github-release.mjs';
 import { pack, pnpm } from './pack.mjs';
 import { remoteTags, run as realRun } from './prepare.mjs';
 import { higher, highest, shared } from './version.mjs';
@@ -161,12 +162,7 @@ export async function release({
   now = Date.now,
   pnpmCommand = pnpm(),
 }) {
-  const call = (command, args, cwd = dir) => {
-    const out = run(command, args, { cwd });
-    if (out.code !== 0)
-      throw new Error(`${command} ${args.join(' ')} failed: ${(out.stderr || out.stdout).trim()}`);
-    return out.stdout;
-  };
+  const call = caller(run, dir);
   const git = (...args) => call('git', args);
 
   const repo = GITHUB.exec(
@@ -231,20 +227,7 @@ export async function release({
         stop(`${version} is not higher than the tag v${top} on origin`);
       if (!notes) stop(`CHANGELOG.md has no entries for ${version}`);
     }
-    const found = call('gh', [
-      'api',
-      '--hostname',
-      'github.com',
-      '--paginate',
-      '--jq',
-      `.[] | select(.tag_name == ${JSON.stringify(tag)})`,
-      `repos/${repo}/releases?per_page=100`,
-    ])
-      .split('\n')
-      .filter(Boolean)
-      .map(line => JSON.parse(line));
-    if (found.length > 1) throw new Error(`${found.length} releases on GitHub have the tag ${tag}`);
-    const [existing] = found;
+    const existing = findRelease({ call, repo, tag });
     const state = !existing ? 'none' : existing.draft ? 'draft' : 'published';
     if (state === 'published' && !tags.has(version))
       throw new Error(`the release ${tag} is published but origin has no tag ${tag}`);
@@ -311,7 +294,23 @@ export async function release({
     }
     const answer = await ask(`Type ${version} to release it, anything else stops: `);
     if (answer !== version) throw new Error('not confirmed; nothing was written to GitHub or npm');
-    return result;
+    const url = githubRelease({
+      dir,
+      run,
+      repo,
+      version,
+      commit,
+      prerelease,
+      notes,
+      files,
+      listing,
+      checked: state !== 'published',
+      temp,
+      print,
+    });
+    print(`Released ${tag}: the tag is on ${commit}, the GitHub Release is ${url}`);
+    print('npm: not published. To publish these files to npm later, run: pnpm release --npm');
+    return { ...result, url };
   } finally {
     rmSync(temp, { recursive: true, force: true });
   }
@@ -332,16 +331,13 @@ if (fileURLToPath(import.meta.url) === process.argv[1]) {
   try {
     const args = process.argv.slice(2);
     if (args.some(arg => arg !== '--dry-run')) throw new Error('usage: pnpm release [--dry-run]');
-    const dryRun = args.includes('--dry-run');
     await release({
       dir: fileURLToPath(new URL('..', import.meta.url)),
       run: realRun,
-      dryRun,
+      dryRun: args.includes('--dry-run'),
       ask,
       sleep: ms => new Promise(resolve => setTimeout(resolve, ms)),
     });
-    if (!dryRun)
-      console.log('Confirmed. The tag and GitHub Release steps are not built yet; nothing was written.');
   } catch (error) {
     console.error(`release: ${error.message}`);
     process.exitCode = 1;
