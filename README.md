@@ -2,8 +2,8 @@
 
 <p>
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="assets/logo-dark.svg" />
-    <img src="assets/logo.svg" alt="swiftplot" height="64" />
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/GusevP/swiftplot/main/assets/logo-dark.svg" />
+    <img src="https://raw.githubusercontent.com/GusevP/swiftplot/main/assets/logo.svg" alt="swiftplot" height="64" />
   </picture>
 </p>
 
@@ -288,19 +288,38 @@ The same step at 1,000,000 points with `fit: 'window'` on the y axis, 2026-11-22
 
 ## Develop
 
-From the repository root. `build`, `test:import`, `test` and `typecheck` run in every package under `packages/`:
+From the repository root. `build`, `test:import`, `test` and `typecheck` run in every package under `packages/`. GitHub runs these checks, then packs the packages and checks the tarballs, on every push to `main` and every pull request (`.github/workflows/ci.yml`, read-only):
 
 ```sh
 pnpm install
 pnpm --filter swiftplot exec playwright install chromium   # once, for the tests
 pnpm build
 pnpm test:import # imports each package's dist/ in Node, after pnpm build
-pnpm test        # Vitest in a real browser, one package at a time
+pnpm test        # Vitest in a real browser, one package at a time, then node --test on scripts/
 pnpm typecheck
 pnpm --filter swiftplot run test   # one package
 pnpm lint        # oxlint, type-aware
 pnpm format      # oxfmt
 ```
+
+## Releasing
+
+Every package has the same version, and one release is one tag `vX.Y.Z` and one GitHub Release with the three tarballs and `SHA256SUMS`. The changelog is `CHANGELOG.md`: work adds its entries under `## Unreleased`, written by hand. Two commands, run on your machine with your own `git`, `gh` and `npm` logins:
+
+```sh
+pnpm release:prepare <version | patch | minor | major>   # one local commit: versions and changelog
+pnpm release [--npm] [--dry-run]                         # releases the commit on main
+```
+
+`release:prepare` needs a clean tree, a version higher than the current one and than every `v` tag on `origin`, and entries under `## Unreleased`. It sets the version in every package, turns `## Unreleased` into `## X.Y.Z - date` and commits `release: vX.Y.Z`. It does not push or tag: get the commit onto `main` as usual and let its checks run. A version with a hyphen (`0.1.0-rc.0`) is a pre-release.
+
+`pnpm release` takes the version from the packages and, when the tag does not exist yet, requires a clean tree, `HEAD` equal to `main` on `origin`, a version higher than every tag and changelog entries for it. It waits for the `ci.yml` push run on `main` for that commit and requires it and its `check` and `pack` jobs to have passed (a pull-request run does not count). It builds the tarballs from a clean export of the commit, checks them and keeps them in `.release/<version>/`. It then shows the commit, each file with its size and SHA-256, and the notes (the changelog section), and asks you to type the version. Only then does it push the tag to `origin` and create, upload to and publish the GitHub Release. A published release is never changed: one that differs from what was confirmed stops the command, naming what differs.
+
+If it stops, fix the cause and run it again: each step checks what is already done. Once the tag exists, a run continues that release on the tag's commit, even when `main` has moved on, and asks again before writing. A `.release/<version>/` that no longer matches stops the command with a message to remove it. `--dry-run` builds and shows the same preview, lists every reason a real run would stop, and writes nothing. It looks at the `ci.yml` run once, so it also lists a run still queued or in progress, which a real run waits up to 30 minutes for.
+
+`--npm` then publishes the published release's own files to npm in the order `swiftplot`, `@swiftplot/react`, `@swiftplot/vue`, a pre-release under the dist-tag `next`. npm refuses a `private` package, and every package is `"private": true` for now, so `--npm` stops before anything is written. To publish, remove `private` from the three packages before `release:prepare`: the check reads the packages at the release commit. A release made without `--npm` can go to npm later with `pnpm release --npm`.
+
+npm's staged publishing holds a new version for approval on npmjs.com, and a waiting version does not show in `npm view`. So the command keeps a receipt per package in `.release/<version>/npm.json` on your machine and never publishes a package twice. At the end it says for each package whether it is public, waiting, unconfirmed (sent, but npm did not answer; check npmjs.com), not published or not checked. A waiting version is approved on npmjs.com. If npmjs.com shows no publish of a package, because it was rejected or never arrived, remove that package's entry from `npm.json` and run again. `.release/<version>/npm.lock` stops a second publish of the same version; if a run was killed and none is running, remove `npm.lock`, not `npm.json`.
 
 ## Licence
 

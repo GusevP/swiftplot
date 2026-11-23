@@ -1,0 +1,165 @@
+import { writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { caller, remoteTags } from './prepare.mjs';
+
+export function findRelease({ call, repo, tag }) {
+  const found = call('gh', [
+    'api',
+    '--hostname',
+    'github.com',
+    '--paginate',
+    '--jq',
+    `.[] | select(.tag_name == ${JSON.stringify(tag)})`,
+    `repos/${repo}/releases?per_page=100`,
+  ])
+    .split('\n')
+    .filter(Boolean)
+    .map(line => JSON.parse(line));
+  if (found.length > 1) throw new Error(`${found.length} releases on GitHub have the tag ${tag}`);
+  return found[0];
+}
+
+const matches = (asset, file) =>
+  asset.state === 'uploaded' &&
+  Number.isSafeInteger(asset.size) &&
+  asset.size === file.size &&
+  asset.digest === `sha256:${file.sha256}`;
+
+function differences(release, listing) {
+  const problems = [];
+  for (const asset of release.assets) {
+    const file = listing.find(f => f.name === asset.name);
+    if (!file) problems.push(`${JSON.stringify(asset.name)} is not expected`);
+    else if (!matches(asset, file))
+      problems.push(`${file.name} is not the expected ${file.size} bytes with sha256 ${file.sha256}`);
+  }
+  for (const file of listing)
+    if (!release.assets.some(asset => asset.name === file.name)) problems.push(`${file.name} is missing`);
+  return problems;
+}
+
+export function draftProblem(release, listing, tag) {
+  const unexpected = release.assets.filter(asset => !listing.some(f => f.name === asset.name));
+  if (unexpected.length)
+    return `the draft release ${tag} has assets that are not expected: ${unexpected.map(a => JSON.stringify(a.name)).join(', ')}; delete them on GitHub and run again. Nothing was published`;
+}
+
+export function publishedProblem({ release, listing, prerelease, tag, at, commit }) {
+  const problems = differences(release, listing);
+  if (release.prerelease !== prerelease)
+    problems.push(prerelease ? 'it is not marked as a pre-release' : 'it is marked as a pre-release');
+  if (at !== commit) problems.push(`the tag ${tag} is on ${at ?? 'no commit'}, not ${commit}`);
+  if (problems.length)
+    return `the published release ${tag} is not the one confirmed, and this command never changes it:\n  ${problems.join('\n  ')}`;
+}
+
+export function githubRelease({
+  dir,
+  run,
+  repo,
+  version,
+  commit,
+  prerelease,
+  notes,
+  files,
+  listing,
+  checked,
+  temp,
+  print,
+}) {
+  const call = caller(run, dir);
+  const target = `github.com/${repo}`;
+  const tag = `v${version}`;
+  const tagAt = () => remoteTags(dir, run).get(version);
+  const find = () => findRelease({ call, repo, tag });
+
+  const tagged = tagAt();
+  let release = find();
+  if (tagged && tagged !== commit)
+    throw new Error(`the tag ${tag} on origin is on ${tagged}, not ${commit}; nothing was written`);
+  if (!checked && (!tagged || release?.draft !== false))
+    throw new Error(
+      `the release ${tag} is no longer published with its tag, and its checks were not looked at; run again`,
+    );
+
+  const notesFile = join(temp, 'notes.md');
+  writeFileSync(notesFile, notes);
+
+  if (!tagged) {
+    print(`Creating the tag ${tag} on ${commit} on origin.`);
+    if (
+      run('git', ['push', '--no-follow-tags', 'origin', `${commit}:refs/tags/${tag}`], { cwd: dir }).code !==
+      0
+    )
+      throw new Error(`pushing the tag ${tag} on ${commit} to origin failed; run again to continue`);
+    if (tagAt() !== commit)
+      throw new Error(`origin does not show the tag ${tag} on ${commit} after the push`);
+  }
+
+  if (!release) {
+    print(`Creating the draft GitHub Release ${tag}.`);
+    call('gh', [
+      'release',
+      'create',
+      tag,
+      '--repo',
+      target,
+      '--draft',
+      '--verify-tag',
+      '--title',
+      tag,
+      '--notes-file',
+      notesFile,
+      ...(prerelease ? ['--prerelease'] : []),
+    ]);
+    release = find();
+    if (!release?.draft) throw new Error(`GitHub does not show the draft release ${tag} just created`);
+  }
+
+  if (release.draft) {
+    const unexpected = draftProblem(release, listing, tag);
+    if (unexpected) throw new Error(unexpected);
+    const stillDraft = () => (release = find())?.draft;
+    for (const file of listing) {
+      if (!stillDraft()) break;
+      const asset = release.assets.find(a => a.name === file.name);
+      if (asset && matches(asset, file)) continue;
+      if (asset) {
+        print(`Deleting ${file.name} from the draft: it is not the expected file.`);
+        call('gh', ['release', 'delete-asset', tag, file.name, '--repo', target, '--yes']);
+        if (!stillDraft()) break;
+      }
+      print(`Uploading ${file.name}.`);
+      // gh release upload reads "#" in a file argument as the start of a label, so pass the bare name.
+      call('gh', ['release', 'upload', tag, file.name, '--repo', target], files);
+    }
+    release = find();
+    if (!release) throw new Error(`the draft release ${tag} was not published: it is gone`);
+  }
+
+  if (release.draft) {
+    const problems = differences(release, listing);
+    const at = tagAt();
+    if (at !== commit) problems.push(`the tag ${tag} is on ${at ?? 'no commit'}, not ${commit}`);
+    if (problems.length)
+      throw new Error(`the draft release ${tag} was not published:\n  ${problems.join('\n  ')}`);
+    print(`Publishing the GitHub Release ${tag}.`);
+    call('gh', [
+      'release',
+      'edit',
+      tag,
+      '--repo',
+      target,
+      '--notes-file',
+      notesFile,
+      '--draft=false',
+      `--prerelease=${prerelease}`,
+    ]);
+    release = find();
+    if (release?.draft !== false) throw new Error(`GitHub does not show the release ${tag} as published`);
+  }
+
+  const problem = publishedProblem({ release, listing, prerelease, tag, at: tagAt(), commit });
+  if (problem) throw new Error(problem);
+  return `https://github.com/${repo}/releases/tag/${tag}`;
+}

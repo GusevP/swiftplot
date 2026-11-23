@@ -11,14 +11,17 @@
     "url": "https://github.com/GusevP/swiftplot/issues"
   },
   "type": "module",
+  "packageManager": "pnpm@10.34.7",
   "scripts": {
     "build": "pnpm -r run build",
     "typecheck": "pnpm -r run typecheck",
     "lint": "oxlint --type-aware --deny-warnings",
     "format": "oxfmt",
     "format:check": "oxfmt --check",
-    "test": "pnpm -r --workspace-concurrency=1 run test",
-    "test:import": "pnpm -r run test:import"
+    "test": "pnpm -r --workspace-concurrency=1 run test && node --test \"scripts/*.test.mjs\"",
+    "test:import": "pnpm -r run test:import",
+    "release:prepare": "node scripts/prepare.mjs",
+    "release": "node scripts/release.mjs"
   },
   "devDependencies": {
     "oxfmt": "0.79.0",

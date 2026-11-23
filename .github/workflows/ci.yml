@@ -1,0 +1,72 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter swiftplot exec playwright install --with-deps chromium
+      - name: Show the browser and its WebGL renderer
+        working-directory: packages/core
+        run: |
+          node --input-type=module -e "
+          import { chromium } from 'playwright';
+          const browser = await chromium.launch();
+          const page = await browser.newPage();
+          const renderer = await page.evaluate(() => {
+            const gl = document.createElement('canvas').getContext('webgl2');
+            const info = gl && gl.getExtension('WEBGL_debug_renderer_info');
+            return gl ? (info ? gl.getParameter(info.UNMASKED_RENDERER_WEBGL) : 'webgl2') : 'no webgl2';
+          });
+          console.log('chromium', browser.version(), '|', renderer);
+          await browser.close();
+          "
+      - run: pnpm typecheck
+      - run: pnpm lint
+      - run: pnpm format:check
+      - run: pnpm test
+      - run: pnpm build
+      - run: pnpm test:import
+
+  pack:
+    needs: check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - run: node scripts/pack.mjs . "$RUNNER_TEMP/tarballs"
+      - run: node scripts/check-tarballs.mjs "$RUNNER_TEMP/tarballs"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: tarballs
+          path: ${{ runner.temp }}/tarballs
+          if-no-files-found: error
