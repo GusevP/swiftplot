@@ -18,7 +18,7 @@
     "lint": "oxlint --type-aware --deny-warnings",
     "format": "oxfmt",
     "format:check": "oxfmt --check",
-    "test": "pnpm -r --workspace-concurrency=1 run test && node --test 'scripts/*.test.mjs'",
+    "test": "pnpm -r --workspace-concurrency=1 run test && node --test \"scripts/*.test.mjs\"",
     "test:import": "pnpm -r run test:import"
   },
   "devDependencies": {
