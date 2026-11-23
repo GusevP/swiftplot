@@ -2,15 +2,19 @@ import { constants, copyFileSync, existsSync, mkdirSync, readdirSync, rmSync } f
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { writeSums } from './check-tarballs.mjs';
-import { run } from './prepare.mjs';
+import { command, run } from './prepare.mjs';
 import { manifests } from './version.mjs';
 
 const COPIED = ['README.md', 'LICENSE'];
 
-// pnpm sets npm_execpath to its JS entry for `pnpm run`; a bare `node scripts/pack.mjs` falls back to
-// `pnpm` on PATH, which Windows cannot spawn without a shell.
-export const pnpm = ({ npm_execpath: execpath } = process.env) =>
-  execpath && /pnpm\.[cm]?js$/.test(execpath) ? [process.execPath, execpath] : ['pnpm'];
+export const pnpm = (env = process.env, platform = process.platform) =>
+  env.npm_execpath && /pnpm\.[cm]?js$/.test(env.npm_execpath)
+    ? [process.execPath, env.npm_execpath]
+    : command(
+        'pnpm',
+        ['node_modules/pnpm/bin/pnpm.cjs', '../pnpm/bin/pnpm.cjs', 'node_modules/corepack/dist/pnpm.js'],
+        { env, platform },
+      );
 
 export function pack({ source, out, run, pnpmCommand = pnpm() }) {
   const packages = manifests(source).map(dirname);
@@ -31,9 +35,9 @@ export function pack({ source, out, run, pnpmCommand = pnpm() }) {
         copies.push(join(dir, name));
       }
     }
-    const [command, ...prefix] = pnpmCommand;
+    const [pnpmBin, ...prefix] = pnpmCommand;
     for (const dir of packages) {
-      const result = run(command, [...prefix, 'pack', '--pack-destination', out], { cwd: dir });
+      const result = run(pnpmBin, [...prefix, 'pack', '--pack-destination', out], { cwd: dir });
       if (result.code !== 0) throw new Error(`pnpm pack failed in ${dir}:\n${result.stdout}${result.stderr}`);
     }
   } finally {

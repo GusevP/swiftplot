@@ -13,7 +13,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { gunzipSync } from 'node:zlib';
-import { run } from './prepare.mjs';
+import { command, run } from './prepare.mjs';
 import { isVersion, manifests } from './version.mjs';
 
 export const PACKAGES = ['swiftplot', '@swiftplot/react', '@swiftplot/vue'];
@@ -41,15 +41,20 @@ export function entries(gzipped) {
   for (let at = 0; at + 512 <= tar.length;) {
     const header = tar.subarray(at, at + 512);
     if (header.every(byte => byte === 0)) break;
-    const size = Number.parseInt(cString(header, 124, 12).trim() || '0', 8);
     const type = String.fromCharCode(header[156] || 48);
     const prefix = cString(header, 257, 6) === 'ustar' ? cString(header, 345, 155) : '';
     const name = prefix ? `${prefix}/${cString(header, 0, 100)}` : cString(header, 0, 100);
-    if (!Number.isSafeInteger(size)) throw new Error(`bad size in the tar header of ${name}`);
+    const field = cString(header, 124, 12).trim();
+    if (!/^[0-7]+$/.test(field))
+      throw new Error(`bad size ${JSON.stringify(field)} in the tar header of ${name}`);
+    const size = Number.parseInt(field, 8);
+    const next = at + 512 + Math.ceil(size / 512) * 512;
+    if (!Number.isSafeInteger(next) || next > tar.length)
+      throw new Error(`${name} runs past the end of the tar`);
     const body = tar.subarray(at + 512, at + 512 + size);
     if (type === '0') files.set(name, body);
     else if (type !== '5') throw new Error(`unsupported tar entry type ${JSON.stringify(type)} for ${name}`);
-    at += 512 + Math.ceil(size / 512) * 512;
+    at = next;
   }
   return files;
 }
@@ -147,16 +152,6 @@ export function lockedVersion(lockfile, name) {
   return [...found][0];
 }
 
-function npmCli() {
-  const bin = dirname(process.execPath);
-  const found = [
-    join(bin, 'node_modules/npm/bin/npm-cli.js'),
-    join(bin, '../lib/node_modules/npm/bin/npm-cli.js'),
-  ].find(existsSync);
-  if (!found) throw new Error(`cannot find npm next to ${process.execPath}`);
-  return found;
-}
-
 export function smoke({ dir, source, run }) {
   const { version, files } = check(dir);
   const lockfile = readFileSync(join(source, 'pnpm-lock.yaml'), 'utf8');
@@ -168,8 +163,9 @@ export function smoke({ dir, source, run }) {
   };
   try {
     writeFileSync(join(fixture, 'package.json'), '{ "private": true, "type": "module" }\n');
-    call(process.execPath, [
-      npmCli(),
+    const [npm, ...prefix] = command('npm', ['node_modules/npm/bin/npm-cli.js']);
+    call(npm, [
+      ...prefix,
       'install',
       '--no-audit',
       '--no-fund',

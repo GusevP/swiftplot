@@ -10,11 +10,12 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { delimiter, join } from 'node:path';
 import test from 'node:test';
-import { gzipSync } from 'node:zlib';
-import { check, lockedVersion, verify, writeSums } from './check-tarballs.mjs';
+import { gunzipSync, gzipSync } from 'node:zlib';
+import { check, entries, lockedVersion, verify, writeSums } from './check-tarballs.mjs';
 import { pack, pnpm } from './pack.mjs';
+import { command } from './prepare.mjs';
 
 function tar(files) {
   const blocks = [];
@@ -215,13 +216,51 @@ test('lockedVersion reads the one locked version of a package', () => {
   assert.throws(() => lockedVersion(lockfile, 'svelte'), /found none/);
 });
 
+for (const [what, size, problem] of [
+  ['a negative size', '-0002000', /bad size "-0002000"/],
+  ['a size with trailing garbage', '0000001x', /bad size "0000001x"/],
+  ['an empty size', '', /bad size ""/],
+  ['an entry running past the end', '77777777', /package\/a runs past the end of the tar/],
+]) {
+  test(`entries rejects ${what}`, () => {
+    const raw = gunzipSync(tar({ 'package/a': 'x' }));
+    raw.fill(0, 124, 136);
+    raw.write(size, 124);
+    assert.throws(() => entries(gzipSync(raw)), problem);
+  });
+}
+
 test('pnpm runs its JS entry through node when pnpm set npm_execpath, and pnpm from PATH otherwise', () => {
-  assert.deepEqual(pnpm({ npm_execpath: '/x/pnpm/bin/pnpm.cjs' }), [
+  assert.deepEqual(pnpm({ npm_execpath: '/x/pnpm/bin/pnpm.cjs' }, 'linux'), [
     process.execPath,
     '/x/pnpm/bin/pnpm.cjs',
   ]);
-  assert.deepEqual(pnpm({ npm_execpath: '/x/npm/bin/npm-cli.js' }), ['pnpm']);
-  assert.deepEqual(pnpm({}), ['pnpm']);
+  assert.deepEqual(pnpm({ npm_execpath: '/x/npm/bin/npm-cli.js' }, 'linux'), ['pnpm']);
+  assert.deepEqual(pnpm({}, 'linux'), ['pnpm']);
+});
+
+test('command on Windows runs a native exe or the JS entry beside a .cmd shim from PATH', t => {
+  const root = tempDir(t, 'swiftplot-path-');
+  const put = path => {
+    mkdirSync(join(root, path, '..'), { recursive: true });
+    writeFileSync(join(root, path), '');
+  };
+  const PATH = ['empty', 'global', 'native'].map(dir => join(root, dir)).join(delimiter);
+  const win = env => pnpm(env, 'win32');
+  assert.throws(() => win({ PATH }), /cannot find a runnable pnpm on PATH/);
+  put('native/pnpm.exe');
+  assert.deepEqual(win({ Path: PATH }), [join(root, 'native/pnpm.exe')]);
+  put('global/node_modules/pnpm/bin/pnpm.cjs');
+  assert.deepEqual(win({ PATH }), [join(root, 'native/pnpm.exe')]);
+  put('global/pnpm.cmd');
+  assert.deepEqual(win({ PATH }), [process.execPath, join(root, 'global/node_modules/pnpm/bin/pnpm.cjs')]);
+  put('empty/npm.cmd');
+  put('empty/node_modules/npm/bin/npm-cli.js');
+  assert.deepEqual(
+    command('npm', ['node_modules/npm/bin/npm-cli.js'], { env: { PATH }, platform: 'win32' }),
+    [process.execPath, join(root, 'empty/node_modules/npm/bin/npm-cli.js')],
+  );
+  assert.deepEqual(command('npm', [], { env: {}, platform: 'linux' }), ['npm']);
 });
 
 const PACKAGES = ['core', 'react', 'vue'];

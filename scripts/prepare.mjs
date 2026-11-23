@@ -1,7 +1,7 @@
 import { spawnSync } from 'node:child_process';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { dirname, join, relative } from 'node:path';
+import { delimiter, dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promote } from './changelog.mjs';
 import { higher, isVersion, manifests, next, setShared, shared } from './version.mjs';
@@ -13,6 +13,19 @@ export function run(command, args, options = {}) {
   const result = spawnSync(command, args, { encoding: 'utf8', ...options });
   if (result.error) throw result.error;
   return { code: result.status, stdout: result.stdout, stderr: result.stderr };
+}
+
+// spawnSync cannot start a Windows .cmd shim without a shell, so on Windows run a native .exe or the JS
+// entry the shim would run.
+export function command(name, entries, { env = process.env, platform = process.platform } = {}) {
+  if (platform !== 'win32') return [name];
+  for (const dir of (env.PATH ?? env.Path ?? '').split(delimiter).filter(Boolean)) {
+    if (existsSync(join(dir, `${name}.exe`))) return [join(dir, `${name}.exe`)];
+    if (!existsSync(join(dir, `${name}.cmd`))) continue;
+    const entry = entries.map(path => join(dir, path)).find(existsSync);
+    if (entry) return [process.execPath, entry];
+  }
+  throw new Error(`cannot find a runnable ${name} on PATH`);
 }
 
 const localDate = (d = new Date()) =>
