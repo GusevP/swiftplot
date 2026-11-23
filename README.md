@@ -2,8 +2,8 @@
 
 <p>
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="assets/logo-dark.svg" />
-    <img src="assets/logo.svg" alt="swiftplot" height="64" />
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/GusevP/swiftplot/main/assets/logo-dark.svg" />
+    <img src="https://raw.githubusercontent.com/GusevP/swiftplot/main/assets/logo.svg" alt="swiftplot" height="64" />
   </picture>
 </p>
 

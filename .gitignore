@@ -3,3 +3,6 @@ dist
 .vitest
 docs/
 .revmux/
+.release/
+packages/*/README.md
+packages/*/LICENSE
