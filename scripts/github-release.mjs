@@ -61,6 +61,10 @@ export function githubRelease({
   temp,
   print,
 }) {
+  const labelled = listing.map(file => join(files, file.name)).find(path => path.includes('#'));
+  // gh release upload reads "#" in a file argument as the start of a label.
+  if (labelled)
+    throw new Error(`cannot upload ${labelled}: gh reads "#" in it as a label; nothing was written`);
   const call = caller(run, dir);
   const tag = `v${version}`;
   const tagAt = () => remoteTags(dir, run).get(version);
@@ -118,11 +122,8 @@ export function githubRelease({
         print(`Deleting ${file.name} from the draft: it is not the expected file.`);
         call('gh', ['release', 'delete-asset', tag, file.name, '--repo', repo, '--yes']);
       }
-      const path = join(files, file.name);
-      // gh release upload reads "#" in a file argument as the start of a label.
-      if (path.includes('#')) throw new Error(`cannot upload ${path}: gh reads "#" in it as a label`);
       print(`Uploading ${file.name}.`);
-      call('gh', ['release', 'upload', tag, path, '--repo', repo]);
+      call('gh', ['release', 'upload', tag, join(files, file.name), '--repo', repo]);
     }
     release = find();
     const problems = release ? differences(release, listing) : ['it is gone'];

@@ -24,7 +24,7 @@ function setup(t) {
   const tagAt = () => sh(origin, 'for-each-ref', '--format=%(objectname)', 'refs/tags/v0.1.0');
   const asset = name => ({ name, bytes: bytes(name) });
 
-  const go = ({ lostPush = false, prerelease = false, checked = true } = {}) => {
+  const go = ({ lostPush = false, prerelease = false, checked = true, filesDir = files } = {}) => {
     const temp = mkdtempSync(join(tmpdir(), 'swiftplot-github-release-temp-'));
     t.after(() => rmSync(temp, { recursive: true, force: true }));
     const gh = fakeGh(state);
@@ -53,7 +53,7 @@ function setup(t) {
         commit,
         prerelease,
         notes: '- an entry\n',
-        files,
+        files: filesDir,
         listing,
         checked,
         temp,
@@ -109,6 +109,15 @@ test('a tag on another commit stops with no write', async t => {
   const { writes, error } = s.go();
   assert.match(error.message, new RegExp(`the tag v0\\.1\\.0 on origin is on ${other}, not ${s.commit}`));
   assert.deepEqual(writes, []);
+  assert.deepEqual(s.state.releases, []);
+});
+
+test('a "#" in the files path stops before any write', async t => {
+  const s = setup(t);
+  const { writes, error } = s.go({ filesDir: join(s.dir, '..', 'C#') });
+  assert.match(error.message, /gh reads "#" in it as a label; nothing was written/);
+  assert.deepEqual(writes, []);
+  assert.equal(s.tagAt(), '');
   assert.deepEqual(s.state.releases, []);
 });
 
