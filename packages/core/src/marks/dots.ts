@@ -12,6 +12,11 @@ export type DotsOptions = Common & { x: Col; y: Col; r: Col; ring?: number; fill
 
 const TAU = 2 * Math.PI;
 
+const origin = (c: Col) => {
+  for (let i = 0; i < c.length; i++) if (Number.isFinite(c[i])) return c[i]!;
+  return 0;
+};
+
 const programs = new WeakMap<WebGL2RenderingContext, ReturnType<typeof pointProgram>>();
 
 function pointProgram(gl: WebGL2RenderingContext) {
@@ -55,15 +60,15 @@ export function dots(o: DotsOptions): Mark {
     programs.set(gl, u);
     // The offsets are subtracted in float64: a float32 attribute cannot hold e.g. millisecond timestamps.
     // They come from the data, not the domain, so a new view changes only the uniform and never the buffer.
-    const x0 = x[0] ?? 0;
-    const y0 = y[0] ?? 0;
+    const x0 = origin(x);
+    const y0 = origin(y);
     let buffer = buffers.get(gl);
     if (!buffer) {
       const data = new Float32Array(n * 3);
       for (let i = 0; i < n; i++) {
         data[3 * i] = x[i]! - x0;
         data[3 * i + 1] = y[i]! - y0;
-        data[3 * i + 2] = r[i]!;
+        data[3 * i + 2] = Math.max(0, r[i]!);
       }
       buffer = gl.createBuffer();
       gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
@@ -122,7 +127,7 @@ export function dots(o: DotsOptions): Mark {
         const px = ox + x[i]! * kx;
         const py = oy - y[i]! * ky;
         if (px < left - out || px > left + width + out || py < top - out || py > top + height + out) return;
-        const radius = r[i]! * dpr + grow;
+        const radius = Math.max(0, r[i]! * dpr + grow);
         path.moveTo(px + radius, py);
         path.arc(px, py, radius, 0, TAU);
       };

@@ -8,9 +8,6 @@ importers:
 
   .:
     devDependencies:
-      '@vitest/browser-playwright':
-        specifier: ^5.1.1
-        version: 5.1.1(playwright@1.65.1)(vite@8.3.8)(vitest@5.1.1)
       oxfmt:
         specifier: 0.79.0
         version: 0.79.0
@@ -20,6 +17,12 @@ importers:
       oxlint-tsgolint:
         specifier: ^7.0.2007
         version: 7.0.2007
+
+  packages/core:
+    devDependencies:
+      '@vitest/browser-playwright':
+        specifier: ^5.1.1
+        version: 5.1.1(playwright@1.65.1)(vite@8.3.8)(vitest@5.1.1)
       playwright:
         specifier: ^1.65.1
         version: 1.65.1

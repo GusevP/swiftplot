@@ -9,7 +9,59 @@
 
 Small, fast charts on Canvas 2D and WebGL2. MIT, TypeScript, ESM only, no dependencies.
 
-**Status: prototype.** It draws lines and areas (straight or stepped), bars, box plots, error bars, heatmaps, tick marks and scatter dots on linear, time and category axes, and pies, donuts, radars, radial bars, funnels, sankey diagrams, treemaps and sunbursts, with a hover tooltip, dim-the-others on hover and optional animation. A chart can be updated and follows its container when no size is given. There is a legend that hides and shows series, zoom and pan, a brush, a click event, the pointer from code for linked charts, light and dark themes, reference lines and zones, log axes, and tick steps and formats.
+**Status: prototype.** It draws lines and areas (straight or stepped), bars, box plots, error bars, heatmaps, tick marks and scatter dots on linear, time and category axes, and pies, donuts, radars, radial bars, funnels, sankey diagrams, treemaps and sunbursts, with a hover tooltip, dim-the-others on hover and optional animation. A chart can be updated and follows its container when no size is given. `swiftplot/charts` builds line, area, bar and scatter charts from the data alone. There is a legend that hides and shows series, zoom and pan, a brush, a click event, the pointer from code for linked charts, light and dark themes, reference lines and zones, log axes, and tick steps and formats. The repository is a pnpm workspace with the package in `packages/core`; nothing is published yet.
+
+## Charts from data
+
+`swiftplot/charts` draws a chart from the data alone and lets every default be overridden. It is a second entry of the same package, built on the API under "Use", which it leaves unchanged.
+
+```ts
+import { lineChart } from 'swiftplot/charts';
+
+const chart = lineChart(el, { data: rows }); // fields guessed; axes, colours, tooltip and legend by default
+chart.update({ data: next }); // only what changed reaches the chart
+chart.destroy();
+```
+
+- **Charts:** `lineChart`, `areaChart`, `barChart` and `scatterChart`. Each returns `{ update(props), destroy(), chart }`; `update` takes only the props that change, and `chart` is the underlying chart.
+- **Data** is row objects, an object of columns (arrays or typed arrays, all of one length), a plain number array (`y` against its index, as the series `value`), or `[x, y]` pairs (the series `y`; a row of any other length throws). Long rows, `{ date, service, value }`, take `series: 'service'` and give one series per distinct value. `data` missing, `null` or empty draws an empty frame and never throws, so a chart can be created before its data arrives.
+- **Values:** a number, a `Date`, an ISO 8601 string (`2026-11-22`, `2026-11-22T10:00` or with a space, optional seconds and fraction, and `Z` or `+02:00` after a time) or other text. A field's first value that is not missing (`null`, `undefined`, `''`, `NaN`, an infinite number) decides its kind; later values of another kind, an invalid `Date` and an impossible date (`2026-13-40`, `T24:00`) are missing. Numbers held as text (`"12.5"`) are text and are not converted. A field of booleans or objects cannot be plotted.
+- **Dates** without a zone are read as UTC, so the same data draws the same chart on every machine; `xAxis: { utc: false }` reads them, and shows the axis, in local time.
+- **Fields** are named by `x`, `y` (one field or a list) and `series`, by name or, on row objects only, by an accessor `(row, index) => value`. A named field is never second-guessed. What is not named is guessed, in field order (the keys of the first 100 rows, or of the columns object): `x` is the first date field, else the first text field, else the first number field when a `y` is named or another number field is left, else the row index; `y` is every number field left, one series each. A scatter chart takes the first date field, else the first number field, as `x` and the next number field as its one `y`.
+- **Errors** name the chart; an error about fields also names the fields with their kinds and the prop to pass. Guessing throws when no number field is left for `y` (naming any field of numbers held as text), when a text field is left over without `series` (the rows look like long data, even with `x` and `y` named), for a named field that does not exist or is not numbers where numbers are needed, and for a scatter chart without two usable fields or with more than one `y`. An update that throws leaves the chart as it was.
+- **Rows:** line and area charts sort rows by x (stably); bar and scatter charts keep the given order. A row with a missing x (or, on a scatter, a missing `r`) is dropped; a missing y is a gap.
+- **Axes:** settings go under `xAxis` and `yAxis`. Which x settings apply depends on the x field:
+
+  | x                   | axis     | settings                                                                                           |
+  | ------------------- | -------- | -------------------------------------------------------------------------------------------------- |
+  | numbers, row index  | linear   | `label`, `domain` (`'nice'` by default), `step`, `format`, `fit`                                   |
+  | dates               | time     | `label`, `utc`, `unit` and `every`, `format`, `fit`, `domain` as `[from, to]` in milliseconds only |
+  | text, and every bar | category | `label` only                                                                                       |
+
+  `yAxis` takes `label`, `domain`, `step`, `format` and `fit`. Bars put each row (or, with `series`, each distinct x in order of first appearance) in a category of its own, dates included, labelled in UTC whatever `utc` says.
+
+- **Defaults:**
+
+  | Thing               | Default                                                                   | Override                               |
+  | ------------------- | ------------------------------------------------------------------------- | -------------------------------------- |
+  | Axis labels         | the field's name; none for the row index, an accessor or several y fields | `xAxis.label`, `yAxis.label`           |
+  | Colours             | `palette` in order, `paletteDark` on the dark theme                       | `colors`                               |
+  | Tooltip             | on; text in the y axis format, else two decimals at most                  | `tooltip: false`                       |
+  | Legend              | on with two or more series                                                | `legend: false` or `legend()` options  |
+  | Zoom                | off                                                                       | `zoom: true` or `zoom()` options       |
+  | Animation           | off                                                                       | `animate: true` or `animate()` options |
+  | Theme               | follows the page                                                          | `theme: 'light' \| 'dark' \| Theme`    |
+  | Size                | follows the container                                                     | `width`, `height`, `margin`            |
+  | Several y on areas  | overlapping, half transparent                                             | `stack: true`                          |
+  | Several y on bars   | side by side                                                              | `stack: true`                          |
+  | Line and area shape | straight, with gaps                                                       | `curve`, `join`                        |
+  | Scatter radius      | 4 px                                                                      | `r`: a number or a field               |
+
+- **Stacking** counts a missing value as zero, so a stacked area has no gap where an unstacked one would. Long series are stacked over the union of their x values.
+- **Interaction state** (`view`, `hidden`, `selected`, `pointer`) is kept by the chart unless the prop is given; `onViewChange`, `onHiddenChange`, `onClick` and `onPointerChange` report it as in the explicit API. Changing `tooltip`, `legend`, `zoom` or `animate` creates the chart again and keeps a zoomed window and hidden series.
+- **`dataVersion`:** conversion is cached on the data's identity and length (each column's, for an object of columns). Pass new data, or after changing values in place, bump `dataVersion`: `chart.update({ dataVersion: ++version })`.
+- **Theme:** `theme` defaults to `'auto'`, which follows the computed CSS `color-scheme` of the chart's element: `dark` gives the dark theme, `light dark` follows the system setting and switches with it, anything else gives light. It is read when the chart is created, when the system setting changes and when the `theme` prop changes.
+- **`.spec()`** is the way out to the explicit API: `lineChart.spec({ data: rows, x: 'date', y: ['api', 'web'] })` returns the `plot()` options the chart would use. It needs no element and runs in Node; with the `'auto'` theme it gives no theme and the light palette.
 
 ## Use
 
@@ -69,7 +121,7 @@ chart.destroy();
   );
   ```
 
-- **Themes:** `theme: dark` colours the text, grid, tick marks and tooltip for a dark page; `light` is the default. Dark mode is never guessed: the app switches it, and `paletteDark` gives series colours for a dark surface.
+- **Themes:** `theme: dark` colours the text, grid, tick marks and tooltip for a dark page; `light` is the default. The core never guesses dark mode: the app switches it, and `paletteDark` gives series colours for a dark surface. The charts of `swiftplot/charts` follow the page's `color-scheme` instead.
 
   ```ts
   const scheme = matchMedia('(prefers-color-scheme: dark)');
@@ -184,11 +236,13 @@ The same step at 1,000,000 points with `fit: 'window'` on the y axis, 2026-11-22
 
 ## Develop
 
+From the repository root:
+
 ```sh
 pnpm install
-pnpm exec playwright install chromium   # once, for the tests
+pnpm --filter swiftplot exec playwright install chromium   # once, for the tests
 pnpm build
-pnpm test:import # imports the built dist/ in Node, after pnpm build
+pnpm test:import # imports packages/core/dist/ in Node, after pnpm build
 pnpm test        # Vitest in a real browser
 pnpm typecheck
 pnpm lint        # oxlint, type-aware

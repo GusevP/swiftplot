@@ -1,4 +1,4 @@
-// Needs Playwright: pnpm add -D @playwright/test
+// Needs Playwright: pnpm add -Dw @playwright/test
 import { chromium } from '@playwright/test';
 const browser = await chromium.launch({ channel: 'chromium' });
 const context = await browser.newContext({ viewport: { width: 1000, height: 700 } });

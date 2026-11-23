@@ -1,0 +1,43 @@
+{
+  "name": "swiftplot",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Small, fast charts on Canvas 2D and WebGL2",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/GusevP/swiftplot.git",
+    "directory": "packages/core"
+  },
+  "homepage": "https://github.com/GusevP/swiftplot#readme",
+  "bugs": {
+    "url": "https://github.com/GusevP/swiftplot/issues"
+  },
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./charts": {
+      "types": "./dist/charts/index.d.ts",
+      "default": "./dist/charts/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:import": "node test/import.mjs"
+  },
+  "devDependencies": {
+    "@vitest/browser-playwright": "^5.1.1",
+    "playwright": "^1.65.1",
+    "typescript": "^7.0.2",
+    "vitest": "^5.1.1"
+  }
+}

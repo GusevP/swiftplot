@@ -1,5 +1,7 @@
 // Runs in Node, which has no DOM, against the built library that ships.
-import { deepStrictEqual } from 'node:assert/strict';
+import { deepStrictEqual, strictEqual } from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import * as charts from '../dist/charts/index.js';
 import * as lib from '../dist/index.js';
 
 deepStrictEqual(
@@ -118,3 +120,29 @@ const marks = [
 for (const [i, mark] of marks.entries()) {
   deepStrictEqual(typeof mark.prepare, 'function', `marks[${i}].prepare`);
 }
+
+deepStrictEqual(
+  Object.keys(charts).sort(),
+  ['areaChart', 'barChart', 'lineChart', 'scatterChart'],
+  'charts exports',
+);
+strictEqual(await import('swiftplot/charts'), charts, 'swiftplot/charts');
+const rows = [
+  { date: '2026-11-01', api: 1, web: 2 },
+  { date: '2026-11-02', api: 3, web: 4 },
+];
+strictEqual(charts.lineChart.spec({ data: rows }).marks.length, 2, 'lineChart.spec');
+
+const reached = new Set();
+const walk = url => {
+  if (reached.has(url.href)) return;
+  reached.add(url.href);
+  for (const [, path] of readFileSync(url, 'utf8').matchAll(/from '(\.[^']+)'/g)) walk(new URL(path, url));
+};
+walk(new URL('../dist/index.js', import.meta.url));
+const chartsDir = new URL('../dist/charts/', import.meta.url).href;
+deepStrictEqual(
+  [...reached].filter(href => href.startsWith(chartsDir)),
+  [],
+  'core entry imports no charts',
+);

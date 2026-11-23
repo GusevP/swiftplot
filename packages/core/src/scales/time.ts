@@ -68,7 +68,7 @@ const read = (t: number, utc: boolean) => {
     : [d.getFullYear(), d.getMonth(), d.getDate(), d.getHours(), d.getMinutes(), d.getSeconds()];
 };
 // Date.UTC and new Date(y, ...) read the years 0 to 99 as 1900 to 1999; the setters do not.
-const make = ([y, mo, d, h, mi, s]: number[], utc: boolean) => {
+export const make = ([y, mo, d, h, mi, s]: number[], utc: boolean) => {
   const t = new Date(0);
   if (utc) {
     t.setUTCFullYear(y!, mo, d);

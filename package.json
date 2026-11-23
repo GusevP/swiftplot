@@ -1,8 +1,6 @@
 {
-  "name": "swiftplot",
-  "version": "0.0.0",
+  "name": "swiftplot-workspace",
   "private": true,
-  "description": "Small, fast charts on Canvas 2D and WebGL2",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -13,32 +11,18 @@
     "url": "https://github.com/GusevP/swiftplot/issues"
   },
   "type": "module",
-  "sideEffects": false,
-  "exports": {
-    ".": {
-      "types": "./dist/index.d.ts",
-      "default": "./dist/index.js"
-    }
-  },
-  "files": [
-    "dist"
-  ],
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
-    "typecheck": "tsc --noEmit",
+    "build": "pnpm --filter swiftplot run build",
+    "typecheck": "pnpm --filter swiftplot run typecheck",
     "lint": "oxlint --type-aware --deny-warnings",
     "format": "oxfmt",
     "format:check": "oxfmt --check",
-    "test": "vitest run",
-    "test:import": "node test/import.mjs"
+    "test": "pnpm --filter swiftplot run test",
+    "test:import": "pnpm --filter swiftplot run test:import"
   },
   "devDependencies": {
-    "@vitest/browser-playwright": "^5.1.1",
     "oxfmt": "0.79.0",
     "oxlint": "^1.94.0",
-    "oxlint-tsgolint": "^7.0.2007",
-    "playwright": "^1.65.1",
-    "typescript": "^7.0.2",
-    "vitest": "^5.1.1"
+    "oxlint-tsgolint": "^7.0.2007"
   }
 }

@@ -44,6 +44,25 @@ import type { Axis, Col, Internals, Mark, Options } from '../src/index.js';
 import type { GlLayer } from '../src/types.js';
 import { columns, span, type Curve } from '../src/marks/common.js';
 import { scale } from '../src/scale.js';
+import {
+  host,
+  pixel,
+  hover,
+  touch,
+  at,
+  wheel,
+  press,
+  release,
+  drag,
+  click,
+  doubleClick,
+  pinch,
+  tap,
+  entriesOf,
+  middleOf,
+  nextFrame,
+  tipOf,
+} from './helpers.js';
 
 const RED = '#ff0000';
 const frame = {
@@ -54,102 +73,6 @@ const frame = {
   y: { domain: [0, 1], label: '' },
 } satisfies Partial<Options>;
 const { width: _w, height: _h, ...unsized } = frame;
-
-function host() {
-  return document.body.appendChild(document.createElement('div'));
-}
-
-/** RGBA of the CSS pixel (x, y) of the nth canvas. A WebGL canvas must be read in the task that drew it. */
-function pixel(el: HTMLElement, x: number, y: number, nth = 0) {
-  const source = el.querySelectorAll('canvas')[nth]!;
-  const copy = document.createElement('canvas').getContext('2d')!;
-  copy.drawImage(source, x * devicePixelRatio, y * devicePixelRatio, 1, 1, 0, 0, 1, 1);
-  return [...copy.getImageData(0, 0, 1, 1).data];
-}
-
-function hover(el: HTMLElement, x: number, y: number) {
-  const root = el.firstElementChild as HTMLElement;
-  const box = root.getBoundingClientRect();
-  root.dispatchEvent(
-    new PointerEvent('pointermove', { pointerType: 'mouse', clientX: box.left + x, clientY: box.top + y }),
-  );
-  return root;
-}
-
-/** What a finger lifted from target sends: the leave reaches every element it was over. */
-function touch(target: Element, clientX = 0, clientY = 0, pointerType = 'touch') {
-  const init = { bubbles: true, composed: true, pointerType, clientX, clientY };
-  target.dispatchEvent(new PointerEvent('pointerdown', init));
-  target.dispatchEvent(new PointerEvent('pointerup', init));
-  for (let e: Element | null = target; e; e = e.parentElement) {
-    e.dispatchEvent(new PointerEvent('pointerleave', { ...init, bubbles: false }));
-  }
-}
-
-/** Event fields for the CSS pixel (x, y) of the chart in el. */
-function at(el: HTMLElement, x: number, y: number) {
-  const box = el.firstElementChild!.getBoundingClientRect();
-  return { bubbles: true, composed: true, cancelable: true, clientX: box.left + x, clientY: box.top + y };
-}
-
-function wheel(el: HTMLElement, x: number, y: number, deltaY: number, init: WheelEventInit = {}) {
-  const e = new WheelEvent('wheel', { ...at(el, x, y), deltaY, ...init });
-  el.firstElementChild!.dispatchEvent(e);
-  return e;
-}
-
-function press(el: HTMLElement, type: string, x: number, y: number, init: PointerEventInit = {}) {
-  el.firstElementChild!.dispatchEvent(
-    new PointerEvent(type, { ...at(el, x, y), pointerType: 'mouse', pointerId: 1, ...init }),
-  );
-}
-
-/** A release, and the click a browser sends after it to what is under the pointer. */
-function release(el: HTMLElement, x: number, y: number, init: PointerEventInit = {}) {
-  press(el, 'pointerup', x, y, init);
-  clickUnder(el, x, y, init);
-}
-
-function clickUnder(el: HTMLElement, x: number, y: number, init: MouseEventInit = {}) {
-  const e = at(el, x, y);
-  const under = document.elementFromPoint(e.clientX, e.clientY) ?? el.firstElementChild!;
-  under.dispatchEvent(new MouseEvent('click', { ...e, ...init }));
-}
-
-function drag(el: HTMLElement, [x0, y0]: number[], [x1, y1]: number[], init: PointerEventInit = {}) {
-  press(el, 'pointerdown', x0!, y0!, init);
-  press(el, 'pointermove', (x0! + x1!) / 2, (y0! + y1!) / 2, init);
-  press(el, 'pointermove', x1!, y1!, init);
-  release(el, x1!, y1!, init);
-}
-
-function click(el: HTMLElement, x: number, y: number) {
-  press(el, 'pointerdown', x, y);
-  release(el, x, y);
-}
-
-function doubleClick(el: HTMLElement, x: number, y: number) {
-  click(el, x, y);
-  click(el, x, y);
-  el.firstElementChild!.dispatchEvent(new MouseEvent('dblclick', { ...at(el, x, y), detail: 2 }));
-}
-
-/** Two fingers landing at a0 and b0, moving to a1 and b1, and lifting. */
-function pinch(el: HTMLElement, a0: number[], b0: number[], a1: number[], b1: number[]) {
-  const finger = (pointerId: number) => ({ pointerType: 'touch', pointerId });
-  press(el, 'pointerdown', a0[0]!, a0[1]!, finger(1));
-  press(el, 'pointerdown', b0[0]!, b0[1]!, finger(2));
-  press(el, 'pointermove', a1[0]!, a1[1]!, finger(1));
-  press(el, 'pointermove', b1[0]!, b1[1]!, finger(2));
-  press(el, 'pointerup', a1[0]!, a1[1]!, finger(1));
-  press(el, 'pointerup', b1[0]!, b1[1]!, finger(2));
-}
-
-function tap(el: HTMLElement, x: number, y: number) {
-  const { clientX, clientY } = at(el, x, y);
-  touch(el.firstElementChild!, clientX, clientY);
-  clickUnder(el, x, y);
-}
 
 const flat = (y: number) => line({ x: [0, 10], y: [y, y], curve: 'step', color: RED, width: 4 });
 const pile = (n: number, color = RED) =>
@@ -867,6 +790,18 @@ test('WebGL dots honour a colour with alpha', () => {
   const other = host();
   plot(other, { ...frame, marks: [pile(30_000, 'color(srgb 1 0 0)')] });
   expect(pixel(other, 50, 50, 1)).toEqual([255, 0, 0, 255]);
+});
+
+test('WebGL dots with a missing first y still draw the later points', () => {
+  const el = host();
+  const n = 30_000;
+  const x = new Float64Array(n);
+  const y = new Float64Array(n);
+  y[0] = NaN;
+  [x[1], y[1]] = [5, 0.5];
+  plot(el, { ...frame, marks: [dots({ x, y, r: new Float64Array(n).fill(3), color: RED })] });
+  expect(el.querySelectorAll('canvas')[1]!.style.display).toBe('');
+  expect(pixel(el, 50, 50, 1)).toEqual([255, 0, 0, 255]);
 });
 
 test('dots move between canvas and WebGL as their number crosses the threshold', () => {
@@ -3082,17 +3017,6 @@ test.each(['open', 'closed'] as const)(
   },
 );
 
-const entriesOf = (el: HTMLElement) => [...el.querySelectorAll('span')].filter(s => s.children.length);
-const middleOf = (e: Element) => {
-  const spot = e.getBoundingClientRect();
-  return {
-    bubbles: true,
-    composed: true,
-    pointerType: 'mouse',
-    clientX: spot.left + spot.width / 2,
-    clientY: spot.top + spot.height / 2,
-  };
-};
 const three = () => [
   line({ x: [0, 10], y: [0.25, 0.25], color: RED, width: 4, label: 'A' }),
   line({ x: [0, 10], y: [0.5, 0.5], color: RED, width: 4, label: 'B' }),
@@ -6235,7 +6159,6 @@ test('a window equal to the whole domain it replaces still drops the edge labels
   for (const { text, box } of texts(el)) expect(box.left, text).toBeGreaterThanOrEqual(outer.left);
 });
 
-const nextFrame = () => new Promise(requestAnimationFrame);
 const near = (got: number[], want: number[]) => got.forEach((v, i) => expect(v).toBeCloseTo(want[i]!, 9));
 
 /** Every pixel of a chart's 2D canvas. */
@@ -6696,10 +6619,6 @@ test('two fingers zoom about their midpoint and pan when they move together; one
   expect(internals.view().x).toEqual(shown);
 });
 
-const tipOf = (el: HTMLElement) => {
-  const tip = [...el.querySelectorAll('div')].find(d => d.style.zIndex === '100')!;
-  return () => tip.style.display !== 'none';
-};
 const tipped = (options: Partial<Options> = {}) =>
   windowed({
     width: 200,
