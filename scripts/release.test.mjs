@@ -334,7 +334,7 @@ test('step 1 stops, naming the reason, before anything is written', async t => {
     {
       name: 'origin is another repository',
       origin: 'git@github.com:someone/swiftplot.git',
-      error: /origin is git@github\.com:someone\/swiftplot\.git, not github\.com\/GusevP\/swiftplot/,
+      error: /origin is github\.com\/someone\/swiftplot, not github\.com\/GusevP\/swiftplot/,
       only: ['git remote get-url origin'],
     },
     {
@@ -342,9 +342,15 @@ test('step 1 stops, naming the reason, before anything is written', async t => {
       origin: 'https://x-access-token:s3cret@github.com/someone/swiftplot.git',
       error: e =>
         !e.message.includes('s3cret') &&
-        /origin is https:\/\/github\.com\/someone\/swiftplot\.git, not github\.com\/GusevP\/swiftplot/.test(
-          e.message,
-        ),
+        /origin is github\.com\/someone\/swiftplot, not github\.com\/GusevP\/swiftplot/.test(e.message),
+      only: ['git remote get-url origin'],
+    },
+    {
+      name: 'origin carries a token in its query',
+      origin: 'https://github.com/GusevP/swiftplot.git?access_token=s3cret',
+      error: e =>
+        !e.message.includes('s3cret') &&
+        /origin is a URL that names no GitHub repository, not github\.com\/GusevP\/swiftplot/.test(e.message),
       only: ['git remote get-url origin'],
     },
     {
@@ -352,7 +358,17 @@ test('step 1 stops, naming the reason, before anything is written', async t => {
       pushUrls: `${URL_OF_REPO}\nhttps://user:s3cret@github.com/someone/swiftplot.git\n`,
       error: e =>
         !e.message.includes('s3cret') &&
-        /origin pushes to https:\/\/github\.com\/someone\/swiftplot\.git, not github\.com\/GusevP\/swiftplot/.test(
+        /origin pushes to github\.com\/someone\/swiftplot, not github\.com\/GusevP\/swiftplot/.test(
+          e.message,
+        ),
+      only: ['git remote get-url origin', 'git remote get-url --push --all origin'],
+    },
+    {
+      name: 'origin pushes to a URL with a token in its query',
+      pushUrls: `${URL_OF_REPO}\nhttps://github.com/GusevP/swiftplot.git?access_token=s3cret\n`,
+      error: e =>
+        !e.message.includes('s3cret') &&
+        /origin pushes to a URL that names no GitHub repository, not github\.com\/GusevP\/swiftplot/.test(
           e.message,
         ),
       only: ['git remote get-url origin', 'git remote get-url --push --all origin'],

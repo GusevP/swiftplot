@@ -29,7 +29,10 @@ const GITHUB =
 export const tarballName = (name, version) => `${name.replace(/^@/, '').replace('/', '-')}-${version}.tgz`;
 const expectedFiles = version => [...PACKAGES.map(name => tarballName(name, version)), SUMS].sort();
 const sameList = (a, b) => a.length === b.length && a.every((x, i) => x === b[i]);
-const withoutUserinfo = url => url.replace(/^([a-z+]+:\/\/)[^@/]*@/i, '$1');
+const shown = url => {
+  const repo = GITHUB.exec(url)?.[1];
+  return repo ? `github.com/${repo}` : 'a URL that names no GitHub repository';
+};
 
 export async function checks({ api, commit, sleep, now, print = () => {}, wait = true }) {
   const start = now();
@@ -172,10 +175,10 @@ export async function release({
   if (!repo) throw new Error('the root package.json names no GitHub repository');
   const isRepo = url => GITHUB.exec(url)?.[1].toLowerCase() === repo.toLowerCase();
   const origin = git('remote', 'get-url', 'origin').trim();
-  if (!isRepo(origin)) throw new Error(`origin is ${withoutUserinfo(origin)}, not github.com/${repo}`);
+  if (!isRepo(origin)) throw new Error(`origin is ${shown(origin)}, not github.com/${repo}`);
   for (const push of git('remote', 'get-url', '--push', '--all', 'origin').split('\n').filter(Boolean))
     if (!isRepo(push.trim()))
-      throw new Error(`origin pushes to ${withoutUserinfo(push.trim())}, not github.com/${repo}`);
+      throw new Error(`origin pushes to ${shown(push.trim())}, not github.com/${repo}`);
   const api = path => JSON.parse(call('gh', ['api', '--hostname', 'github.com', `repos/${repo}/${path}`]));
 
   const reasons = [];
