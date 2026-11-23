@@ -19,7 +19,7 @@ import { isVersion, manifests } from './version.mjs';
 export const PACKAGES = ['swiftplot', '@swiftplot/react', '@swiftplot/vue'];
 const WRAPPERS = PACKAGES.slice(1);
 const REQUIRED = ['package.json', 'README.md', 'LICENSE', 'dist/index.js', 'dist/index.d.ts'];
-const SUMS = 'SHA256SUMS';
+export const SUMS = 'SHA256SUMS';
 
 const workspaceRanges = (value, path = []) =>
   typeof value === 'string'
@@ -29,7 +29,7 @@ const workspaceRanges = (value, path = []) =>
     : value && typeof value === 'object'
       ? Object.entries(value).flatMap(([key, inner]) => workspaceRanges(inner, [...path, key]))
       : [];
-const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
+export const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
 const cString = (block, start, length) => {
   const end = block.indexOf(0, start);
   return block.toString('utf8', start, end === -1 || end > start + length ? start + length : end);

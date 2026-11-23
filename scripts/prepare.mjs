@@ -4,7 +4,7 @@ import { createRequire } from 'node:module';
 import { delimiter, dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promote } from './changelog.mjs';
-import { higher, isVersion, manifests, next, setShared, shared } from './version.mjs';
+import { higher, highest, isVersion, manifests, next, setShared, shared } from './version.mjs';
 
 const require = createRequire(import.meta.url);
 const oxfmt = join(dirname(require.resolve('oxfmt/package.json')), require('oxfmt/package.json').bin.oxfmt);
@@ -31,15 +31,17 @@ export function command(name, entries, { env = process.env, platform = process.p
 const localDate = (d = new Date()) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
-function remoteTags(dir, run) {
-  const { code, stdout, stderr } = run('git', ['ls-remote', '--tags', '--refs', 'origin', 'refs/tags/v*'], {
+export function remoteTags(dir, run) {
+  const { code, stdout, stderr } = run('git', ['ls-remote', '--tags', 'origin', 'refs/tags/v*'], {
     cwd: dir,
   });
   if (code !== 0) throw new Error(`git ls-remote origin failed: ${stderr.trim()}`);
-  return stdout
-    .split('\n')
-    .map(line => line.split('\trefs/tags/v')[1])
-    .filter(version => version !== undefined && isVersion(version));
+  const tags = new Map();
+  for (const line of stdout.split('\n')) {
+    const m = /^([0-9a-f]+)\trefs\/tags\/v([^^]+)(\^\{\})?$/.exec(line);
+    if (m && isVersion(m[2]) && (m[3] || !tags.has(m[2]))) tags.set(m[2], m[1]);
+  }
+  return tags;
 }
 
 export function prepare({ dir, arg, run, today = localDate() }) {
@@ -54,7 +56,7 @@ export function prepare({ dir, arg, run, today = localDate() }) {
   const version = next(current, arg);
   if (!higher(version, current))
     throw new Error(`${version} is not higher than the current version ${current}`);
-  const top = remoteTags(dir, run).reduce((a, b) => (a === undefined || higher(b, a) ? b : a), undefined);
+  const top = highest([...remoteTags(dir, run).keys()]);
   if (top !== undefined && !higher(version, top))
     throw new Error(`${version} is not higher than the tag v${top} on origin`);
   const changelog = join(dir, 'CHANGELOG.md');

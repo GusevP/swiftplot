@@ -68,6 +68,9 @@ const comparePre = (a, b) => {
   return a.length - b.length;
 };
 
+export const highest = versions =>
+  versions.reduce((top, v) => (top === undefined || higher(v, top) ? v : top), undefined);
+
 export function higher(a, b) {
   const x = parse(a);
   const y = parse(b);
