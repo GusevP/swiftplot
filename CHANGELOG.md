@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.1.1 - 2026-11-23
+
 - First version on npm: `swiftplot`, `@swiftplot/react` and `@swiftplot/vue`.
 
 ## 0.1.0 - 2026-11-23
