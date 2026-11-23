@@ -9,7 +9,7 @@ const COPIED = ['README.md', 'LICENSE'];
 
 // pnpm sets npm_execpath to its JS entry for `pnpm run`; a bare `node scripts/pack.mjs` falls back to
 // `pnpm` on PATH, which Windows cannot spawn without a shell.
-export const pnpm = (execpath = process.env.npm_execpath) =>
+export const pnpm = ({ npm_execpath: execpath } = process.env) =>
   execpath && /pnpm\.[cm]?js$/.test(execpath) ? [process.execPath, execpath] : ['pnpm'];
 
 export function pack({ source, out, run, pnpmCommand = pnpm() }) {

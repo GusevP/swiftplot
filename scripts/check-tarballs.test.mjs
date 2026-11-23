@@ -216,9 +216,12 @@ test('lockedVersion reads the one locked version of a package', () => {
 });
 
 test('pnpm runs its JS entry through node when pnpm set npm_execpath, and pnpm from PATH otherwise', () => {
-  assert.deepEqual(pnpm('/x/pnpm/bin/pnpm.cjs'), [process.execPath, '/x/pnpm/bin/pnpm.cjs']);
-  assert.deepEqual(pnpm('/x/npm/bin/npm-cli.js'), ['pnpm']);
-  assert.deepEqual(pnpm(undefined), ['pnpm']);
+  assert.deepEqual(pnpm({ npm_execpath: '/x/pnpm/bin/pnpm.cjs' }), [
+    process.execPath,
+    '/x/pnpm/bin/pnpm.cjs',
+  ]);
+  assert.deepEqual(pnpm({ npm_execpath: '/x/npm/bin/npm-cli.js' }), ['pnpm']);
+  assert.deepEqual(pnpm({}), ['pnpm']);
 });
 
 const PACKAGES = ['core', 'react', 'vue'];
