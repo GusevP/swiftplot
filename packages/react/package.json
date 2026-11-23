@@ -1,7 +1,6 @@
 {
   "name": "@swiftplot/react",
   "version": "0.1.0",
-  "private": true,
   "description": "React components for swiftplot charts",
   "license": "MIT",
   "repository": {

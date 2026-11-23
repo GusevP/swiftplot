@@ -9,7 +9,7 @@
 
 Small, fast charts on Canvas 2D and WebGL2. MIT, TypeScript, ESM only, no dependencies.
 
-**Status: prototype.** It draws lines and areas (straight or stepped), bars, box plots, error bars, heatmaps, tick marks and scatter dots on linear, time and category axes, and pies, donuts, radars, radial bars, funnels, sankey diagrams, treemaps and sunbursts, with a hover tooltip, dim-the-others on hover and optional animation. A chart can be updated and follows its container when no size is given. `swiftplot/charts` builds line, area, bar and scatter charts from the data alone, and `@swiftplot/react` and `@swiftplot/vue` make React and Vue components of them. There is a legend that hides and shows series, zoom and pan, a brush, a click event, the pointer from code for linked charts, light and dark themes, reference lines and zones, log axes, and tick steps and formats. The repository is a pnpm workspace with the core in `packages/core` and the wrappers in `packages/react` and `packages/vue`; nothing is published yet.
+**Status: prototype.** It draws lines and areas (straight or stepped), bars, box plots, error bars, heatmaps, tick marks and scatter dots on linear, time and category axes, and pies, donuts, radars, radial bars, funnels, sankey diagrams, treemaps and sunbursts, with a hover tooltip, dim-the-others on hover and optional animation. A chart can be updated and follows its container when no size is given. `swiftplot/charts` builds line, area, bar and scatter charts from the data alone, and `@swiftplot/react` and `@swiftplot/vue` make React and Vue components of them. There is a legend that hides and shows series, zoom and pan, a brush, a click event, the pointer from code for linked charts, light and dark themes, reference lines and zones, log axes, and tick steps and formats. The repository is a pnpm workspace with the core in `packages/core` and the wrappers in `packages/react` and `packages/vue`.
 
 **For AI coding assistants:** [`llms-full.txt`](llms-full.txt) is a guide to writing code with swiftplot, and [`llms.txt`](llms.txt) its index.
 
@@ -68,7 +68,7 @@ chart.destroy();
 
 ## React and Vue
 
-`@swiftplot/react` (React 18.3 or 19) and `@swiftplot/vue` (Vue 3.4 or later) make components of the charts above: `LineChart`, `AreaChart`, `BarChart`, `ScatterChart`, and `Plot` for the explicit API. Each takes the props of its function, renders one `div`, creates the chart after mount, sends it only what changed on each render and destroys it on unmount. Install `swiftplot` beside the wrapper, which has it as a peer dependency (neither is published yet):
+`@swiftplot/react` (React 18.3 or 19) and `@swiftplot/vue` (Vue 3.4 or later) make components of the charts above: `LineChart`, `AreaChart`, `BarChart`, `ScatterChart`, and `Plot` for the explicit API. Each takes the props of its function, renders one `div`, creates the chart after mount, sends it only what changed on each render and destroys it on unmount. Install `swiftplot` beside the wrapper, which has it as a peer dependency:
 
 ```sh
 pnpm add swiftplot @swiftplot/react   # or @swiftplot/vue

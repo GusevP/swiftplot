@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- First version on npm: `swiftplot`, `@swiftplot/react` and `@swiftplot/vue`.
+
 ## 0.1.0 - 2026-11-23
 
 - Charts on Canvas 2D and WebGL2, in TypeScript, ESM only, with no dependencies: lines and areas (straight, smooth or stepped), bars, box plots, error bars, heatmaps, tick marks and scatter dots on linear, log, time and category axes.

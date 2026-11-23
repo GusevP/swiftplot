@@ -6,8 +6,7 @@ guessing from other chart libraries: swiftplot has no `type` prop, no `datasets`
 object, no child components such as `<Line />`, and no d3 scales.
 
 Packages: `swiftplot` (the core, with the entry `swiftplot/charts`), `@swiftplot/react` (React 18.3 or
-19), `@swiftplot/vue` (Vue 3.4+). Install the core beside a wrapper: `npm i swiftplot @swiftplot/react`
-(first published as 0.1.0; before that release the packages are not on npm).
+19), `@swiftplot/vue` (Vue 3.4+). Install the core beside a wrapper: `npm i swiftplot @swiftplot/react`.
 
 ## 1. Pick the API
 
