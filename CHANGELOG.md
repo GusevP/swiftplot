@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.1.0 - 2026-11-23
+
 - Charts on Canvas 2D and WebGL2, in TypeScript, ESM only, with no dependencies: lines and areas (straight, smooth or stepped), bars, box plots, error bars, heatmaps, tick marks and scatter dots on linear, log, time and category axes.
 - Pies, donuts, radars, radial bars, funnels, sankey diagrams, treemaps and sunbursts.
 - A hover and touch tooltip, dim-the-others on hover, optional animation, a legend that hides and shows series, zoom and pan, a brush, a click event, and the pointer from code for linked charts.
