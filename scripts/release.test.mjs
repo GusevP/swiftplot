@@ -689,7 +689,9 @@ test('without --npm no npm registry call is made at all', async t => {
   assert.equal(state.releases[0].draft, false);
   assert.deepEqual(state.npmCalls, []);
   assert.ok(
-    h.printed.includes('npm: not published. To publish these files to npm later, run: pnpm release --npm'),
+    h.printed.includes(
+      'npm publishing skipped. To publish these files to npm later, run: pnpm release --npm',
+    ),
   );
 });
 

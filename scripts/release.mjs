@@ -329,7 +329,7 @@ export async function release({
     });
     print(`Released ${tag}: the tag is on ${commit}, the GitHub Release is ${url}`);
     if (!npm) {
-      print('npm: not published. To publish these files to npm later, run: pnpm release --npm');
+      print('npm publishing skipped. To publish these files to npm later, run: pnpm release --npm');
       return { ...result, url };
     }
     let assets = files;

@@ -154,8 +154,16 @@ test('a publish whose response was lost after npm accepted it is not sent again'
   const s = setup(t);
   s.state.staged = true;
   s.state.npmFail = args => (args[1] === './swiftplot-0.1.0.tgz' ? 'after' : undefined);
-  assert.throws(s.publish, /npm publish of swiftplot-0\.1\.0\.tgz failed; its receipt stays "started"/);
+  assert.throws(
+    s.publish,
+    /npm publish of swiftplot-0\.1\.0\.tgz failed, but npm may have taken it anyway; its receipt stays "started"/,
+  );
   assert.ok(s.state.npm[key('swiftplot')]);
+  assert.deepEqual(s.printed.slice(-3), [
+    'npm: swiftplot@0.1.0 was sent, but npm did not confirm it: check npmjs.com before removing its receipt',
+    'npm: @swiftplot/react@0.1.0 was not checked',
+    'npm: @swiftplot/vue@0.1.0 was not checked',
+  ]);
   assert.deepEqual(s.receipt().packages, { swiftplot: { state: 'started', integrity: s.sri.swiftplot } });
 
   s.state.npmFail = undefined;
@@ -183,7 +191,7 @@ test('after core succeeds and React fails, the next runs skip core and go on wit
   assert.deepEqual(s.publishes(), ['./swiftplot-0.1.0.tgz', './swiftplot-react-0.1.0.tgz']);
   assert.deepEqual(s.printed.slice(-3), [
     'npm: swiftplot@0.1.0 is public',
-    'npm: @swiftplot/react@0.1.0 is not published',
+    'npm: @swiftplot/react@0.1.0 was sent, but npm did not confirm it: check npmjs.com before removing its receipt',
     'npm: @swiftplot/vue@0.1.0 was not checked',
   ]);
 
@@ -203,6 +211,70 @@ test('after core succeeds and React fails, the next runs skip core and go on wit
     s.printed.slice(-3),
     NAMES.map(name => `npm: ${name}@0.1.0 is public`),
   );
+});
+
+test('npm showing other bytes right after our publish stops before the next package', t => {
+  const s = setup(t);
+  const npm = fakeNpm(s.state);
+  assert.throws(
+    () =>
+      npmPublish({
+        dir: s.dir,
+        version: '0.1.0',
+        prerelease: false,
+        files: s.files,
+        print: () => {},
+        npmCommand: ['npm'],
+        run: (command, args, options) =>
+          args[0] === 'view' && s.state.npm[key('swiftplot')]
+            ? { code: 0, stdout: JSON.stringify(s.sri['@swiftplot/vue']), stderr: '' }
+            : npm(args, options),
+      }),
+    /npm has swiftplot@0\.1\.0 with another integrity/,
+  );
+  assert.deepEqual(s.publishes(), ['./swiftplot-0.1.0.tgz']);
+});
+
+test('a second run of the same version while one is publishing stops before reading receipts', t => {
+  const s = setup(t);
+  const npm = fakeNpm(s.state);
+  let overlap;
+  const run = (command, args, options) => {
+    if (args[0] === 'publish' && !overlap) {
+      try {
+        s.publish();
+        overlap = 'it ran';
+      } catch (error) {
+        overlap = error.message;
+      }
+    }
+    return npm(args, options);
+  };
+  npmPublish({
+    dir: s.dir,
+    version: '0.1.0',
+    prerelease: false,
+    files: s.files,
+    print: () => {},
+    npmCommand: ['npm'],
+    run,
+  });
+  const lock = join(s.dir, '.release', '0.1.0', 'npm.lock');
+  assert.match(overlap, /another publish of 0\.1\.0 to npm is running/);
+  assert.ok(overlap.includes(`remove ${lock} (not ${s.receipts})`));
+  assert.deepEqual(
+    s.publishes(),
+    NAMES.map(name => `./${STEMS[name]}-0.1.0.tgz`),
+  );
+  assert.equal(existsSync(lock), false);
+
+  writeFileSync(lock, '1\n');
+  const before = readFileSync(s.receipts, 'utf8');
+  s.state.npmCalls = [];
+  assert.throws(s.publish, /npm\.lock exists/);
+  assert.deepEqual(s.state.npmCalls, []);
+  assert.equal(readFileSync(s.receipts, 'utf8'), before);
+  assert.ok(existsSync(lock));
 });
 
 test('a staged publish is reported as waiting', t => {
