@@ -1,6 +1,9 @@
 import type { Axis, Resolved, Room } from '../types.js';
 
-export type BandAxis = Axis & { categories: readonly string[] };
+export type BandAxis = Axis & {
+  /** The categories in order; category i sits at i. */
+  categories: readonly string[];
+};
 
 function resolve({ categories, domain }: BandAxis, _extent: unknown, room?: Room): Resolved {
   const n = categories.length;
@@ -22,7 +25,12 @@ function resolve({ categories, domain }: BandAxis, _extent: unknown, room?: Room
 }
 
 /** Category i sits at x = i and owns the band from i - 0.5 to i + 0.5. */
-export const band = (o: { label: string; categories: readonly string[] }): BandAxis => ({
+export const band = (o: {
+  /** The axis title; an empty string shows none. */
+  label: string;
+  /** The categories in order, each labelled where there is room. */
+  categories: readonly string[];
+}): BandAxis => ({
   domain: 'data',
   ...o,
   scale: resolve,

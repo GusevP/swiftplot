@@ -1,0 +1,122 @@
+---
+title: Updates and animation
+summary: Change a chart once it is drawn, keep the change cheap, feed it on a timer and animate it.
+order: 4
+---
+
+import GuideExample from '../../components/GuideExample.astro';
+
+## Update the options
+
+<div data-for="js">
+
+`plot()` returns the chart. Call its `update` with only the options that change; the rest stay as they were. An
+option given as `undefined` goes back to its default. Call `destroy()` when the element goes away.
+
+```js
+const chart = plot(el, { x: time({ label: 'Day' }), marks: [line({ x: day, y: api, color: '#2563eb' })] });
+
+chart.update({ marks: [line({ x: day, y: nextApi, color: '#2563eb' })] });
+chart.destroy();
+```
+
+</div>
+<div data-for="react">
+
+Render `Plot` with new props. It sends the chart only the props that changed, and destroys the chart when it unmounts.
+Build the marks with `useMemo`, so they are not made again on every render.
+
+```tsx
+const marks = useMemo(() => [line({ x: day, y: api, color: '#2563eb' })], [day, api]);
+return <Plot x={time({ label: 'Day' })} marks={marks} />;
+```
+
+</div>
+<div data-for="vue">
+
+Build the options in a `computed` from a `shallowRef`, and replace the data to change the chart. `Plot` sends the chart
+only what changed, and destroys the chart when it unmounts.
+
+```ts
+const api = shallowRef(firstApi);
+const options = computed((): PlotProps => ({
+  x: time({ label: 'Day' }),
+  marks: [line({ x: day, y: api.value, color: '#2563eb' })],
+}));
+api.value = nextApi;
+```
+
+</div>
+
+## Keep updates cheap
+
+- A mark whose options are unchanged keeps its geometry, so passing a fresh `marks` array is cheap. A mark is paired
+  with the one it replaces by its place in `marks`, or by its `key` when you give one.
+- Columns are compared by identity. After writing new values into the same array, pass a new array or a view of it,
+  such as `x.subarray(0)`.
+- Define an axis's `format` once, outside the update. A new function each time counts as a changed axis: its ticks are
+  worked out again and the data is repainted, which `animate()` shows as a cross-fade.
+- Create a heatmap's colour scale once, outside the update, or every update repaints the grid.
+
+## Change the features
+
+`update()` does not take `use`: features are installed when the chart is created.
+
+<div data-for="js">
+
+To change them, destroy the chart and create it again.
+
+```js
+chart.destroy();
+const zoomed = plot(el, { ...options, use: [legend(), zoom()] });
+```
+
+</div>
+<div data-for="react">
+
+To change them, change the component's `key`, so React mounts a new chart.
+
+```tsx
+<Plot
+  key={zoomed ? 'zoom' : 'still'}
+  x={time({ label: 'Day' })}
+  marks={marks}
+  use={zoomed ? [legend(), zoom()] : [legend()]}
+/>
+```
+
+</div>
+<div data-for="vue">
+
+To change them, change the component's `key`, so Vue mounts a new chart.
+
+```vue
+<Plot :key="zoomed ? 'zoom' : 'still'" v-bind="options" :use="zoomed ? [legend(), zoom()] : [legend()]" />
+```
+
+</div>
+
+## Animation
+
+`animate()` is a feature too: `use: [animate({ duration: 300 })]`. On the first paint the marks are uncovered from the
+left, round the clock in a polar frame, or from the top for a funnel; `enter: 'fade'` fades them in instead. When the
+data changes, bars move to their new values row for row, but only if every mark that changed is a bar, none was added
+or removed, and the chart repaints fast enough. Otherwise the whole chart cross-fades, bars included.
+
+Nothing animates for a resize, with reduced motion, in a hidden tab, or while updates arrive less than `duration` ms
+apart. Marks drawn with WebGL, which large data switches to, take part in the first paint but change at once on an
+update.
+
+## Live data
+
+A timer that gives the chart new data is an update like any other. Here a reading arrives every second and the oldest
+one drops off. The code starts the timer when the chart mounts and stops it when the chart goes away. Turn Animate off
+and each update shows at once.
+
+<GuideExample id="line-live" />
+
+## Where to go next
+
+- [Interaction](/guides/interaction): the legend, the tooltip, zoom and the brush.
+- [The animate() reference](/reference/animate): its options.
+- [The live updates example](/examples/line-live): the same chart on a page of its own.

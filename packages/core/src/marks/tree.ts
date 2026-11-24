@@ -1,16 +1,32 @@
 import type { Col } from '../types.js';
 
 /**
- * A hierarchy in columns: `parent` holds the place in `nodes` of each node's parent, negative
- * for a root. Only the values of nodes without children count; a node with children is as large
- * as they are together, so a parent's own share needs a child of its own. A value that is
- * negative or not a number counts as 0.
+ * A hierarchy in columns, one row per node. A node with children is as large as they are together,
+ * so a parent's own share needs a child of its own.
  */
-export type TreeColumns = { nodes: string[]; parent: Col; value: Col };
+export type TreeColumns = {
+  /** The nodes' names. */
+  nodes: string[];
+  /** The place in `nodes` of each node's parent, negative for a root. */
+  parent: Col;
+  /** Counts only for a node without children; one negative or not a number counts as 0. */
+  value: Col;
+};
 
-export type Nested = { name: string; value?: number; children?: Nested[] };
+/** A node of a tree, with its children inside it. */
+export type Nested = {
+  /** The node's name. */
+  name: string;
+  /** The node's size; only a node without children counts. @default 0 */
+  value?: number;
+  /** The nodes under this one. */
+  children?: Nested[];
+};
 
-/** The columns of a nested tree, or of several. Nodes that share a name stay separate nodes. */
+/**
+ * The columns of a nested tree, or of several. Nodes that share a name stay separate nodes.
+ * @param tree A root, or a list of roots.
+ */
 export function fromTree(tree: Nested | Nested[]) {
   const [nodes, parent, value]: [string[], number[], number[]] = [[], [], []];
   // An object met again under itself would never end; the same object in two branches is fine.

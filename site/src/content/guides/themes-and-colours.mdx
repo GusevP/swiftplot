@@ -1,0 +1,105 @@
+---
+title: Themes and colours
+summary: The light and dark themes, the series palettes, gradients and the other blends a mark can be painted with, and a heatmap's colour scale.
+order: 5
+---
+
+import GuideExample from '../../components/GuideExample.astro';
+
+## Themes
+
+A theme holds the chart's own colours, not the data's:
+
+- `text` for the axis text and the legend;
+- `muted` for the tick marks;
+- `grid` for the grid lines;
+- `surface` and `border` for the tooltip's box. `surface` is also the middle of a ringed point.
+
+`swiftplot` exports two, `light` and `dark`. `plot()` takes `light` unless its `theme` is given, and never guesses dark
+mode: the app picks the theme. Series colours belong to the marks, so the app picks those too. `paletteDark` has the
+same eight hues as `palette`, each with a contrast of 3:1 on `dark.surface`.
+
+```ts
+import { dark, light, line, palette, paletteDark, plot } from 'swiftplot';
+
+const scheme = matchMedia('(prefers-color-scheme: dark)');
+const themed = (isDark: boolean) => ({
+  theme: isDark ? dark : light,
+  marks: [line({ x: day, y: api, color: (isDark ? paletteDark : palette)[0]!, label: 'API' })],
+});
+const chart = plot(el, themed(scheme.matches));
+scheme.addEventListener('change', e => chart.update(themed(e.matches)));
+```
+
+A theme is a plain object, so your own is one too, such as `theme: { ...dark, grid: '#262626' }`. Replacing it with
+another object repaints the chart and restyles its text.
+
+The charts from data, in `swiftplot/charts`, pick for themselves. Their `theme` defaults to `'auto'`, which follows the
+computed CSS `color-scheme` of the chart's element, word by word: `dark` without `light`, as in `dark` or `only dark`,
+gives the dark theme; both, in either order, follow the system setting and switch with it; no `dark` gives light. It is
+read when the chart is created and when the `theme` prop changes. Only a chart that found both also listens to the
+system setting, and reads it again when that changes; a chart that found a fixed scheme keeps it until its `theme` prop
+changes. `'light'`, `'dark'` or a theme object fixes it. Their `colors` default to `palette`, or `paletteDark` on the
+dark theme.
+
+The React and Vue components of those charts do the same. `Plot` is `plot()`: it is light unless its `theme` is given,
+and does not follow the page.
+
+The charts on this site follow the theme switch in the top bar. On a dark page they take the dark theme and the site's
+own dark colours, and `paletteDark` where the code uses `palette`.
+
+## Series colours
+
+`palette` is eight colours for eight series, to be given out in order. The order keeps neighbours apart for
+colour-blind readers, and each colour has a contrast of 3:1 on white.
+
+A treemap or a sunburst gives each root a colour from `colors`, or each child of a single root. The sunburst below has
+four roots and takes `palette`; Colours gives it this site's three colours and an amber instead. The rings under a root
+are lighter steps of its colour, and Shade replaces them with one run from the full colour at the centre to that
+opacity at the rim.
+
+<GuideExample id="sunburst" />
+
+## Gradients
+
+`gradient(from, to, toward)` blends two stops in a direction on the screen: `'down'`, `'up'`, `'right'` or `'left'`,
+and `'down'` when left out. A stop is a CSS colour, or a number for the mark's own colour at that opacity, so
+`gradient(0.4, 0)` fades a mark's colour out downwards. `brand` is the cyan-to-violet blend, from left to right.
+
+A blend goes in `area({ fill })`, `bar({ fill })`, `box({ fill })`, `line({ stroke })` and `line({ fill })`.
+`line({ fill: true })` is a faint fade of the line's own colour under it. `color` stays the one colour that a legend
+and a tooltip show.
+
+```js
+import { area, gradient } from 'swiftplot';
+
+const marks = [area({ x: day, y: used, color: '#0891b2', label: 'Used', fill: gradient(0.4, 0) })];
+```
+
+[The annotated line](/examples/line-annotated) fills under its line this way.
+
+## Other blends
+
+- `sankey({ blend: true })` runs each ribbon from its source's colour into its target's.
+- `funnel({ fill: gradient('#0891b2', '#9333ea') })` puts one blend down the whole funnel.
+- `arcs({ sweep: 0.8 })` and `radialBars({ sweep: 0.35 })` start each slice or bar at that opacity and bring it to full
+  colour at its end. They stay solid where the browser has no conic gradient, and a pie that draws more than 64 slices
+  stays solid too.
+- `treemap({ shade: 0.7 })` starts each branch at that opacity at its top, and `sunburst({ shade: 0.7 })` ends each at
+  that opacity at the rim.
+- `radar({ fill })` is the opacity of each series' filling, 0.15 when left out.
+
+## A colour scale
+
+A heatmap colours its cells through a colour scale, `sequential({ stops, domain })`. The values run through the stops,
+which are `#rgb` or `#rrggbb` colours, pale to dark blue when left out, from the smallest value to the largest unless
+`domain` fixes the ends. `legend()` shows the scale as a strip of its colours between the ends of its domain. Create the
+scale once, outside the update, or every update repaints the grid.
+
+<GuideExample id="heatmap" />
+
+## Where to go next
+
+- [React and Vue](/guides/react-and-vue): the components, and `Plot` for the explicit API.
+- [The scales reference](/reference/scales): `gradient()` and `sequential()`, with their options.
+- [The plot() reference](/reference/plot): its `theme` option.

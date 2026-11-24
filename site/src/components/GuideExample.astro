@@ -1,0 +1,25 @@
+---
+import { defaults } from '../codegen/index';
+import { fixtures } from '../examples/fixtures';
+import { examples, unlisted } from '../examples/index';
+import { reference } from '../reference/index';
+import DataDownload from './DataDownload.astro';
+import Example from './Example.astro';
+import ExampleCode from './ExampleCode.astro';
+
+interface Props {
+  id: string;
+}
+
+const { id } = Astro.props;
+const definition = examples.get(id) ?? [...unlisted, ...fixtures].find(e => e.id === id);
+if (!definition) throw new Error(`the guide embeds "${id}", which is not an example`);
+const chartDefaults = definition.kind === 'plot' ? {} : defaults(reference[definition.chart]);
+const { file } = definition.data;
+---
+
+<div data-scope>
+  <ExampleCode definition={definition} defaults={chartDefaults} live />
+  <p><DataDownload file={file} />, the {definition.data.kind === 'json' ? 'data' : 'rows'} the code imports.</p>
+  <Example definition={definition} defaults={chartDefaults} small />
+</div>

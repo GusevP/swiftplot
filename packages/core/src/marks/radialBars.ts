@@ -4,28 +4,35 @@ import type { Label, Col, Mark } from '../types.js';
 import { TURN, turnAt } from './common.js';
 
 /**
- * One bar per value, bent round the centre on its own ring, for a polar frame. The first value
- * is outermost. A bar starts at twelve o'clock and runs clockwise; three quarters of a turn
- * stand for `max`, or for the largest value rounded up to a whole step, and the last quarter is
- * kept for the names. A value that is negative or not a number has no bar, and one above `max`
- * stops at the three quarters. `inner` is the share of the radius left empty in the middle.
+ * One bar per value, bent round the centre on its own ring, for a polar frame. A bar starts at
+ * twelve o'clock and runs clockwise; three quarters of a turn stand for `max`, and the last
+ * quarter is kept for the names.
  */
 export type RadialBarsOptions = {
+  /** Each bar's value, the first outermost; one that is negative or not a number has no bar. */
   values: Col;
+  /** The bars' colours, repeated when there are fewer than bars. */
   colors: string[];
   /** Names for a legend, and written at the start of each ring unless `text` is false. */
   labels?: string[];
+  /** Whether the names are written at the start of each ring. @default true */
   text?: boolean;
+  /** What three quarters of a turn stand for, capping larger values; the largest rounded up when left out. */
   max?: number;
   /**
    * Each bar starts at this opacity and reaches its full colour at its end. Where the browser
    * has no conic gradient the bars stay solid.
    */
   sweep?: number;
+  /** The share of the radius left empty in the middle. @default 0.3 */
   inner?: number;
+  /** The mark's opacity, from 0 to 1. @default 1 */
   alpha?: number;
+  /** Pairs the mark with the one it replaces in update(), to keep or morph its shape; its place in `marks` if left out. */
   key?: string;
+  /** The mark's name in a legend, a tooltip and the chart's description. */
   label?: string;
+  /** Marks of one group are focused, dimmed and hidden together; the label when left out. */
   group?: string;
 };
 

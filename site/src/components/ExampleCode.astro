@@ -1,0 +1,21 @@
+---
+import { code, frameworks, type Defaults } from '../codegen/index';
+import type { Example } from '../examples/define';
+import type { Framework } from '../scripts/preferences';
+import Code from './Code.astro';
+
+interface Props {
+  definition: Example;
+  defaults: Defaults;
+  live?: boolean;
+}
+
+const { definition, defaults, live } = Astro.props;
+---
+
+{
+  (Object.keys(frameworks) as Framework[]).map(fw => (
+    <Code label={frameworks[fw].file} tokens={code(fw, definition, {}, defaults)} for={fw} live={live} />
+  ))
+}
+<p class="palette">The colours in the code are this site's light palette.</p>

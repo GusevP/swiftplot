@@ -2,8 +2,11 @@ import { fits, scale as linear, spaced } from '../scale.js';
 import type { Axis, Col, Resolved, Room, Span, Tick } from '../types.js';
 
 export type LogAxis = Axis & {
+  /** The logarithm's base. */
   base: number;
+  /** A real value's logarithm, the space the marks' columns are in; one at or below zero becomes NaN. */
   to(real: number, axis: Axis): number;
+  /** The inverse of `to`: the base raised to a value in the marks' space. */
   from(v: number, axis: Axis): number;
   /** The values in the axis's space, to give a mark; one at or below zero becomes NaN, a gap. */
   col(values: readonly number[]): number[];
@@ -11,11 +14,15 @@ export type LogAxis = Axis & {
   col(values: Col): number[] | Float64Array;
 };
 export type LogOptions = {
+  /** The axis title; an empty string shows none. */
   label: string;
+  /** The logarithm's base: above zero, finite and not 1. @default 10 */
   base?: number;
-  /** Real values, both above zero; 'nice' widens the extent of the data to whole powers of the base. */
+  /** Real values, both above zero; 'nice' widens the extent of the data to whole powers of the base. @default 'nice' */
   domain?: Span | 'nice' | 'data';
+  /** The text of each tick, from its real value. @default String */
   format?: Axis['format'];
+  /** Which marks the extent is taken from, as on any axis. @default 'shown' */
   fit?: Axis['fit'];
 };
 

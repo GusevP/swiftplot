@@ -1,6 +1,7 @@
 import type { Feature, Span } from '../types.js';
 import { locate, settle, SLOP_PX, unselect } from './pointer.js';
 
+/** A drag over the plot marks out a range on x, y or both, which is reported on release and, with `zoom`, shown. */
 export type BrushOptions = {
   /** 'x' when left out: the rectangle spans the plot's height and the range its whole y window. */
   axes?: 'x' | 'y' | 'xy';

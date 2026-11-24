@@ -1,6 +1,7 @@
 import type { Feature, Span } from '../types.js';
 import { locate as where, settle as release, SLOP_PX, unselect } from './pointer.js';
 
+/** Zooms with the wheel (ctrl or cmd held, by default) or a pinch and pans with a drag, on x, y or both; a double-click on the plot shows the whole of each zoomed axis again. */
 export type ZoomOptions = {
   /** 'x' when left out. */
   axes?: 'x' | 'y' | 'xy';

@@ -2,14 +2,24 @@ import { niceStep, spaced, thin } from '../scale.js';
 import type { Axis, Resolved, Room } from '../types.js';
 
 const UNITS = ['year', 'month', 'day', 'hour', 'minute', 'second'] as const;
-export type TimeAxis = Axis & { utc: boolean; every?: number; unit?: (typeof UNITS)[number] };
+export type TimeAxis = Axis & {
+  /** Whether tick boundaries and labels are in UTC rather than the browser's zone. */
+  utc: boolean;
+  /** Ticks every this many units. */
+  every?: number;
+  /** The unit whose boundaries the ticks fall on. */
+  unit?: (typeof UNITS)[number];
+};
 export type TimeOptions = {
+  /** The axis title; an empty string shows none. */
   label: string;
   /** Millisecond timestamps; the extent of the data when omitted. */
   domain?: [number, number];
   /** Tick boundaries and labels in UTC (the default) or in the browser's zone. */
   utc?: boolean;
+  /** The text of each tick, from its timestamp; English month names and a 24-hour clock when left out. */
   format?: Axis['format'];
+  /** Which marks the extent is taken from, as on any axis. @default 'shown' */
   fit?: Axis['fit'];
 } & (
   | {
@@ -200,6 +210,7 @@ function stepped(
   return { lo, hi, ticks, fixed, keep };
 }
 
+/** An axis of millisecond timestamps, ticked on calendar boundaries and labelled as dates and times. */
 export const time = ({ label, domain, utc = true, every, unit, format, fit }: TimeOptions): TimeAxis => ({
   domain: domain ?? 'data',
   label,

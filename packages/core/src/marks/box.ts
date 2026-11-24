@@ -7,17 +7,23 @@ import { focused, gpuRows, type Part } from './rects.js';
 
 /**
  * A box from q1 to q3 with a line at the median and whiskers out to min and max, one per x.
- * `width` is the box's width in x units, so 0.6 on a band axis is 60% of the category.
  * ponytail: upright only, and the whiskers go to whatever min and max are given; outliers are
  * for the caller to leave out and draw with dots().
  */
 export type BoxOptions = Common & {
+  /** Where each box stands along x. */
   x: Col;
+  /** Where the lower whisker ends. */
   min: Col;
+  /** The bottom of the box, the first quartile. */
   q1: Col;
+  /** Where the line across the box is drawn. */
   median: Col;
+  /** The top of the box, the third quartile. */
   q3: Col;
+  /** Where the upper whisker ends. */
   max: Col;
+  /** The box's width in x units, so 0.6 on a band axis is 60% of the category. @default 0.6 */
   width?: number;
   /** What the boxes are filled with: a colour, drawn faint, or a blend down each box, drawn as given. */
   fill?: Paint;

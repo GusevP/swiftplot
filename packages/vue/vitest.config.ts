@@ -1,4 +1,3 @@
-// @ts-expect-error -- no @types/node in this workspace; the config runs in Node, where this resolves.
 import { fileURLToPath } from 'node:url';
 
 import { playwright } from '@vitest/browser-playwright';

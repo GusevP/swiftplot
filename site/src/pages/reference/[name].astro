@@ -1,0 +1,151 @@
+---
+import Cards from '../../components/Cards.astro';
+import Code from '../../components/Code.astro';
+import PropsTable from '../../components/PropsTable.astro';
+import Prose from '../../components/Prose.astro';
+import Unbroken from '../../components/Unbroken.astro';
+import { frameworks, signature } from '../../codegen/index';
+import { packages } from '../../codegen/js';
+import { chartNames, referencePath, type ChartName } from '../../examples/define';
+import { examples } from '../../examples/index';
+import Docs from '../../layouts/Docs.astro';
+import { errorsFor } from '../../reference/errors';
+import { featureNames, markNames } from '../../examples/tree';
+import { api, helperNames, intros, reference, scaleNames, scalesIntro, sidebar } from '../../reference/index';
+import type { Framework } from '../../scripts/preferences';
+
+export function getStaticPaths() {
+  const name = (page: string) => referencePath(page).split('/').pop();
+  return [
+    ...chartNames.map(chart => ({ params: { name: name(chart) }, props: { chart } })),
+    ...['plot', 'scales', ...markNames, ...featureNames].map(page => ({ params: { name: name(page) }, props: { page } })),
+  ];
+}
+
+type Props = { chart: ChartName; page?: undefined } | { page: string; chart?: undefined };
+
+const { chart, page } = Astro.props;
+
+const returns: Record<Framework, string> = {
+  js: 'An object with update(props), which merges the props given into the ones the chart has, destroy(), and chart, the underlying chart of the explicit API.',
+  react:
+    'A component that renders one div. It also takes className, style, id and onError; there is no ref and no imperative API.',
+  vue: 'A component that renders one div; class, style and id go to it. Changes are events: v-model:view, v-model:hidden, v-model:pointer, @click and @error.',
+};
+
+const errors = chart ? errorsFor(chart) : [];
+const kept: Record<Framework, string> = {
+  js: 'An update that throws leaves the previous chart on screen.',
+  react:
+    'With onError, an update that fails leaves the previous chart on screen; without it, the error boundary renders its fallback in place of the chart.',
+  vue: 'An update that throws leaves the previous chart on screen.',
+};
+
+const using = [...examples.values()].filter(e =>
+  e.kind === 'plot'
+    ? e.tree.marks.some(m => m.mark === page) || !!e.tree.use?.some(f => f.feature === page)
+    : e.chart === chart,
+);
+const fns = page === 'scales' ? [...scaleNames, ...helperNames].map(n => api[n]!) : page ? [api[page]!] : [];
+const title = chart ?? (page === 'scales' ? 'Scales and helpers' : page);
+const sections = [
+  ...(chart
+    ? [
+        { id: 'props', label: 'Props' },
+        { id: 'returns', label: 'Returns' },
+        { id: 'errors', label: 'Errors' },
+      ]
+    : page === 'scales'
+      ? fns.map(f => ({ id: f.name, label: f.call }))
+      : [{ id: 'options', label: 'Options' }]),
+  ...(using.length ? [{ id: 'examples', label: 'Examples that use it' }] : []),
+];
+const fws = Object.keys(frameworks) as Framework[];
+const errorHeaders = ['Message contains', 'Cause', 'Fix'] as const;
+---
+
+<Docs title={`${title} · swiftplot`} sidebar={sidebar} sections={sections}>
+  {
+    chart ? (
+      <>
+        <h1>{chart}</h1>
+        <p class="intro"><Prose text={intros[chart]} /></p>
+        {fws.map(fw => <Code label={packages[fw]} tokens={signature(fw, chart)} for={fw} />)}
+
+        <h2 id="props">Props</h2>
+        <PropsTable entries={reference[chart]} />
+        <p data-for="vue">
+          In Vue, onViewChange, onHiddenChange, onPointerChange and onClick are events: v-model:view, v-model:hidden,
+          v-model:pointer and @click.
+        </p>
+
+        <h2 id="returns">Returns</h2>
+        <p>The chart function returns update and destroy; the React and Vue components destroy the chart on unmount.</p>
+        {fws.map(fw => <p data-for={fw}>{returns[fw]}</p>)}
+
+        <h2 id="errors">Errors</h2>
+        <p>
+          Errors are thrown from the chart function and from update in JavaScript, and go to onError in React and @error in
+          Vue; without a handler they reach the nearest error boundary or Vue's error handler. They start with the chart's
+          name; an error about which field to use also lists the fields with their kinds and says which prop to pass.
+        </p>
+        {fws.map(fw => <p data-for={fw}>{kept[fw]}</p>)}
+        <table class="stack">
+          <thead><tr>{errorHeaders.map(h => <th>{h}</th>)}</tr></thead>
+          <tbody>
+            {
+              errors.map(e => (
+                <tr>
+                  <td>
+                    {e.messages.map((m, i) => (
+                      <>
+                        {i > 0 && ' / '}
+                        <Unbroken text={m} />
+                      </>
+                    ))}
+                  </td>
+                  {[e.cause, e.fix].map((md, col) => (
+                    <td data-label={errorHeaders[col + 1]}><Prose text={md} /></td>
+                  ))}
+                </tr>
+              ))
+            }
+          </tbody>
+        </table>
+      </>
+    ) : (
+      <>
+        <h1>{title}</h1>
+        <p class="intro"><Prose text={page === 'scales' ? scalesIntro : fns[0]!.intro} /></p>
+        {
+          page === 'scales' ? (
+            fns.map(f => (
+              <>
+                <h2 id={f.name}>{f.call}</h2>
+                <p><Prose text={f.intro} /></p>
+                <PropsTable entries={f.entries.map(e => ({ ...e, name: `${f.name}.${e.name}` }))} />
+              </>
+            ))
+          ) : (
+            <>
+              <p>
+                <code>{`import { ${page} } from 'swiftplot';`}</code> <code>{fns[0]!.call}</code>
+              </p>
+              <h2 id="options">Options</h2>
+              <PropsTable entries={fns[0]!.entries} />
+            </>
+          )
+        }
+      </>
+    )
+  }
+
+  {
+    using.length > 0 && (
+      <>
+        <h2 id="examples">Examples that use it</h2>
+        <Cards examples={using} />
+      </>
+    )
+  }
+</Docs>

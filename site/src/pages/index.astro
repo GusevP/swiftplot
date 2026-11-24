@@ -1,0 +1,272 @@
+---
+import DataDownload from '../components/DataDownload.astro';
+import ExampleCode from '../components/ExampleCode.astro';
+import Switches from '../components/Switches.astro';
+import Base from '../layouts/Base.astro';
+import { defaults, frameworks as install } from '../codegen/index';
+import { exampleHref } from '../examples/define';
+import { examples } from '../examples/index';
+import features from '../examples/landing-features';
+import { reference } from '../reference/index';
+import { firstDraw, machine, pan, shipped, source } from '../data/measured';
+import { frameworks } from '../scripts/preferences';
+import '../styles/landing.css';
+
+type Tile = { label: string; tile?: string; example?: string; state?: Record<string, unknown> };
+const wall: Tile[] = [
+  { label: 'Line', example: 'line-from-rows' },
+  { label: 'Stacked area', example: 'area-stacked' },
+  { label: 'Grouped bars', example: 'bar-grouped' },
+  { label: 'Scatter, 40,000 points', example: 'scatter-large' },
+  { label: 'Heatmap', tile: 'heat', example: 'heatmap' },
+  { label: 'Radar', tile: 'radar', example: 'radar' },
+  { label: 'Donut', tile: 'donut', example: 'pie-donut', state: { hole: '0.6' } },
+  { label: 'Box plot', tile: 'box', example: 'box-plot' },
+  { label: 'Sankey', tile: 'sankey', example: 'sankey' },
+  { label: 'Treemap', tile: 'treemap', example: 'treemap' },
+  { label: 'Sunburst', tile: 'sunburst', example: 'sunburst' },
+  { label: 'Step line', example: 'line-zoom', state: { curve: 'step' } },
+  { label: 'Histogram', tile: 'hist', example: 'histogram' },
+  { label: 'Bubbles', tile: 'bubble', example: 'bubbles' },
+  { label: 'Radial bars', tile: 'radial', example: 'radial-bars' },
+  { label: 'Stacked bars', example: 'bar-grouped', state: { stack: true } },
+  { label: 'Band', tile: 'band' },
+  { label: 'Funnel', tile: 'funnel', example: 'funnel' },
+  { label: 'Pie', tile: 'pie', example: 'pie-donut' },
+  { label: 'Error bars', tile: 'error', example: 'error-bars' },
+  { label: 'Line, 1,000,000 points', tile: 'big' },
+];
+for (const { example } of wall)
+  if (example && !examples.has(example)) throw new Error(`the wall links to "${example}", which is not an example`);
+const href = ({ example, state }: Tile) => (example ? exampleHref(example, state) : '/examples');
+
+const sizes = [10_000, 100_000, 1_000_000];
+const ms = (v: number) => `${v.toFixed(1)} ms`;
+const scatter = firstDraw.cases.at(-1)!;
+
+const lineDefaults = defaults(reference.lineChart);
+const fromRows = examples.get('line-from-rows')!;
+---
+
+<Base title="swiftplot: charts that keep up" onStage>
+  <main data-pagefind-body>
+    <section class="hero dark">
+      <div class="swarm" id="swarm" aria-hidden="true"></div>
+      <div class="lead">
+        <h1>swiftplot</h1>
+        <p class="tag">Fast charts from one line of code.</p>
+        <p class="sub">
+          A small charting library for the browser. Behind this text it is moving 200,000 points on every frame.
+        </p>
+        <div class="row">
+          <a class="go" href="/guides/getting-started">Get started</a>
+          {
+            frameworks.map(f => (
+              <div class="cp" data-for={f.id} data-copy-scope>
+                <code>{install[f.id].install}</code>
+                <button type="button" data-copy>
+                  Copy
+                </button>
+              </div>
+            ))
+          }
+        </div>
+      </div>
+      <p class="live"><b>200,000</b>points, drawn live by swiftplot</p>
+    </section>
+    <section class="part" id="charts">
+      <div class="wallhead">
+        <h2>Every kind of chart.</h2>
+        <p class="lede">
+          Twenty-one of them below, each drawn by swiftplot on this page. Hover one; open it to see its code.
+        </p>
+      </div>
+      <div class="wall">
+        {
+          wall.map(t => (
+            <a href={href(t)}>
+              <div
+                class="chart"
+                data-tile={t.tile}
+                data-example={t.tile ? undefined : t.example}
+                data-state={t.state && JSON.stringify(t.state)}
+                inert
+              />
+              <span>{t.label}</span>
+            </a>
+          ))
+        }
+      </div>
+    </section>
+    <section class="part" id="million">
+      <h2>A million points. Drag them.</h2>
+      <p class="lede">
+        Pan, zoom with the wheel, double-click to reset. The line is reduced to one minimum and maximum per pixel
+        column, so it stays inside a frame.
+      </p>
+      <div class="stagebox">
+        <div class="head">
+          <strong id="count">1,000,000 points</strong>
+          <div class="sizes" role="group" aria-label="Number of points">
+            {
+              sizes.map(n => (
+                <button type="button" data-n={n} aria-pressed={n === 1_000_000 ? 'true' : 'false'}>
+                  {n >= 1_000_000 ? `${n / 1_000_000}M` : `${n / 1000}k`}
+                </button>
+              ))
+            }
+          </div>
+        </div>
+        <div id="million-chart"></div>
+      </div>
+    </section>
+    <section class="part" id="speed">
+      <h2>Quick to draw. Small to ship.</h2>
+      <div class="big3">
+        <div><b>{ms(pan.ms)}</b><span>of script time for one pan step of a million-point line, zoomed out</span></div>
+        <div><b>{ms(scatter.ms)}</b><span>of script time to draw a 100,000-point scatter, GPU work not included</span></div>
+        <div>
+          <b>{shipped.kb} KB</b><span>gzip that swiftplot adds to the benchmark page, tooltip and animation included</span>
+        </div>
+      </div>
+      <p class="fine">
+        Script time in {machine}: the README's pan-step measurement of {pan.date}, and first draws measured with chart-bench on {firstDraw.date}.{' '}
+        <a href={source}>Full tables and method</a>
+      </p>
+      <div class="why">
+        <div class="plot"><div id="first-draw"></div></div>
+        <ul>
+          <li>
+            <b>Axis text is DOM, not canvas text.</b>In uPlot, the fastest library we profiled, drawing the axes
+            cost 17 to 21 ms at 4× CPU slowdown at every data size.
+          </li>
+          <li>
+            <b>One min and max per pixel column.</b>A million points become a path the width of the chart.
+          </li>
+          <li>
+            <b>WebGL2 for large data.</b>A scatter moves to the GPU from 20,000 points; bars, error bars and box
+            plots from 10,000. Each falls back to canvas if the context is lost.
+          </li>
+          <li><b>Paths and buffers are kept.</b>A hover repaint never touches the data again.</li>
+        </ul>
+      </div>
+    </section>
+    <section class="part" id="features">
+      <h2>Switch things on. One prop each.</h2>
+      <p class="lede">
+        The tooltip, legend, zoom and animation are props on the chart. Toggle them and watch the code change.
+      </p>
+      <div class="feat" data-example={features.id} data-defaults={JSON.stringify(lineDefaults)}>
+        <div>
+          <Switches switches={features.switches} class="knobs" />
+          <ExampleCode definition={features} defaults={lineDefaults} live />
+        </div>
+        <div class="out">
+          <header>
+            <span>What that code draws</span>
+            <DataDownload file={features.data.file} />
+          </header>
+          <div class="chart"></div>
+        </div>
+      </div>
+    </section>
+    <section class="part" id="code">
+      <h2>Your data is the configuration.</h2>
+      <p class="lede">
+        Fields, axes, colours, the tooltip and the legend are worked out from your rows. Override any of them when
+        you need to.
+      </p>
+      <div class="bench">
+        <div>
+          <div class="tabs" role="group" aria-label="Code for">
+            {
+              frameworks.map(f => (
+                <button type="button" data-fw-tab={f.id} aria-pressed="false">
+                  {f.label}
+                </button>
+              ))
+            }
+          </div>
+          <ExampleCode definition={fromRows} defaults={lineDefaults} />
+        </div>
+        <div class="out">
+          <header>
+            <span>What that code draws</span>
+            <DataDownload file={fromRows.data.file} />
+          </header>
+          <div class="chart" id="out-chart"></div>
+        </div>
+      </div>
+    </section>
+    <section class="part" id="start">
+      <h2>Start with one line.</h2>
+      <div class="starts">
+        {
+          frameworks.map(f => (
+            <div>
+              <b>{f.id === 'js' ? 'Plain JavaScript' : f.label}</b>
+              <code>{install[f.id].install}</code>
+            </div>
+          ))
+        }
+      </div>
+      <p class="lede">
+        TypeScript, ESM, no dependencies, MIT. Working with an AI assistant? Point it at{' '}
+        <a href="/llms-full.txt">llms-full.txt</a>, a guide written for
+        it.
+      </p>
+      <a class="go" href="/guides/getting-started">Read the guide</a>
+    </section>
+  </main>
+  <footer class="close dark">
+    <div class="swarm" id="swarm-footer" aria-hidden="true"></div>
+    <div class="inner">
+      <div class="name">swiftplot</div>
+      <nav aria-label="Footer">
+        <a href="/examples">Examples</a>
+        <a href="/guides/getting-started">Guides</a>
+        <a href="/reference">Reference</a>
+        <a href="https://github.com/GusevP/swiftplot">GitHub</a>
+        <span>MIT licence</span>
+      </nav>
+    </div>
+  </footer>
+</Base>
+
+<script>
+  import '../scripts/copy';
+  import '../scripts/example';
+  import { firstDrawChart, million, tile } from '../charts/landing';
+  import { load, mountExample } from '../charts/mount';
+  import { swarm } from '../charts/swarm';
+  import { whenNear } from '../charts/visible';
+  import { frameworks, setFramework } from '../scripts/preferences';
+
+  swarm(document.getElementById('swarm')!, 66_667, 2.2, 9000);
+  swarm(document.getElementById('swarm-footer')!, 20_000, 1.5, 12000);
+
+  for (const el of document.querySelectorAll<HTMLElement>('.wall .chart')) whenNear(el, () => tile(el));
+  const big = document.getElementById('million-chart')!;
+  whenNear(big, () =>
+    million(big, document.getElementById('count')!, [
+      ...document.querySelectorAll<HTMLButtonElement>('.sizes button'),
+    ]),
+  );
+  const perf = document.getElementById('first-draw')!;
+  whenNear(perf, () => firstDrawChart(perf));
+  const out = document.getElementById('out-chart')!;
+  whenNear(out, () => void load('line-from-rows').then(definition => mountExample(out, definition, {})));
+
+  const root = document.documentElement;
+  const tabs = [...document.querySelectorAll<HTMLButtonElement>('[data-fw-tab]')];
+  const press = () => {
+    for (const tab of tabs) tab.setAttribute('aria-pressed', String(tab.dataset.fwTab === root.dataset.fw));
+  };
+  for (const tab of tabs)
+    tab.addEventListener('click', () => {
+      const chosen = frameworks.find(f => f.id === tab.dataset.fwTab);
+      if (chosen) setFramework(chosen.id);
+    });
+  press();
+  new MutationObserver(press).observe(root, { attributes: true, attributeFilter: ['data-fw'] });
+</script>

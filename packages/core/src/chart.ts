@@ -71,6 +71,10 @@ const clamp = (want: Span | undefined, [p, q]: Span): Span | undefined => {
   return s && [s[1], s[0]];
 };
 
+/**
+ * Draws the marks into `el` on the axes given, with the features in `use`, and returns the chart to update or destroy.
+ * @param el The element the chart fills.
+ */
 export function plot(el: HTMLElement, options: Options): Chart {
   let o = options;
   let dpr = devicePixelRatio;

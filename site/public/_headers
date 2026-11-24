@@ -1,0 +1,15 @@
+/*
+  Cache-Control: public, max-age=0, must-revalidate
+
+# Cloudflare joins a repeated Cache-Control, so each long rule detaches the one above first.
+/_astro/*
+  ! Cache-Control
+  Cache-Control: public, max-age=31536000, immutable
+
+/pagefind/fragment/*
+  ! Cache-Control
+  Cache-Control: public, max-age=31536000, immutable
+
+/pagefind/index/*
+  ! Cache-Control
+  Cache-Control: public, max-age=31536000, immutable

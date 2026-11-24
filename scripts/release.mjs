@@ -138,7 +138,10 @@ function fromCache({ cache, version, commit }) {
 
 function build({ source, out, version, run, pnpmCommand }) {
   const [bin, ...prefix] = pnpmCommand;
-  for (const args of [['install', '--frozen-lockfile'], ['build']]) {
+  for (const args of [
+    ['install', '--frozen-lockfile'],
+    ['--filter', './packages/*', 'build'],
+  ]) {
     const result = run(bin, [...prefix, ...args], { cwd: source });
     if (result.code !== 0)
       throw new Error(`pnpm ${args.join(' ')} failed:\n${result.stdout}${result.stderr}`);

@@ -1,0 +1,110 @@
+---
+title: Interaction
+summary: The legend, the tooltip, zoom and the brush are features you add in use; clicks and the pointer come back through callbacks.
+order: 3
+---
+
+import GuideExample from '../../components/GuideExample.astro';
+
+## Features
+
+A feature is a function you import from `swiftplot` and list in `use`:
+
+```js
+import { legend, plot, tooltip, zoom } from 'swiftplot';
+
+plot(el, {
+  ...options,
+  use: [legend(), tooltip({ mode: 'nearest', text: label => label }), zoom()],
+});
+```
+
+`use` is read once, when the chart is created. `update()` does not take it: to add or drop a feature, create the
+chart again, or in React and Vue change the component's `key`.
+[Updates and animation](/guides/updates-and-animation#change-the-features) shows how.
+
+In Vue, `onHiddenChange`, `onViewChange` and `onPointerChange` below arrive as the `update:hidden`, `update:view` and
+`update:pointer` events, so `v-model:hidden` and the like work.
+
+## Legend and hidden series
+
+`legend()` lists each labelled series above the plot. Pointing at an entry focuses its series, and a click, a tap,
+Enter or Space hides or shows it; `legend({ toggle: false })` turns that off. A label wider than the plot ends in an
+ellipsis. The rows of entries stop at what fits in a third of the chart's height, or at `legend({ rows: 2 })`, and the
+rest go behind "+N more".
+
+<GuideExample id="radar" />
+
+`hidden: ['API']` leaves out the series a legend lists under that id, which is a mark's `group`, or its `label`.
+`onHiddenChange(hidden)` reports each change the legend makes. An automatic domain fits the series shown; `fit: 'all'`
+on an axis holds it still.
+
+A series is focused while the pointer is on its legend entry, or on the series itself with `tooltip()` in `use`. Focus
+shows only with `dim` below 1: `dim: 0.3` draws the other series at that share of their opacity meanwhile.
+
+## Tooltip
+
+`tooltip()` comes in two modes:
+
+- `{ mode: 'nearest', text }` shows what is nearest the pointer, within 20 px. `text(label, x, y, row)` gets the label
+  of the mark hit, its x and y, and its row, so you can read more values from your own columns.
+- `{ mode: 'x', title, value }` shows a row for each labelled line and area at the pointer's x, under a crosshair.
+  `title(x)` writes the first line, and `value(y, axis)` each series' value, told whether it is on `y` or `y2`.
+
+The candlesticks below use the nearest mode, writing the date and the closing price.
+
+<GuideExample id="candlesticks" />
+
+On a touch screen a tap shows the tooltip. It stays after the finger lifts, until a tap elsewhere or the chart's next
+update or resize.
+
+## Zoom and pan
+
+`zoom()` zooms x about the pointer on ctrl or cmd and the wheel, or a trackpad pinch, and pans on a drag. A double click
+or a double tap shows the whole domain again. On a touch screen two fingers pinch and pan, and one scrolls the page.
+
+- `axes: 'y'` or `'xy'` zooms other axes than x.
+- `wheel: 'plain'` zooms on a plain wheel, and `wheel: false` not on the wheel at all.
+- `drag: 'shift'` pans only with shift held.
+
+The window shown is the `view` option, `{ x?: [lo, hi], y?: [lo, hi], y2?: [lo, hi] }` in axis values.
+`onViewChange(view)` reports it after a gesture, never after `update()`. With `fit: 'window'` on the y axis, y fits
+what the x window shows.
+
+## Brush
+
+`brush()` reports a range. A drag draws a rectangle, and `onSelect` gets the range in axis values on release. The
+rectangle stays until the next press on the plot, a zoom or pan, a resize or change of pixel density, a hidden series,
+or an update of anything but `pointer` and the callbacks, and `onSelect` then gets `null`. `brush({ zoom: true })`
+instead shows the range brushed and drops the rectangle at once, with no `null` after it. With `zoom()` beside it, a
+plain drag brushes and shift and a drag pans. A brush takes the mouse and a pen only.
+
+<GuideExample id="line-brush" />
+
+Drag across the chart to zoom into what you mark out, and double-click to see it all again.
+
+## Clicks and the pointer
+
+`onClick(hit, at)` gets what is within 20 px of a click on the plot, or `null`, and the axis values at the click. A
+click that ends a drag is not one. `selected: [{ id: 'API', rows: [3] }]` picks rows out: they stay at full strength
+and, while nothing is focused, the other rows are drawn at `dim`. Bars and dots outline the rows picked. A line or an
+area is one shape, so picking any of its rows draws the whole of it at full strength.
+
+`pointer: { x, y }` makes `tooltip()` show as if the user's pointer were there, and `onPointerChange` reports the
+user's, with `null` as it leaves. Two charts can follow each other that way:
+
+```ts
+const charts = [a, b].map((el, i) =>
+  plot(el, {
+    ...options,
+    onPointerChange: p => charts[1 - i]!.update({ pointer: p }),
+    use: [tooltip(tip)],
+  }),
+);
+```
+
+## Where to go next
+
+- [Updates and animation](/guides/updates-and-animation): changing a chart once it is drawn.
+- The reference for each feature: [`legend()`](/reference/legend), [`tooltip()`](/reference/tooltip),
+  [`zoom()`](/reference/zoom) and [`brush()`](/reference/brush).

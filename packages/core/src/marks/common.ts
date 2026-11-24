@@ -1,10 +1,15 @@
 import type { Col, Mark } from '../types.js';
 
 export type Common = {
+  /** Pairs the mark with the one it replaces in update(), to keep or morph its shape; its place in `marks` if left out. */
   key?: string;
+  /** The mark's name in a legend, a tooltip and the chart's description. */
   label?: string;
+  /** Marks of one group are focused, dimmed and hidden together; the label when left out. */
   group?: string;
+  /** A CSS colour. */
   color: string;
+  /** The mark's opacity, from 0 to 1. @default 1 */
   alpha?: number;
   /**
    * Draws the mark against the chart's second y axis, `y2`, which then fits it; 'y' when left out.

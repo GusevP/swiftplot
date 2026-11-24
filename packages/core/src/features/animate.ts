@@ -1,7 +1,10 @@
 import type { Feature } from '../types.js';
 
+// A move falls back to the cross-fade when one repaint of the chart takes longer than this, in ms.
+const REPAINT_BUDGET = 6;
+
 export type AnimateOptions = {
-  /** Milliseconds; nothing animates when it is 0 or not finite. */
+  /** Milliseconds; nothing animates when it is 0 or not finite. @default 300 */
   duration?: number;
   /**
    * How marks appear on the first paint: uncovered (the default), from the left, from the top where a
@@ -11,7 +14,7 @@ export type AnimateOptions = {
 };
 
 /**
- * Marks are revealed from the left (or fade in) on the first paint. When the data changes they
+ * Marks are uncovered (or fade in) on the first paint. When the data changes they
  * move to their new shape if every changed mark can (bars, row for row) and cross-fade otherwise.
  * The entrance and the cross-fade blend two pictures of the chart, so a frame costs the same
  * whatever the data size; a move repaints the chart each frame.
@@ -19,9 +22,6 @@ export type AnimateOptions = {
  * while updates arrive less than `duration` ms apart.
  * ponytail: marks on WebGL take part in the entrance, but swap at once when the data changes.
  */
-// A move falls back to the cross-fade when one repaint of the chart takes longer than this, in ms.
-const REPAINT_BUDGET = 6;
-
 export function animate({ duration = 300, enter = 'reveal' }: AnimateOptions = {}): Feature {
   if (!Number.isFinite(duration) || duration <= 0) return () => ({ destroy() {} });
   return chart => {

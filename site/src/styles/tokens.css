@@ -1,0 +1,63 @@
+@font-face {
+  font-family: Figtree;
+  font-style: normal;
+  font-weight: 300 900;
+  font-display: swap;
+  src: url('/fonts/figtree-normal.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: Figtree;
+  font-style: italic;
+  font-weight: 300 900;
+  font-display: swap;
+  src: url('/fonts/figtree-italic.woff2') format('woff2');
+}
+
+:root {
+  --font-sans: Figtree, system-ui, sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+
+  --step-small: 0.875rem;
+  --step-ui: 0.9375rem;
+  --step-body: 1.0625rem;
+  --step-lead: 1.25rem;
+  --step-title: 1.75rem;
+  --step-head: clamp(2.5rem, 4.6vw, 4rem);
+  --step-display: clamp(2.75rem, 6.2vw, 5.75rem);
+
+  --margin: clamp(1.25rem, 2.8vw, 2.5rem);
+
+  --ground: #f3f5f9;
+  --surface: #ffffff;
+  --ink: #070b14;
+  --muted: #55607a;
+  --accent: #2563eb;
+  --on-accent: #ffffff;
+  --tone: #e4e8f0;
+  --c1: #0891b2;
+  --c2: #2563eb;
+  --c3: #9333ea;
+  --code-bg: #0d1420;
+  --code-ink: #dbe4f0;
+  --code-dim: #7f8ea3;
+  --code-key: #7fb0ff;
+  --code-str: #9fd8a4;
+  color-scheme: light;
+}
+
+:root[data-theme='dark'],
+.dark {
+  --ground: #070b14;
+  --surface: #0e1524;
+  --ink: #ffffff;
+  --muted: rgba(255, 255, 255, 0.7);
+  --accent: #7dd3fc;
+  --on-accent: #070b14;
+  --tone: #16203a;
+  --c1: #22d3ee;
+  --c2: #3b82f6;
+  --c3: #a855f7;
+  --code-bg: #0e1524;
+  color-scheme: dark;
+}

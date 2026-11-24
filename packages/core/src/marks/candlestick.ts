@@ -4,16 +4,19 @@ import { base, ends } from './common.js';
 import type { Common } from './common.js';
 import { focused, gpuRows, type Part } from './rects.js';
 
-/**
- * A candle per x: a wick from low to high and a body from open to close.
- * `width` is the body's width in x units, so 0.6 on a band axis is 60% of the category.
- */
+/** A candle per x: a wick from low to high and a body from open to close. */
 export type CandlestickOptions = Common & {
+  /** Where each candle stands along x. */
   x: Col;
+  /** One end of the body. */
   open: Col;
+  /** The top of the wick. */
   high: Col;
+  /** The bottom of the wick. */
   low: Col;
+  /** The other end of the body; below `open`, the candle takes the `down` colour. */
   close: Col;
+  /** The body's width in x units, so 0.6 on a band axis is 60% of the category. @default 0.6 */
   width?: number;
   /** The colour of a candle whose close is not below its open; `color` unless given. */
   up?: string;

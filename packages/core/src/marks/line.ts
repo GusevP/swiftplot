@@ -3,19 +3,21 @@ import { gradient, painter, type Paint } from '../paint.js';
 import { base, chains, columns, extent, joined, reach, sampleAt, smooth, span } from './common.js';
 import type { Common, Curve } from './common.js';
 
-/**
- * x must be ascending. `stroke` draws the line with something other than its colour: a blend
- * across the plot area, say. `fill` shades what is under the line, down to the bottom of the plot
- * area: `true` for a faint fade of the line's colour, or a paint of your own. `join` draws it straight
- * across a value that is not finite, where it would otherwise leave a gap.
- */
+/** A line through points in ascending x; a y that is not finite leaves a gap unless `join` is set. */
 export type LineOptions = Common & {
+  /** The x of each point, ascending. */
   x: Col;
+  /** The y of each point; one that is not finite leaves a gap. */
   y: Col;
+  /** How the line runs from point to point: straight, in steps, or smoothly. @default 'linear' */
   curve?: Curve;
+  /** The line's width in CSS pixels. @default 1.5 */
   width?: number;
+  /** Draws the line with something other than its colour: a blend across the plot area, say. */
   stroke?: Paint;
+  /** Shades down to the bottom of the plot: `true` for a faint fade of the line's colour, or a paint. */
   fill?: Paint | boolean;
+  /** Draws the line straight across a value that is not finite, where it would leave a gap. */
   join?: boolean;
 };
 

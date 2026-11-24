@@ -1,0 +1,38 @@
+---
+import { frameworks } from '../scripts/preferences';
+---
+
+<label>
+  <span class="sr">Framework</span>
+  <select data-fw-select>
+    {frameworks.map(f => <option value={f.id}>{f.label}</option>)}
+  </select>
+</label>
+
+<style>
+  select {
+    font: inherit;
+    color: var(--ink);
+    background: var(--surface);
+    border: 1px solid var(--tone);
+    border-radius: 0;
+    padding: 0.45rem 0.6rem;
+  }
+</style>
+
+<script>
+  import { frameworks, setFramework } from '../scripts/preferences';
+
+  const root = document.documentElement;
+  const selects = [...document.querySelectorAll<HTMLSelectElement>('[data-fw-select]')];
+  const follow = () => {
+    for (const select of selects) select.value = root.dataset.fw ?? 'js';
+  };
+  for (const select of selects)
+    select.addEventListener('change', () => {
+      const chosen = frameworks.find(f => f.id === select.value);
+      if (chosen) setFramework(chosen.id);
+    });
+  follow();
+  new MutationObserver(follow).observe(root, { attributes: true, attributeFilter: ['data-fw'] });
+</script>

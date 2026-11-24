@@ -1,0 +1,48 @@
+---
+import type { Entry } from '../reference/extract';
+import Prose from './Prose.astro';
+import Unbroken from './Unbroken.astro';
+
+interface Props {
+  entries: readonly Entry[];
+}
+
+const { entries } = Astro.props;
+const described = (e: Entry) =>
+  new Set(e.lines.map(l => l.description)).size === 1 ? [{ ...e.lines[0]!, shape: undefined, mode: undefined }] : e.lines;
+const headers = ['Prop', 'Type', 'Default', 'What it does'] as const;
+---
+
+<table class="props stack">
+  <thead><tr>{headers.map(h => <th>{h}</th>)}</tr></thead>
+  <tbody>
+    {
+      entries.map(e => (
+          <tr id={e.name} data-pagefind-title={e.name}>
+            <td>
+              <a href={`#${e.name}`}>
+                <code data-pagefind-weight="7">{e.name}</code>
+              </a>
+            </td>
+            <td data-label={headers[1]}>
+              {e.lines.map(l => (
+                <div>
+                  {(l.shape ?? l.mode) && <span class="shape">{l.shape ?? l.mode}</span>}
+                  <Unbroken text={l.type} />
+                </div>
+              ))}
+            </td>
+            <td data-label={headers[2]}>{e.default === undefined ? '—' : <code>{e.default}</code>}</td>
+            <td data-label={headers[3]}>
+              {described(e).map(l => (
+                <div>
+                  {(l.shape ?? l.mode) && <span class="shape">{l.shape ?? l.mode}</span>}
+                  <Prose text={l.description} />
+                </div>
+              ))}
+            </td>
+          </tr>
+      ))
+    }
+  </tbody>
+</table>

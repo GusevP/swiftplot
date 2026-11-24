@@ -8,21 +8,58 @@ import { focused, gpuRows, type Blend, type Part } from './rects.js';
 
 /**
  * One rectangle per row, from (x1, y1) to (x2, y2) in data units; either pair may be in any order.
- * A single `y` (or `x`) stands for a pair that starts at zero. `gap` takes so many CSS pixels off
- * the side of each bar, which sets touching bars such as a histogram's apart; a bar keeps a pixel
- * of its width. `radius` rounds the value end of a bar that starts at zero by so many CSS pixels,
- * and all the corners of one that does not; bars too narrow to
- * show it, and bars drawn by WebGL, stay square. `fill` fills the bars with something other than
- * their colour: a blend runs over each bar, and down a bar that stands on a baseline it runs from
- * the value end to the baseline. On the canvas blended bars are filled one at a time.
- * Bars given `x`, `y` and a `stack` or `dodge` id are laid out by the chart with the shown bars of
- * that id, in the order they are listed: stacked over one another, or side by side in the slots of
- * their category, `x` being the category's place on a band axis.
+ * A single `y` (or `x`) stands for a pair that starts at zero. On the canvas blended bars are
+ * filled one at a time.
  */
-export type BarOptions = Common & { fill?: Paint; radius?: number; gap?: number } & (
-    | (({ x1: Col; x2: Col } | { x: Col }) &
-        ({ y1: Col; y2: Col } | { y: Col }) & { stack?: never; dodge?: never })
-    | ({ x: Col; y: Col } & ({ stack: string; dodge?: never } | { dodge: string; stack?: never }))
+export type BarOptions = Common & {
+  /** Fills the bars with something other than their colour; a blend runs over each bar, and an upright one on an unstacked `y` bar from its value end to the baseline. */
+  fill?: Paint;
+  /** Rounds by so many CSS pixels the value end of a bar from zero, or every corner; WebGL bars stay square. */
+  radius?: number;
+  /** Takes so many CSS pixels off the side of each bar, to set touching bars apart; a bar keeps a pixel. */
+  gap?: number;
+} & (
+    | ((
+        | {
+            /** One end of each bar along x, in data units. */
+            x1: Col;
+            /** The other end of each bar along x. */
+            x2: Col;
+          }
+        | {
+            /** Where each bar ends along x; it starts at zero. */
+            x: Col;
+          }
+      ) &
+        (
+          | {
+              /** One end of each bar along y, in data units. */
+              y1: Col;
+              /** The other end of each bar along y. */
+              y2: Col;
+            }
+          | {
+              /** Where each bar ends along y; it starts at zero. */
+              y: Col;
+            }
+        ) & { stack?: never; dodge?: never })
+    | ({
+        /** The place of each bar's category on a band axis. */
+        x: Col;
+        /** Each bar's value. */
+        y: Col;
+      } & (
+        | {
+            /** Bars with the same id are stacked over one another, in the order listed, among those shown. */
+            stack: string;
+            dodge?: never;
+          }
+        | {
+            /** Bars with the same id stand side by side in their category, in the order listed, among those shown. */
+            dodge: string;
+            stack?: never;
+          }
+      ))
   );
 
 type Arranged = Common & { x: Col; y: Col; stack?: string; dodge?: string };
@@ -112,7 +149,7 @@ function make(o: BarOptions, value?: Col): Mark {
     const up = y2[i]! >= 0 ? [r, r, 0, 0] : [0, 0, r, r];
     const along = x2[i]! >= 0 ? [0, r, r, 0] : [r, 0, 0, r];
     const grounded = (own.y1 ? own.y1[i] : 0) === 0;
-    path.roundRect(l, t, w, h, grounded ? up : flat ? along : r);
+    path.roundRect(l, t, w, h, flat ? along : grounded ? up : r);
   };
   const shaped = (box: Float64Array, dpr: number) => {
     if (!corner) return rects(box);

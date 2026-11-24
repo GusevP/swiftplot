@@ -5526,6 +5526,23 @@ test('a gap sets touching bars apart alike on both painters, and bars that start
   expect(pixel(small, 1, 98)).toEqual(RED_PIXEL);
 });
 
+test('a bar given a single x is rounded at its x end, whatever its y bounds', () => {
+  for (const [x, domain, rounded, square] of [
+    [10, [0, 10], 98, 1],
+    [-10, [-10, 0], 1, 98],
+  ] satisfies [number, [number, number], number, number][]) {
+    for (const ys of [
+      { y1: [0], y2: [1] },
+      { y1: [0.2], y2: [1] },
+    ]) {
+      const el = host();
+      plot(el, { ...frame, x: bare(domain), marks: [bar({ x: [x], ...ys, color: RED, radius: 10 })] });
+      expect(pixel(el, rounded, 1)).toEqual([0, 0, 0, 0]);
+      expect(pixel(el, square, 1)).toEqual(RED_PIXEL);
+    }
+  }
+});
+
 test('a sankey ribbon blends from its source to its target on both painters; a funnel and a donut take a blend', () => {
   const spare = Array.from({ length: 2000 }, () => 0);
   for (const [extra, nth] of [

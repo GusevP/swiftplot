@@ -1,0 +1,9 @@
+---
+interface Props {
+  text: string;
+}
+
+const { text } = Astro.props;
+---
+
+<code>{text.split(' ').map((word, i) => [i > 0 && ' ', <span class="whole">{word}</span>])}</code>

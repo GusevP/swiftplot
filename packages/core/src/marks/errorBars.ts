@@ -4,13 +4,29 @@ import { base } from './common.js';
 import type { Common } from './common.js';
 import { gpuRows, type Part } from './rects.js';
 
-/**
- * A line from y1 to y2 at each x with a cap at both ends, or from x1 to x2 at each y.
- * `cap` is half the cap's length and `width` the line width, both in CSS pixels.
- */
-export type ErrorBarsOptions = Common & { width?: number; cap?: number } & (
-    | { x: Col; y1: Col; y2: Col }
-    | { y: Col; x1: Col; x2: Col }
+/** A line from y1 to y2 at each x with a cap at both ends, or from x1 to x2 at each y. */
+export type ErrorBarsOptions = Common & {
+  /** The line's width in CSS pixels. @default 1 */
+  width?: number;
+  /** Half the length of each cap, in CSS pixels. @default 4 */
+  cap?: number;
+} & (
+    | {
+        /** Where each upright bar stands. */
+        x: Col;
+        /** One end of each upright bar. */
+        y1: Col;
+        /** The other end of each upright bar. */
+        y2: Col;
+      }
+    | {
+        /** Where each level bar stands. */
+        y: Col;
+        /** One end of each level bar. */
+        x1: Col;
+        /** The other end of each level bar. */
+        x2: Col;
+      }
   );
 
 export function errorBars(o: ErrorBarsOptions): Mark {

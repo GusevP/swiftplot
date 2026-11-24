@@ -1,0 +1,125 @@
+---
+title: Marks and plot()
+summary: Build a chart from marks with plot(), giving each mark its columns, setting the axes and mixing marks on one chart.
+order: 2
+---
+
+import GuideExample from '../../components/GuideExample.astro';
+
+## Easy charts and plot()
+
+The charts in `swiftplot/charts` take rows and work out the rest. `plot()`, from `swiftplot` itself, draws only the
+marks you give it, on the axes you set, with the features you add. Use it for a chart type with no easy version, to
+mix marks on one chart, or to pass large typed arrays straight in.
+
+```js
+import { line, plot, time, tooltip } from 'swiftplot';
+
+const chart = plot(el, {
+  x: time({ label: 'Day' }),
+  y: { domain: 'nice', label: 'Requests' },
+  marks: [line({ x: day, y: requests, color: '#2563eb', label: 'API' })],
+  use: [tooltip({ mode: 'nearest', text: (label, x, y) => `${label}: ${y} requests` })],
+});
+```
+
+`marks` is the only option `plot()` needs. Each mark is a function you import, and only the ones you import are
+bundled. `use` takes the features, such as a legend or a tooltip; [Interaction](/guides/interaction) covers them. In
+React and Vue, `Plot` takes the same options as props, except that in Vue the `on…Change` callbacks are `update:`
+events. The code beside each chart on this page is written for the framework you pick.
+
+## Columns
+
+A mark takes columns, not rows: `x`, `y` and the like are typed arrays or plain number arrays, one set per mark.
+`Float64Array.from(rows, r => r.value)` makes a column from rows, and `Map.groupBy(rows, r => r.series)` splits rows
+into series, one mark each.
+
+A line or an area needs `x` finite and ascending. A `y` that is `NaN` or infinite leaves a gap, and `join: true` draws
+straight across it instead.
+
+## Mix marks
+
+Several marks can share one chart and its axes. Here bars and a line sit on a band axis of months. The bars
+are given `yAxis: 'y2'`, so they are drawn against the second axis on the right. Each axis takes its extent from its
+own marks, and grid lines come from `y` only. Turn the second axis off to see both marks on one scale.
+
+<GuideExample id="two-y-axes" />
+
+## Reference lines and zones
+
+`rule()` draws a line across the plot at an x or a y, and `zone()` a band between two values. A rule is always drawn
+over the data and a zone under it, wherever they are in `marks`. Neither widens a domain or counts as a series. The line's `fill` takes a `gradient()`; switch it off to see the plain line.
+
+<GuideExample id="line-annotated" />
+
+## Axes
+
+`x`, `y` and `y2` are linear unless you say otherwise:
+
+- `{ domain: 'nice' | 'data' | [lo, hi], label }` is a linear axis. `'nice'` widens the marks' extent to whole
+  steps; `'data'` keeps it exact.
+- `time({ label })` takes millisecond timestamps and puts ticks on calendar boundaries, in UTC unless `utc: false`.
+- `log({ label })` is a log axis. Marks take their columns through it, as `y.col(counts)`; see
+  [the log scale example](/examples/line-log).
+- `band({ label, categories })` puts category `i` at `x = i`, owning `i - 0.5` to `i + 0.5`. `bands(n)` gives the bar
+  bounds for it.
+- `bare()` places the marks and draws no ticks, grid or label, for a chart inside a card.
+
+On a linear axis `step` puts ticks on multiples of a value and `format` writes their labels. `time()` takes `every`,
+`unit` and `format` instead, `log()` takes `format`, and `band()` and `bare()` take neither. The
+[scales reference](/reference/scales) lists every option.
+
+## Charts without axes
+
+`frame: 'polar'` is for marks drawn round a centre: `arcs()` for pies and donuts, `radar()`, `radialBars()` and
+`sunburst()`. `frame: 'blank'` is for `treemap()`, `funnel()` and `sankey()`. Neither frame draws axes.
+
+```js
+plot(el, {
+  frame: 'polar',
+  marks: [arcs({ values: [5, 3, 2], labels: ['A', 'B', 'C'], colors: palette, inner: 0.6 })],
+});
+```
+
+## The marks
+
+| Mark                                                 | Draws                                              | Example                                    |
+| ---------------------------------------------------- | -------------------------------------------------- | ------------------------------------------ |
+| [`line`](/reference/line)                            | a line through points, straight, stepped or smooth | [Annotated line](/examples/line-annotated) |
+| [`area`](/reference/area)                            | an area from zero, or a band between two columns   | [Stacked areas](/examples/area-stacked)    |
+| [`bar`](/reference/bar)                              | bars between explicit bounds, either way up        | [Histogram](/examples/histogram)           |
+| [`dots`](/reference/dots)                            | points, each with its own radius                   | [Bubbles](/examples/bubbles)               |
+| [`ticks`](/reference/ticks)                          | a vertical tick at each point                      | [Strip plot](/examples/strip-plot)         |
+| [`box`](/reference/box)                              | box plots from five numbers                        | [Box plot](/examples/box-plot)             |
+| [`errorBars`](/reference/error-bars)                 | a range at each point                              | [Error bars](/examples/error-bars)         |
+| [`candlestick`](/reference/candlestick)              | a wick and a body for each period                  | [Candlesticks](/examples/candlesticks)     |
+| [`heatmap`](/reference/heatmap)                      | a grid of coloured cells                           | [Heatmap](/examples/heatmap)               |
+| [`arcs`](/reference/arcs)                            | the slices of a pie or a donut                     | [Pie and donut](/examples/pie-donut)       |
+| [`radar`](/reference/radar)                          | series round spokes                                | [Radar](/examples/radar)                   |
+| [`radialBars`](/reference/radial-bars)               | one bar per value, each on its own ring            | [Radial bars](/examples/radial-bars)       |
+| [`funnel`](/reference/funnel)                        | stages as wide as their values                     | [Funnel](/examples/funnel)                 |
+| [`sankey`](/reference/sankey)                        | flows between nodes                                | [Sankey](/examples/sankey)                 |
+| [`treemap`](/reference/treemap)                      | a tree's leaves as nested rectangles               | [Treemap](/examples/treemap)               |
+| [`sunburst`](/reference/sunburst)                    | a tree as rings round a centre                     | [Sunburst](/examples/sunburst)             |
+| [`rule`](/reference/rule), [`zone`](/reference/zone) | a reference line, a band between two values        | [Annotated line](/examples/line-annotated) |
+
+## Helpers
+
+Some data needs shaping before a mark takes it. These plain functions do it:
+
+- `bin(values, 20)` counts values into 20 bins, as `bar({ ...bin(values, 20), color })`.
+- `stack([a, b, c])` gives each series the `y1` and `y2` of its layer. To stack series that a legend can hide, give
+  each `area` or `bar` the same `stack` id instead.
+- `fiveNumbers(groups)` gives the columns a `box` takes.
+- `fromTree(tree)` and `fromLinks(links)` turn nested objects and a list of links into the columns of a treemap,
+  a sunburst or a sankey.
+- `gradient(0.4, 0)` is a fill that fades from 0.4 opacity to none; `sequential({ stops })` is a heatmap's colour
+  scale.
+
+A mark of your own is an object with the `Mark` shape from the package's types.
+
+## Where to go next
+
+- [Interaction](/guides/interaction): the legend, the tooltip, zoom, the brush and clicks.
+- [Updates and animation](/guides/updates-and-animation): changing a chart once it is drawn.
+- [The plot() reference](/reference/plot): every option `plot()` takes.

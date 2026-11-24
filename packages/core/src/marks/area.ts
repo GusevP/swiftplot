@@ -4,17 +4,29 @@ import { painter, type Paint } from '../paint.js';
 import { base, chains, columns, extent, joined, reach, sampleAt, smooth, span, stackKey } from './common.js';
 import type { Common, Curve } from './common.js';
 
-/**
- * Filled between 0 and y, or between y1 and y2. x must be ascending. `fill` fills it with
- * something other than its colour. An upright blend runs from the furthest the area reaches to
- * its baseline, on both sides of it and whichever side that is, so gradient(0.4, 0) fades the area
- * out where it meets the axis. Areas given the same `stack` id are stacked by the chart over the shown
- * ones, in the order they are listed; they must share their x. `join` fills it straight across a
- * value that is not finite, where it would otherwise leave a gap.
- */
-export type AreaOptions = Common & { x: Col; curve?: Curve; fill?: Paint; join?: boolean } & (
-    | { y: Col; stack?: string }
-    | { y1: Col; y2: Col }
+/** Filled between 0 and y, or between y1 and y2. */
+export type AreaOptions = Common & {
+  /** The x of each point, ascending. */
+  x: Col;
+  /** How the edges run from point to point: straight, in steps, or smoothly. @default 'linear' */
+  curve?: Curve;
+  /** Fills it with something other than its colour; on an unstacked `y` area an upright blend runs from its far edge to its baseline. */
+  fill?: Paint;
+  /** Fills straight across a value that is not finite, where it would leave a gap. */
+  join?: boolean;
+} & (
+    | {
+        /** The top of the area, which is filled from 0; a value that is not finite leaves a gap. */
+        y: Col;
+        /** Areas with the same id are stacked, in the order listed, over the shown ones; they must share x. */
+        stack?: string;
+      }
+    | {
+        /** One edge of a band, filled across to y2; a value that is not finite leaves a gap. */
+        y1: Col;
+        /** The band's other edge. */
+        y2: Col;
+      }
   );
 
 type Stacked = AreaOptions & { y: Col; stack: string };

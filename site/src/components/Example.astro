@@ -1,0 +1,22 @@
+---
+import type { Defaults } from '../codegen/index';
+import type { Example } from '../examples/define';
+import Switches from './Switches.astro';
+
+interface Props {
+  definition: Example;
+  defaults: Defaults;
+  small?: boolean;
+}
+
+const { definition, defaults, small } = Astro.props;
+---
+
+<div class:list={['demo', { small }]} data-example={definition.id} data-defaults={JSON.stringify(defaults)}>
+  <div class="chart"></div>
+  {definition.switches.length > 0 && <Switches switches={definition.switches} class="knobrow" />}
+</div>
+
+<script>
+  import '../scripts/example';
+</script>

@@ -1,0 +1,29 @@
+---
+type Page = { href: string; title: string };
+
+interface Props {
+  previous?: Page | undefined;
+  next?: Page | undefined;
+}
+
+const { previous, next } = Astro.props;
+---
+
+<nav class="pager" aria-label="Previous and next">
+  {
+    previous && (
+      <a href={previous.href}>
+        <span>Previous</span>
+        <b>{previous.title}</b>
+      </a>
+    )
+  }
+  {
+    next && (
+      <a class="next" href={next.href}>
+        <span>Next</span>
+        <b>{next.title}</b>
+      </a>
+    )
+  }
+</nav>

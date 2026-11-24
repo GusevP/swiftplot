@@ -1,0 +1,42 @@
+---
+import Cards from '../../components/Cards.astro';
+import { tagLabels } from '../../examples/define';
+import { examples } from '../../examples/index';
+import Docs from '../../layouts/Docs.astro';
+
+const all = [...examples.values()];
+const slug = (group: string) => group.toLowerCase().replaceAll(' ', '-');
+const groups = Array.from(Map.groupBy(all, e => e.group), ([label, cards]) => ({ id: slug(label), label, cards }));
+const tags = [...new Set(all.flatMap(e => e.tags))];
+const sidebar = [
+  { label: 'Chart type', links: groups.map(g => ({ href: `#${g.id}`, label: g.label })) },
+  { label: 'Also', links: [{ href: '/guides/getting-started', label: 'Getting started' }] },
+];
+---
+
+<Docs title="Examples · swiftplot" sidebar={sidebar}>
+  <h1>Examples</h1>
+  <p class="intro">Every example is one page: the chart, switches for its options, and the code for your framework.</p>
+  <div class="chips" role="group" aria-label="Filter">
+    <button type="button" aria-pressed="true">All</button>
+    {
+      tags.map(tag => (
+        <button type="button" data-tag={tag} aria-pressed="false">
+          {tagLabels[tag]}
+        </button>
+      ))
+    }
+  </div>
+  {
+    groups.map(g => (
+      <section class="group" id={g.id}>
+        <h2>{g.label}</h2>
+        <Cards examples={g.cards} />
+      </section>
+    ))
+  }
+</Docs>
+
+<script>
+  import '../../scripts/examples-index';
+</script>

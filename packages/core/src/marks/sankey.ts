@@ -15,18 +15,27 @@ import type { Col, GlLayer, Label, Mark, Prepared, View } from '../types.js';
  * links together the diagram is drawn by WebGL, where one is as quick to paint as another.
  */
 export type SankeyOptions = {
+  /** The nodes' names. */
   nodes: string[];
+  /** The place in `nodes` of the node each link leaves. */
   source: Col;
+  /** The place in `nodes` of the node each link reaches. */
   target: Col;
+  /** Each link's value, which its ribbon is as wide as; one negative or not a number counts as 0. */
   value: Col;
+  /** The nodes' colours, repeated when there are fewer than nodes. */
   colors: string[];
   /** Each ribbon runs from the colour of the node it leaves into the colour of the one it reaches. */
   blend?: boolean;
-  /** Node names beside the nodes; true by default. */
+  /** Writes the node names beside the nodes. @default true */
   text?: boolean;
+  /** The mark's opacity, from 0 to 1. @default 1 */
   alpha?: number;
+  /** Pairs the mark with the one it replaces in update(), to keep or morph its shape; its place in `marks` if left out. */
   key?: string;
+  /** The mark's name in a legend, a tooltip and the chart's description. */
   label?: string;
+  /** Marks of one group are focused, dimmed and hidden together; the label when left out. */
   group?: string;
 };
 
@@ -48,7 +57,10 @@ function ribbonProgram(gl: WebGL2RenderingContext) {
   return { p, size: gl.getUniformLocation(p, 'size'), lit: gl.getUniformLocation(p, 'lit') };
 }
 
-/** The columns sankey() takes, from links that name their ends. Nodes are listed as first met. */
+/**
+ * The columns sankey() takes, from links that name their ends. Nodes are listed as first met.
+ * @param links Each link's source and target, by node name, and its value.
+ */
 export function fromLinks(links: { source: string; target: string; value: number }[]) {
   const place = new Map<string, number>();
   const at = (name: string) => {

@@ -115,7 +115,7 @@ import { LineChart } from '@swiftplot/vue';
 - **Size:** `width` and `height` (px) size the `div`, and `style` wins over them; the chart measures the `div` and follows whatever resizes it (a class, a parent, a media query). With no height from `height`, `style` or CSS, the `div` fills a parent that has a height, else is 300 px tall, so `<LineChart data={rows} />` shows a chart on an ordinary page and a class added later wins, in a cascade layer (Tailwind) or not. The fallback is a `<style>` kept first in the document head (or the shadow root), inserted only for a chart with no height: under a Content Security Policy that blocks inline styles, give every chart a height (`height`, `style` or CSS). A chart mounted in a detached element falls back once the element is attached.
 - **Errors** (a missing field, an accessor or formatter that throws) go to `onError` in React or `@error` in Vue, and the last good chart stays; without a handler they are thrown to the nearest error boundary, or to Vue's error handling (`onErrorCaptured`, `app.config.errorHandler`). A failed render is tried again when a chart prop other than a callback changes; a changed callback still reaches the last good chart. A failure is reported once until its error message, the data's length (each column's, for an object of columns) or another prop that is not a function changes, so inline props, data rebuilt during render and a handler that sets state cannot loop, unless the message itself changes on every attempt. Rows are never read, so new data of the same length that fails with the same message is not reported again.
 - **Server rendering:** the server renders the `div` alone, the client hydrates the same markup and creates the chart after hydration. The React entry is marked `'use client'`. The 300 px fallback is applied in the browser, so give a server-rendered chart a `height` (or a CSS height) to reserve its space before hydration.
-- **Performance:** each render compares props by identity and the chart then by value, so inline objects such as `xAxis={{ label: 'Day' }}` cost little. `data` built during render and inline accessors are converted again on every render, and an inline `xAxis.format` redraws the axis: build them outside render, or with `useMemo` and `useCallback`. In Vue keep the data in a `shallowRef` and replace the array: a deep `ref` makes the app wrap every row for nothing the chart uses. Data changed in place with every prop unchanged is not noticed: pass a new array or bump `dataVersion`.
+- **Performance:** each render compares props by identity and the chart then by value, so inline objects such as `xAxis={{ label: 'Day' }}` cost little. `data` built during render and inline accessors are converted again on every render, and an inline `xAxis.format` repaints the data: build them outside render, or with `useMemo` and `useCallback`. In Vue keep the data in a `shallowRef` and replace the array: a deep `ref` makes the app wrap every row for nothing the chart uses. Data changed in place with every prop unchanged is not noticed: pass a new array or bump `dataVersion`.
 
 ## Use
 
@@ -185,7 +185,7 @@ chart.destroy();
   ```
 
 - **Reference lines and zones:** `rule({ y: 50, color: '#dc2626', dashed: true, text: 'Target' })` draws a line across the plot at each value, and `zone({ x1, x2, color, text })` a band between two values. A rule is always above the data and a zone under it, wherever they are in `marks`; neither widens a domain or counts as a series.
-- **Tick step and format:** an axis's `step` puts ticks on multiples of it, thinned when their labels do not fit, and `format` labels them; `time({ label, every: 3, unit: 'month', format })` does the same on a time axis. Define `format` once, outside the update: a new function each time counts as a new axis and prepares every mark again.
+- **Tick step and format:** an axis's `step` puts ticks on multiples of it, thinned when their labels do not fit, and `format` labels them; `time({ label, every: 3, unit: 'month', format })` does the same on a time axis. Define `format` once, outside the update: a new function each time counts as a changed axis, so its ticks are worked out again and the data is repainted, which `animate()` shows as a cross-fade.
 
   ```ts
   const percent = (v: number) => `${v * 100}%`;
@@ -293,19 +293,22 @@ The same step at 1,000,000 points with `fit: 'window'` on the y axis, 2026-11-22
 
 ## Develop
 
-From the repository root. `build`, `test:import`, `test` and `typecheck` run in every package under `packages/`. GitHub runs these checks, then packs the packages and checks the tarballs, on every push to `main` and every pull request (`.github/workflows/ci.yml`, read-only):
+From the repository root. `build`, `test` and `typecheck` run in every package under `packages/` and in the site (`site/`), `test:import` in the packages only. GitHub runs these checks, then packs the packages and checks the tarballs, on every push to `main` and every pull request (`.github/workflows/ci.yml`, read-only):
 
 ```sh
 pnpm install
 pnpm --filter swiftplot exec playwright install chromium   # once, for the tests
 pnpm build
 pnpm test:import # imports each package's dist/ in Node, after pnpm build
-pnpm test        # Vitest in a real browser, one package at a time, then node --test on scripts/
+pnpm test:smoke  # Playwright on the built site, after pnpm build
+pnpm test        # Vitest (in a real browser for the packages), one package at a time, then node --test on scripts/
 pnpm typecheck
 pnpm --filter swiftplot run test   # one package
 pnpm lint        # oxlint, type-aware
 pnpm format      # oxfmt
 ```
+
+The site is the Astro project in `site/`. `pnpm --filter swiftplot-site dev` serves it while you edit; `pnpm --filter swiftplot-site build`, then `pnpm --filter swiftplot-site exec astro preview`, serves the build, with search. `pnpm test:smoke` needs that build in `site/dist` and the Chromium installed above, and starts the preview itself. The site's other commands and its Cloudflare Pages settings are in [site/README.md](site/README.md).
 
 ## Releasing
 

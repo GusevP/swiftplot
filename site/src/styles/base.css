@@ -1,0 +1,102 @@
+* {
+  box-sizing: border-box;
+  margin: 0;
+}
+
+html {
+  background: var(--ground);
+  color: var(--ink);
+  font: 400 var(--step-body) / 1.5 var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+body {
+  min-height: 100svh;
+  overflow-x: hidden;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+pre,
+code {
+  font-family: var(--font-mono);
+}
+
+:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 3px;
+}
+
+:root[data-fw='react'] [data-for='js'],
+:root[data-fw='vue'] [data-for='js'],
+:root:not([data-fw='react']) [data-for='react'],
+:root:not([data-fw='vue']) [data-for='vue'] {
+  display: none;
+}
+
+.sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition: none !important;
+    animation: none !important;
+  }
+}
+
+.snip,
+.astro-code {
+  margin-top: 1.25rem;
+  background: var(--code-bg);
+  color: var(--code-ink);
+}
+.snip header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 8px 0 18px;
+  font-size: var(--step-small);
+  color: var(--code-dim);
+}
+.snip button {
+  border: 0;
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--code-ink);
+  font: 500 0.8125rem/1 var(--font-sans);
+  padding: 0.5rem 0.7rem;
+  cursor: pointer;
+  transition: transform 0.12s;
+}
+.snip button:active {
+  transform: scale(0.95);
+}
+.snip pre,
+.astro-code {
+  padding: 14px 18px 18px;
+  font-size: var(--step-small);
+  line-height: 1.65;
+  overflow: auto;
+}
+.snip .keyword {
+  color: var(--code-key);
+}
+.snip .string {
+  color: var(--code-str);
+}
+.snip .comment {
+  color: var(--code-dim);
+}
+.palette {
+  margin-top: 0.5rem;
+  color: var(--muted);
+  font-size: var(--step-small);
+}

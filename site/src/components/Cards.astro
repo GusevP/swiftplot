@@ -1,0 +1,29 @@
+---
+import { tagLabels, type Example } from '../examples/define';
+
+interface Props {
+  examples: readonly Example[];
+}
+
+const { examples } = Astro.props;
+---
+
+<div class="cards">
+  {
+    examples.map(e => (
+      <a href={`/examples/${e.id}`} data-tags={e.tags.join(' ')}>
+        <div class="chart" data-id={e.id} inert />
+        <b>{e.title}</b>
+        <span>{e.tags.map(t => tagLabels[t]!.toLowerCase()).join(' · ')}</span>
+      </a>
+    ))
+  }
+</div>
+
+<script>
+  import { load, mountExample } from '../charts/mount';
+  import { whileNear } from '../charts/visible';
+
+  for (const el of document.querySelectorAll<HTMLElement>('.cards .chart'))
+    whileNear(el, () => load(el.dataset.id!), definition => mountExample(el, definition, {}, { legend: false }));
+</script>

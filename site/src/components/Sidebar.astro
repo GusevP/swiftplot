@@ -1,0 +1,32 @@
+---
+import { pagePath } from './path';
+export type Group = { label: string; links: readonly { href: string; label: string }[] };
+
+interface Props {
+  groups: readonly Group[];
+}
+
+const { groups } = Astro.props;
+const path = pagePath(Astro.url);
+---
+
+<aside class="side">
+  {
+    groups.map(g => (
+      <div>
+        <b>{g.label}</b>
+        {g.links.map(l => (
+          <a href={l.href} aria-current={l.href === path ? 'page' : undefined}>
+            {l.label}
+          </a>
+        ))}
+      </div>
+    ))
+  }
+</aside>
+
+<script>
+  const current = document.querySelector<HTMLElement>('.side [aria-current]');
+  const side = current?.offsetParent;
+  if (side) side.scrollTop = current.offsetTop - side.clientHeight / 2;
+</script>

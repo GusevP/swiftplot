@@ -21,7 +21,7 @@
   ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
-    "typecheck": "tsc --noEmit && vue-tsc --noEmit",
+    "typecheck": "tsc --noEmit && vue-tsc --noEmit && tsc --noEmit -p tsconfig.node.json",
     "test": "vitest run",
     "test:import": "node test/import.mjs"
   },
@@ -30,6 +30,7 @@
     "vue": "^3.4"
   },
   "devDependencies": {
+    "@types/node": "^24.19.2",
     "@vitest/browser-playwright": "^5.1.1",
     "playwright": "^1.65.1",
     "swiftplot": "workspace:*",

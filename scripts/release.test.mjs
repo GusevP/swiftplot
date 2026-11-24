@@ -14,7 +14,7 @@ const READS = [
   /^tar -xf /,
   /^gh api --hostname github\.com (--paginate --jq .+ )?repos\/GusevP\/swiftplot\/\S+$/,
   /^gh release download /,
-  /^pnpm (install --frozen-lockfile|build|pack --pack-destination \S+)$/,
+  /^pnpm (install --frozen-lockfile|--filter \.\/packages\/\* build|pack --pack-destination \S+)$/,
   /^npm install /,
   /^npm view /,
   /^node /,
@@ -82,7 +82,7 @@ const walk = (dir, base = dir) =>
 
 function fakePnpm(args, cwd) {
   if (args[0] === 'install') return '';
-  if (args[0] === 'build') {
+  if (args.join(' ') === '--filter ./packages/* build') {
     for (const folder of readdirSync(join(cwd, 'packages'))) {
       mkdirSync(join(cwd, 'packages', folder, 'dist'));
       writeFileSync(join(cwd, 'packages', folder, 'dist/index.js'), `export const name = '${folder}';\n`);
@@ -429,7 +429,7 @@ test('the files are built from an export of the commit and stored in .release', 
   const builds = h.calls.filter(call => call.line.startsWith('pnpm '));
   assert.deepEqual(
     builds.slice(0, 2).map(call => call.line),
-    ['pnpm install --frozen-lockfile', 'pnpm build'],
+    ['pnpm install --frozen-lockfile', 'pnpm --filter ./packages/* build'],
   );
   for (const call of builds) assert.ok(relative(r.dir, call.cwd).startsWith('..'), call.cwd);
 
@@ -500,7 +500,7 @@ for (const kind of ['tag only', 'draft']) {
     const result = await preview.release({ dryRun: true });
     assert.match(result.reasons.join('\n'), /holds 0\.1\.0 of f{40}, not 0\.1\.0 of/);
     assert.equal(result.files.length, 4);
-    assert.ok(preview.calls.some(call => call.line === 'pnpm build'));
+    assert.ok(preview.calls.some(call => call.line === 'pnpm --filter ./packages/* build'));
     assert.deepEqual(snapshot(r).release, kept);
     assert.deepEqual(preview.writes, []);
   });

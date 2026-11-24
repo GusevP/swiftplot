@@ -6,3 +6,6 @@ docs/
 .release/
 packages/*/README.md
 packages/*/LICENSE
+site/.astro
+site/.codegen-check
+site/test-results

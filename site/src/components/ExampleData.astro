@@ -1,0 +1,28 @@
+---
+import type { Data } from '../examples/tree';
+import DataDownload from './DataDownload.astro';
+
+interface Props {
+  data: Data;
+}
+
+const { data } = Astro.props;
+const count = (n: number) => n.toLocaleString('en-US');
+const shown = 4;
+const lines = data.kind === 'json' ? JSON.stringify(data.value, null, 2).split('\n') : [];
+const preview =
+  data.kind === 'json'
+    ? `${lines.slice(0, shown * 3).join('\n')}${lines.length > shown * 3 ? `\n… ${count(lines.length - shown * 3)} more lines` : ''}`
+    : `${data.rows
+        .slice(0, shown)
+        .map(r => JSON.stringify(r))
+        .join(',\n')}${data.rows.length > shown ? `,\n… ${count(data.rows.length - shown)} more rows` : ''}`;
+---
+
+<p>
+  {data.kind === 'json' ? 'The sample data, as JSON.' : `${count(data.rows.length)} rows of sample data.`}{' '}
+  <DataDownload file={data.file} />
+</p>
+<div class="snip">
+  <pre><code>{preview}</code></pre>
+</div>

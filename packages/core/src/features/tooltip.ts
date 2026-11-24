@@ -2,11 +2,24 @@ import { NEAREST_PX } from '../chart.js';
 import type { Feature } from '../types.js';
 import { position } from './pointer.js';
 
+/** A tooltip at the pointer: a row for each visible, labelled line or area at its x, or the text for what is nearest it. */
 export type TooltipOptions =
-  /** One row per labelled mark that can be sampled at the pointer's x, with a crosshair; a band gives its thickness. */
-  | { mode: 'x'; title: (x: number) => string; value: (y: number, axis: 'y' | 'y2') => string }
+  /** A row for each labelled line or area not hidden, at the pointer's x, with a crosshair; a band gives its thickness. */
+  | {
+      /** Shows each labelled line and area that is not hidden, at the pointer's x. */
+      mode: 'x';
+      /** The first line of the tooltip, for the x at the pointer. */
+      title: (x: number) => string;
+      /** A mark's value as text, after its label, for its y on the axis it is drawn against. */
+      value: (y: number, axis: 'y' | 'y2') => string;
+    }
   /** x and y are where the mark says it was hit, y being the row's own value where it has one; row is its row there. */
-  | { mode: 'nearest'; text: (label: string, x: number, y: number, row?: number) => string };
+  | {
+      /** Shows what is nearest the pointer, within 20 CSS pixels. */
+      mode: 'nearest';
+      /** The tooltip's text, from the label of the mark or part hit, its x and y, and its row. */
+      text: (label: string, x: number, y: number, row?: number) => string;
+    };
 
 type Row = { text: string; color?: string };
 

@@ -1,0 +1,69 @@
+---
+title: Large data
+summary: When a chart switches to WebGL, what stays on the canvas, and how to pass large columns so they are not converted again.
+order: 7
+---
+
+import GuideExample from '../../components/GuideExample.astro';
+
+## When a chart switches to WebGL
+
+A chart draws on a Canvas 2D, and moves its marks to WebGL2 once they hold enough:
+
+- a scatter, `dots`, from 20,000 points;
+- bars, error bars, box plots and candlesticks, `bar`, `errorBars`, `box` and `candlestick`, from 10,000 bars, error
+  bars, boxes or candles;
+- a sankey from 1,000 nodes and links together.
+
+The charts from data draw with the same marks, so a `scatterChart` of 20,000 rows draws with WebGL too. WebGL2 set-up
+costs about 4 ms, which is why a smaller chart stays on the canvas: below roughly 20,000 points a scatter mounts sooner
+there.
+
+The 40,000 points below are drawn with WebGL, and zooming and panning them stays quick.
+
+<GuideExample id="scatter-large" />
+
+Marks that can draw with WebGL count together, each by its share of its own threshold: 10,000 points and 5,000 bars are
+half each, so together they move to WebGL.
+
+## What stays on the canvas
+
+- Lines and areas. A step line and a band are reduced to one minimum and maximum per pixel column before the path is
+  built, and a zoomed line or area reads only the rows its window shows.
+- Ringed points: `dots({ ring })` is always drawn on the canvas.
+- A bar, an error bar, a box or a candle under a mark that stays on the canvas, such as a line after it in `marks`. The
+  WebGL layer lies over the canvas, so moving it there would draw it over that mark.
+- Every mark, while an axis is zoomed in further than 4,096 times, where WebGL's 32-bit positions would be a pixel off.
+
+When the browser takes a WebGL context away, as it does with many WebGL charts on one page, that chart falls back to
+Canvas 2D. Destroy a chart, or unmount its component, once it is no longer shown, to give its context back.
+
+The paths and the WebGL buffers are kept between frames, so a hover repaint never reads the data again. Marks drawn with
+WebGL take part in `animate()`'s first paint, but change at once on an update.
+
+## Pass columns
+
+A chart from data converts its rows into columns, and caches that on the data's identity and length. Pass new data, or
+after changing values in place, bump `dataVersion`.
+
+`plot()` and `Plot` take the columns themselves, so typed arrays go in with nothing to convert. Columns are compared by
+identity: after writing new values into the same array, pass a new array or a view of it.
+
+```js
+import { dots, plot, zoom } from 'swiftplot';
+
+const n = 100_000;
+const x = Float64Array.from({ length: n }, () => Math.random());
+const y = Float64Array.from({ length: n }, () => Math.random());
+const r = new Float64Array(n).fill(1.5);
+const chart = plot(el, { marks: [dots({ x, y, r, color: '#0891b2' })], use: [zoom()] });
+
+for (let i = 0; i < n; i++) y[i] = Math.random();
+chart.update({ marks: [dots({ x, y: y.subarray(0), r, color: '#0891b2' })] });
+```
+
+## Where to go next
+
+- [The scatter of 40,000 points](/examples/scatter-large): the chart above on a page of its own.
+- [Updates and animation](/guides/updates-and-animation): what makes an update cheap.
+- [The dots reference](/reference/dots): the options of a scatter's mark.

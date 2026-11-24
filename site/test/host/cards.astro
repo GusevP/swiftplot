@@ -1,0 +1,17 @@
+---
+import Cards from '../../src/components/Cards.astro';
+import scatter from '../../src/examples/scatter-large';
+import Docs from '../../src/layouts/Docs.astro';
+---
+
+<Docs title="Nine scatters" sidebar={[]}>
+  <h1>Nine scatters</h1>
+  {
+    Array.from({ length: 9 }, (_, i) => (
+      <section class="group">
+        <h2>Scatter {i + 1}</h2>
+        <Cards examples={[scatter]} />
+      </section>
+    ))
+  }
+</Docs>

@@ -5,18 +5,19 @@ import type { Col, Mark } from '../types.js';
 import type { Common } from './common.js';
 
 /**
- * A grid of cells coloured by value. `values` runs along x first: the cell in column c of row r
- * is values[r * columns + c], and row 0 is at the bottom. By default cell (c, r) is centred on
- * x = c and y = r, which is where a band axis puts its categories; `x` and `y` give the grid's
- * edges instead, from the first cell's to the last one's, in either order. A cell whose value is
- * not finite is left empty. Where several cells share a pixel, the pixel shows and answers for
- * the largest of them, so a peak is never lost.
+ * A grid of cells coloured by value. A cell whose value is not finite is left empty. Where several
+ * cells share a pixel, the pixel shows and answers for the largest of them, so a peak is never lost.
  */
 export type HeatmapOptions = Omit<Common, 'color' | 'yAxis'> & {
+  /** The cells along x first: column c of row r is values[r * columns + c], and row 0 lies at the first y edge. */
   values: Col;
+  /** How many cells a row holds, rounded down and at least 1. */
   columns: number;
+  /** The grid's x edges, in either order; left out, column c is centred on x = c, as a band axis places it. */
   x?: [number, number];
+  /** The grid's y edges, in either order; left out, row r is centred on y = r, as a band axis places it. */
   y?: [number, number];
+  /** The colours the values run through. @default sequential() */
   color?: ColorScale;
 };
 

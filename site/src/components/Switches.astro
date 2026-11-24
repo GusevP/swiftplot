@@ -1,0 +1,31 @@
+---
+import { switchKey, type Example } from '../examples/define';
+
+interface Props {
+  switches: Example['switches'];
+  class: string;
+}
+
+const { switches, class: className } = Astro.props;
+---
+
+<form class={className}>
+  {
+    switches.map(s =>
+      s.kind === 'boolean' ? (
+        <label>
+          <input type="checkbox" name={switchKey(s)} checked={s.value} /> {s.label}
+        </label>
+      ) : (
+        <label>
+          {s.label}
+          <select name={switchKey(s)}>
+            {s.values.map(v => (
+              <option selected={v === s.value}>{v}</option>
+            ))}
+          </select>
+        </label>
+      ),
+    )
+  }
+</form>

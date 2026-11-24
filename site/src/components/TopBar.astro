@@ -1,0 +1,100 @@
+---
+import { pagePath } from './path';
+import FrameworkSelect from './FrameworkSelect.astro';
+import Search from './Search.astro';
+import ThemeSwitch from './ThemeSwitch.astro';
+
+interface Props {
+  onStage?: boolean;
+}
+
+const { onStage } = Astro.props;
+
+const sections = [
+  { href: '/examples', section: '/examples', label: 'Examples' },
+  { href: '/guides/getting-started', section: '/guides', label: 'Guides' },
+  { href: '/reference', section: '/reference', label: 'Reference' },
+  { href: '/changelog', section: '/changelog', label: 'Changelog' },
+];
+const path = pagePath(Astro.url);
+---
+
+<header class:list={['bar', onStage && 'dark on-stage']}>
+  <a class="brand" href="/"><img src="/mark.svg" alt="" width="28" height="28" /><span>swiftplot</span></a>
+  <nav aria-label="Main">
+    {
+      sections.map(s => (
+        <a href={s.href} aria-current={path.startsWith(s.section) ? 'page' : undefined}>
+          {s.label}
+        </a>
+      ))
+    }
+  </nav>
+  <Search />
+  <FrameworkSelect />
+  <a href="https://github.com/GusevP/swiftplot">GitHub</a>
+  <ThemeSwitch />
+</header>
+
+<style>
+  .bar {
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 1.5rem;
+    padding: 14px var(--margin);
+    background: var(--ground);
+    color: var(--ink);
+    font-size: var(--step-ui);
+    font-weight: 500;
+  }
+  .on-stage {
+    position: relative;
+  }
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 1.25rem;
+    font-weight: 600;
+    font-style: italic;
+    letter-spacing: -0.02em;
+  }
+  nav {
+    display: flex;
+    gap: 1.25rem;
+    margin-right: auto;
+  }
+  a:hover,
+  a[aria-current] {
+    color: var(--accent);
+  }
+  .brand:hover {
+    color: inherit;
+  }
+  @media (max-width: 860px) {
+    .bar {
+      gap: 8px 1rem;
+    }
+    .brand {
+      margin-right: auto;
+    }
+    nav {
+      order: 9;
+      width: 100%;
+      margin: 0;
+    }
+  }
+  @media (max-width: 480px) {
+    .brand span {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip-path: inset(50%);
+    }
+  }
+</style>

@@ -6,5 +6,8 @@ function resolve(axis: Axis, extent: () => [number, number]): Resolved {
   return { lo, hi, ticks: [] };
 }
 
-/** An axis that places the marks and shows nothing itself: no ticks, no grid lines and no label. */
+/**
+ * An axis that places the marks and shows nothing itself: no ticks, no grid lines and no label.
+ * @param domain 'data' (the default) fits the marks exactly, 'nice' widens that to whole steps; or [lo, hi].
+ */
 export const bare = (domain: Axis['domain'] = 'data'): Axis => ({ domain, label: '', scale: resolve });

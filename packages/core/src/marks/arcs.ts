@@ -3,15 +3,17 @@ import type { Col, Mark } from '../types.js';
 import { inRing, TURN, turnAt } from './common.js';
 
 /**
- * Slices of a pie, or of a ring when `inner` (the hole's share of the radius) is above 0, for a
- * polar frame. They start at 12 o'clock and run clockwise, each as wide as its value's share of
- * the total; a value that is negative or not a number counts as 0. Colours repeat when there are
- * fewer than slices. `labels` name the slices for a legend.
+ * Slices of a pie, or of a ring, for a polar frame. They start at 12 o'clock and run clockwise,
+ * each as wide as its value's share of the total.
  */
 export type ArcsOptions = {
+  /** Each slice's value; one that is negative or not a number counts as 0. */
   values: Col;
+  /** The slices' colours, repeated when there are fewer than slices. */
   colors: string[];
+  /** The slices' names, for a legend and a tooltip. */
   labels?: string[];
+  /** The hole's share of the radius; above 0 the pie is a ring. @default 0 */
   inner?: number;
   /** Text on each slice that has room for it: true for its share as a percentage, or your own. */
   text?: true | ((row: number, share: number) => string);
@@ -20,9 +22,13 @@ export type ArcsOptions = {
    * the browser has no conic gradient the slices stay solid.
    */
   sweep?: number;
+  /** The mark's opacity, from 0 to 1. @default 1 */
   alpha?: number;
+  /** Pairs the mark with the one it replaces in update(), to keep or morph its shape; its place in `marks` if left out. */
   key?: string;
+  /** The mark's name in a legend, a tooltip and the chart's description. */
   label?: string;
+  /** Marks of one group are focused, dimmed and hidden together; the label when left out. */
   group?: string;
 };
 

@@ -18,7 +18,14 @@ const channels = (hex: string) => {
  * ponytail: blended in sRGB, and the pixel layout assumes a little-endian machine, as every
  * browser's is; a perceptual blend or a byte-order check when one of them matters.
  */
-export function sequential(o: { stops?: string[]; domain?: [number, number] } = {}): ColorScale {
+export function sequential(
+  o: {
+    /** The colours to run through, as #rgb or #rrggbb. @default ['#f7fbff', '#6baed6', '#08306b'] */
+    stops?: string[];
+    /** The values that get the first and the last colour; the extent of the data when left out. */
+    domain?: [number, number];
+  } = {},
+): ColorScale {
   const stops = o.stops?.length ? o.stops : ['#f7fbff', '#6baed6', '#08306b'];
   const rgb = stops.map(channels);
   const table = new Uint32Array(256);

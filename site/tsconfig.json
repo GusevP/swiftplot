@@ -1,0 +1,13 @@
+{
+  "extends": "astro/tsconfigs/strict",
+  "compilerOptions": {
+    "paths": {
+      "swiftplot": ["../packages/core/src/index.ts"],
+      "swiftplot/charts": ["../packages/core/src/charts/index.ts"],
+      "@swiftplot/react": ["../packages/react/src/index.ts"],
+      "@swiftplot/vue": ["../packages/vue/src/index.ts"]
+    }
+  },
+  "include": [".astro/types.d.ts", "**/*"],
+  "exclude": ["dist", ".codegen-check"]
+}

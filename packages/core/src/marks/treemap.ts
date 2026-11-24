@@ -14,14 +14,19 @@ import { first, grow, type TreeColumns } from './tree.js';
  * label with every other; an index of kept labels when more are wanted.
  */
 export type TreemapOptions = TreeColumns & {
+  /** A colour for each root, or for each child of a single root, repeated when there are fewer. */
   colors: string[];
   /** Text in each rectangle that has room: the node's name by default, your own, or none. */
   text?: false | ((row: number) => string);
   /** Each branch starts at this opacity at the top of its room and reaches its full colour at the bottom. */
   shade?: number;
+  /** The mark's opacity, from 0 to 1. @default 1 */
   alpha?: number;
+  /** Pairs the mark with the one it replaces in update(), to keep or morph its shape; its place in `marks` if left out. */
   key?: string;
+  /** The mark's name in a legend, a tooltip and the chart's description. */
   label?: string;
+  /** Marks of one group are focused, dimmed and hidden together; the label when left out. */
   group?: string;
 };
 

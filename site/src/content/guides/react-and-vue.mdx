@@ -1,0 +1,120 @@
+---
+title: React and Vue
+summary: The components of the easy charts, Plot for the explicit API, and how they take state, errors, server rendering and updates. The code beside each chart follows the framework picked in the top bar.
+llms: The React and Vue components of the easy charts, Plot for the explicit API, and how they take state, errors, server rendering and updates.
+order: 6
+---
+
+import GuideExample from '../../components/GuideExample.astro';
+
+## The components
+
+`@swiftplot/react` (React 18.3 or 19) and `@swiftplot/vue` (Vue 3.4 or later) make components of the charts from data,
+`LineChart`, `AreaChart`, `BarChart` and `ScatterChart`, and `Plot` for `plot()`. Each takes the props of its function,
+renders one `div`, creates the chart after mount, sends it only what changed on each render and destroys it on unmount.
+[Getting started](/guides/getting-started) installs them and gives a chart its height.
+
+<div data-for="js">
+
+The code beside each chart below is plain JavaScript while JavaScript is picked in the top bar. Pick React or Vue there
+to see the components.
+
+</div>
+
+## A chart from data
+
+`BarChart` takes the props of `barChart`. Its props are checked against the data's type in JSX and in Vue templates, so
+`y="nope"` on rows without that field is a type error. `createElement` and `h()` do not infer the data's type: give it,
+as in `h(LineChart<Row[]>, props)`, and the field names are checked as in a template. `className` in React or `class`
+in Vue, `style` and `id` go to the `div`.
+
+<GuideExample id="bar-grouped" />
+
+Changing `legend`, `tooltip`, `zoom` or `animate` on such a component creates the chart again, and keeps a zoomed window
+and the hidden series, so the switches below need no `key`.
+
+## Plot
+
+`Plot` takes every `plot()` option as a prop: the marks, the axes, `use` and the rest. Use it for a chart type with no
+easy version yet, for mixing marks and for large typed-array data. In Vue the code builds the options in
+`<script setup>`, typed `PlotProps` from `@swiftplot/vue`, and binds them with `v-bind`.
+
+`use` is read when the chart mounts, as in `plot()`, so to change the features, change the component's `key`. The code
+for the radar below gives `Plot` a key that differs with Legend, so turning the legend off or on mounts a new chart.
+
+<GuideExample id="radar" />
+
+`Plot` is light unless its `theme` is given: it does not follow the page as the components of the easy charts do.
+[Themes and colours](/guides/themes-and-colours) has the rest.
+
+## State
+
+`view`, `hidden`, `selected` and `pointer` are kept by the chart unless the prop is given. To control `view`, `hidden`
+or `pointer`, pass it and set it from its change. In React the changes come to `onViewChange`, `onHiddenChange` and
+`onPointerChange`:
+
+```tsx
+import { LineChart } from '@swiftplot/react';
+import { useState } from 'react';
+import type { Options } from 'swiftplot';
+import rows from './requests.json';
+
+export function Requests() {
+  const [view, setView] = useState<Options['view']>();
+  return <LineChart data={rows} zoom view={view} onViewChange={setView} />;
+}
+```
+
+In Vue they are events: `v-model:view`, `v-model:hidden` and `v-model:pointer`, and `@click`.
+
+```vue
+<script setup lang="ts">
+import { LineChart } from '@swiftplot/vue';
+import type { Options } from 'swiftplot';
+import { ref } from 'vue';
+import rows from './requests.json';
+
+const view = ref<Options['view']>();
+</script>
+
+<template>
+  <LineChart :data="rows" zoom v-model:view="view" />
+</template>
+```
+
+`selected` is a plain prop in both: the app sets it, from a click for example.
+
+## Errors
+
+A missing field, or an accessor or formatter that throws, goes to `onError` in React or `@error` in Vue, and the last
+good chart stays. Without a handler the error is thrown to the nearest error boundary in React, or to Vue's own error
+handling, `onErrorCaptured` and `app.config.errorHandler`.
+
+A failed render is tried again when a chart prop other than a callback changes. A failure is reported once, until its
+message, the data's length or another prop that is not a function changes, so inline props, data rebuilt during render
+and a handler that sets state cannot loop.
+
+## Server rendering
+
+The server renders the `div` alone, and the client hydrates the same markup and creates the chart after hydration. The
+React entry is marked `'use client'`. With no height from `height`, `style` or CSS, a chart fills a parent that has a
+height and is 300 px tall otherwise, but that fallback is applied in the browser: give a server-rendered chart a
+`height`, or a CSS height, to reserve its space before hydration.
+
+## Keep renders cheap
+
+- Each render compares the props by identity, and the chart then compares them by value, so an inline object such as
+  `xAxis={{ label: 'Day' }}` costs little.
+- `data` built during render and inline accessors are converted again on every render, and an inline `xAxis.format`
+  repaints the data. Build them outside render, or with `useMemo` and `useCallback`.
+- In Vue keep the data in a `shallowRef` and replace the array. A deep `ref` wraps every row for nothing the chart uses.
+- Data changed in place, with every prop unchanged, is not noticed. For the easy charts pass a new array or bump
+  `dataVersion`. `Plot` has no `dataVersion`: pass new marks whose changed column is a new array or a view of it, such
+  as `y.subarray(0)`.
+
+## Where to go next
+
+- [Large data](/guides/large-data): when a chart switches to WebGL, and how to pass large columns.
+- [Updates and animation](/guides/updates-and-animation): updating `Plot`, and changing its features.
+- [The lineChart reference](/reference/line-chart): every prop of the easy charts' components, with its type and
+  default.

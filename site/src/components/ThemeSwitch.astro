@@ -1,0 +1,32 @@
+<button class="switch" type="button" data-theme-switch>
+  <span class="to-dark">Dark</span><span class="to-light">Light</span>
+</button>
+
+<style>
+  .switch {
+    border: 0;
+    background: var(--tone);
+    color: var(--ink);
+    font: inherit;
+    padding: 0.45rem 0.9rem;
+    cursor: pointer;
+    transition: transform 0.12s;
+  }
+  .switch:active {
+    transform: scale(0.96);
+  }
+  :global([data-theme='dark']) .to-dark,
+  :global(:root:not([data-theme='dark'])) .to-light {
+    display: none;
+  }
+</style>
+
+<script>
+  import { setTheme } from '../scripts/preferences';
+
+  for (const button of document.querySelectorAll('[data-theme-switch]')) {
+    button.addEventListener('click', () => {
+      setTheme(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark');
+    });
+  }
+</script>

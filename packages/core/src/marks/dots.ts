@@ -3,12 +3,19 @@ import type { Col, GlLayer, Mark, Prepared, View } from '../types.js';
 import { base } from './common.js';
 import type { Common } from './common.js';
 
-/**
- * r is the radius of each point in CSS pixels. With `ring`, a width in CSS pixels, a point is a
- * ring of its colour that wide round a middle of `fill`, the theme's surface by default; such points are
- * always drawn on the canvas.
- */
-export type DotsOptions = Common & { x: Col; y: Col; r: Col; ring?: number; fill?: string };
+/** A dot at each point, each with its own radius. */
+export type DotsOptions = Common & {
+  /** The x of each point. */
+  x: Col;
+  /** The y of each point. */
+  y: Col;
+  /** The radius of each point in CSS pixels. */
+  r: Col;
+  /** Draws each point as a ring of its colour this many CSS pixels wide, always on the canvas. */
+  ring?: number;
+  /** The middle of a ring point, a CSS colour; the theme's surface when left out. */
+  fill?: string;
+};
 
 const TAU = 2 * Math.PI;
 // Measured 2026-11-24: below this the canvas mounts sooner than WebGL can be set up, also at 4x CPU slowdown.

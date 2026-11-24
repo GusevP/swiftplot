@@ -2,8 +2,15 @@ import type { Col, Mark } from '../types.js';
 import { base } from './common.js';
 import type { Common } from './common.js';
 
-/** A vertical tick of `size` CSS pixels above and below each point. */
-export type TicksOptions = Common & { x: Col; y: Col; size: number };
+/** A vertical tick at each point. */
+export type TicksOptions = Common & {
+  /** The x of each tick. */
+  x: Col;
+  /** The y each tick is centred on. */
+  y: Col;
+  /** How far each tick reaches above and below its point, in CSS pixels. */
+  size: number;
+};
 
 export function ticks(o: TicksOptions): Mark {
   const { x, y, color, size, alpha = 1 } = o;

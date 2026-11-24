@@ -6,12 +6,25 @@ import { TURN } from './common.js';
  * A radar chart for a polar frame: `marks: radar({ axes, series })`. It gives one mark for the
  * rings, the spokes and their names, then one per series, so series are named, dimmed and hit
  * like any other marks, and a hit's row is the spoke. Spokes start at twelve o'clock and run
- * clockwise. The rim stands for `max`, or for the largest value rounded up to a whole step. A
- * value that is negative or not a number sits at the centre, and one above `max` on the rim.
+ * clockwise. A value that is negative or not a number sits at the centre.
  */
 export type RadarOptions = {
+  /** The spokes' names; a series has a value for each, in this order. */
   axes: string[];
-  series: { values: Col; color: string; label?: string; group?: string; key?: string }[];
+  /** The series, each drawn as a mark of its own with its values, colour, label, group and key. */
+  series: {
+    /** The series' value on each spoke. */
+    values: Col;
+    /** A CSS colour. */
+    color: string;
+    /** The series' name in a legend, a tooltip and the chart's description. */
+    label?: string;
+    /** Series of one group are focused, dimmed and hidden together; the label when left out. */
+    group?: string;
+    /** Pairs the series with the one it replaces in update(), to keep or morph its shape. */
+    key?: string;
+  }[];
+  /** What the rim stands for, capping larger values; the largest rounded up to a whole step when left out. */
   max?: number;
   /** The opacity of a series' filling; 0.15 by default. */
   fill?: number;

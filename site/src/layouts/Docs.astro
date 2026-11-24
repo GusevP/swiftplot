@@ -1,0 +1,22 @@
+---
+import OnThisPage, { type Section } from '../components/OnThisPage.astro';
+import Sidebar, { type Group } from '../components/Sidebar.astro';
+import Base from './Base.astro';
+import '../styles/docs.css';
+
+interface Props {
+  title: string;
+  sidebar: readonly Group[];
+  sections?: readonly Section[];
+}
+
+const { title, sidebar, sections } = Astro.props;
+---
+
+<Base title={title}>
+  <div class:list={['docs', { wide: !sections }]}>
+    <Sidebar groups={sidebar} />
+    <main class="doc" data-pagefind-body><slot /></main>
+    {sections && <OnThisPage sections={sections} />}
+  </div>
+</Base>

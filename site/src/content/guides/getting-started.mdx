@@ -1,0 +1,127 @@
+---
+title: Getting started
+summary: Install the package, pass your rows, get a chart. This page follows the framework picked in the top bar.
+llms: Install the package, pass your rows, get a chart, in plain JavaScript, React or Vue.
+order: 1
+---
+
+import GuideExample from '../../components/GuideExample.astro';
+import Install from '../../components/Install.astro';
+
+## Install
+
+<Install />
+
+<div data-for="js">
+
+One package, no dependencies. Charts from data live in its `swiftplot/charts` entry.
+
+</div>
+<div data-for="react">
+
+The wrapper has `swiftplot` as a peer dependency, so install both. React 18.3 or 19.
+
+</div>
+<div data-for="vue">
+
+The wrapper has `swiftplot` as a peer dependency, so install both. Vue 3.4 or later.
+
+</div>
+
+## Your first chart
+
+Give the chart an array of row objects. With no other props it takes the first date field for x, draws one line for
+each number field left, and adds the axes, colours, a tooltip and, with two lines or more, a legend.
+
+<GuideExample id="line-from-rows" />
+
+## Name the fields yourself
+
+Guessing works when the data is tidy. When a number field is not a measurement, such as an `id` or a `year`, name the
+fields: `x` takes one field and `y` one or a list. A field you name is never second-guessed. Long data, one row per
+series and x, names its `series`, as in [the long data example](/examples/line-long-data).
+
+<GuideExample id="guide-fields" />
+
+## Give it a height
+
+<div data-for="js">
+
+The code above draws into the element with the id `chart` and draws nothing if the page has none. The chart follows
+its container, so the container needs a height of its own: set one in CSS, as in
+`<div id="chart" style="height: 320px"></div>`, or pass `height` in pixels. In a container with no height the chart
+stays empty until the container gets one.
+
+</div>
+<div data-for="react">
+
+With no height from the `height` prop, `style` (`style={{ height: 320 }}`) or CSS, the chart fills a parent that has a
+height, and is 300 px tall otherwise. That fallback is applied in the browser, so give a server-rendered chart a
+`height` to reserve its space.
+
+</div>
+<div data-for="vue">
+
+With no height from the `height` prop, `style` (`style="height: 320px"`) or CSS, the chart fills a parent that has a
+height, and is 300 px tall otherwise. That fallback is applied in the browser, so give a server-rendered chart a
+`height` to reserve its space.
+
+</div>
+
+## Change the data
+
+In JavaScript call `update` and `destroy`; in React build `data` with `useMemo`; in Vue keep it in a `shallowRef`.
+
+<div data-for="js">
+
+`lineChart` returns the chart. Keep it and call its `update` with only the props that change. Pass a new array;
+after changing values in place, bump `dataVersion`. This file replaces the first one and changes the data a second
+after load. Call `chart.destroy()` when the element goes away.
+
+```js
+import { lineChart } from 'swiftplot/charts';
+import rows from './requests.json';
+
+const el = document.getElementById('chart');
+if (el) {
+  const chart = lineChart(el, { data: rows });
+  let version = 0;
+
+  setTimeout(() => {
+    const nextRows = rows.slice(1);
+    chart.update({ data: nextRows });
+
+    nextRows[0].api += 10;
+    chart.update({ dataVersion: ++version }); // after changing rows in place
+  }, 1000);
+}
+```
+
+</div>
+<div data-for="react">
+
+Render with new props. Build `data` outside render or with `useMemo`, so it is not converted again on every render.
+The component destroys the chart when it unmounts.
+
+```tsx
+const rows = useMemo(() => toRows(response), [response]);
+return <LineChart data={rows} />;
+```
+
+</div>
+<div data-for="vue">
+
+Keep the data in a `shallowRef` and replace the array. Pushing into it is not noticed unless `dataVersion` changes.
+The component destroys the chart when it unmounts.
+
+```ts
+const rows = shallowRef(firstRows);
+rows.value = nextRows;
+```
+
+</div>
+
+## Where to go next
+
+- [Examples](/examples): one page per chart, with switches for its options.
+- [Reference](/reference/line-chart): every prop of `lineChart`, with its type and default.

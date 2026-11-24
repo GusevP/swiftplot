@@ -1,0 +1,12 @@
+---
+import { frameworks } from '../codegen/index';
+import { plain } from '../codegen/tokens';
+import type { Framework } from '../scripts/preferences';
+import Code from './Code.astro';
+---
+
+{
+  (Object.keys(frameworks) as Framework[]).map(fw => (
+    <Code label="Install" tokens={[plain(frameworks[fw].install)]} for={fw} />
+  ))
+}

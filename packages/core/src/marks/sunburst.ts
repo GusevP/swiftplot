@@ -13,6 +13,7 @@ import { first, grow, type TreeColumns } from './tree.js';
  * ponytail: at most the 200 largest nodes ask for a label, as in treemap().
  */
 export type SunburstOptions = TreeColumns & {
+  /** A colour for each root, or for each child of a single root, repeated when there are fewer. */
   colors: string[];
   /** Text on each node that has room: its name by default, your own, or none. */
   text?: false | ((row: number) => string);
@@ -21,9 +22,13 @@ export type SunburstOptions = TreeColumns & {
    * place of a lighter step for each ring.
    */
   shade?: number;
+  /** The mark's opacity, from 0 to 1. @default 1 */
   alpha?: number;
+  /** Pairs the mark with the one it replaces in update(), to keep or morph its shape; its place in `marks` if left out. */
   key?: string;
+  /** The mark's name in a legend, a tooltip and the chart's description. */
   label?: string;
+  /** Marks of one group are focused, dimmed and hidden together; the label when left out. */
   group?: string;
 };
 

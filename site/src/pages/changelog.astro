@@ -1,0 +1,23 @@
+---
+import * as changelog from '../../../CHANGELOG.md';
+import Docs from '../layouts/Docs.astro';
+
+const sections = changelog
+  .getHeadings()
+  .filter(h => h.depth === 2)
+  .map(h => ({ id: h.slug, label: h.text }));
+const sidebar = [
+  {
+    label: 'Also',
+    links: [
+      { href: '/guides/getting-started', label: 'Getting started' },
+      { href: '/examples', label: 'Examples' },
+      { href: '/reference', label: 'Reference' },
+    ],
+  },
+];
+---
+
+<Docs title="Changelog · swiftplot" sidebar={sidebar} sections={sections}>
+  <changelog.Content />
+</Docs>

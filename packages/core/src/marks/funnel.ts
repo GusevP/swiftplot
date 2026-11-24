@@ -3,13 +3,14 @@ import type { Col, Label, Mark } from '../types.js';
 
 /**
  * Stages of a funnel from top to bottom, for a blank frame. All stages are equally tall and each
- * is as wide as its value against the largest; it narrows to the width of the stage below. A
- * value that is negative or not a number counts as 0. Colours repeat when there are fewer than
- * stages. `labels` name the stages for a legend.
+ * is as wide as its value against the largest; it narrows to the width of the stage below.
  */
 export type FunnelOptions = {
+  /** Each stage's value; one that is negative or not a number counts as 0. */
   values: Col;
+  /** The stages' colours, repeated when there are fewer than stages. */
   colors: string[];
+  /** The stages' names, for a legend, a tooltip and `text`. */
   labels?: string[];
   /**
    * Text on each stage: true for its name and its share of the first stage, or your own. It is
@@ -18,9 +19,13 @@ export type FunnelOptions = {
   text?: true | ((row: number, share: number) => string);
   /** One blend over the whole funnel in place of a colour per stage; `colors` still name the stages in a legend. */
   fill?: Gradient;
+  /** The mark's opacity, from 0 to 1. @default 1 */
   alpha?: number;
+  /** Pairs the mark with the one it replaces in update(), to keep or morph its shape; its place in `marks` if left out. */
   key?: string;
+  /** The mark's name in a legend, a tooltip and the chart's description. */
   label?: string;
+  /** Marks of one group are focused, dimmed and hidden together; the label when left out. */
   group?: string;
 };
 

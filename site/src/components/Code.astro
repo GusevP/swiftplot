@@ -1,0 +1,22 @@
+---
+import type { Token } from '../codegen/tokens';
+import type { Framework } from '../scripts/preferences';
+
+interface Props {
+  label: string;
+  tokens: readonly Token[];
+  for?: Framework;
+  live?: boolean;
+}
+
+const { label, tokens, for: framework, live } = Astro.props;
+---
+
+<div class="snip" data-for={framework} data-copy-scope>
+  <header><span>{label}</span><button type="button" data-copy>Copy</button></header>
+  <pre><code data-live={live ? framework : undefined}>{tokens.map(t => (t.kind === 'plain' ? t.text : <span class={t.kind}>{t.text}</span>))}</code></pre>
+</div>
+
+<script>
+  import '../scripts/copy';
+</script>

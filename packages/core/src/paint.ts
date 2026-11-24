@@ -36,7 +36,12 @@ export type Gradient = {
 /** What a shape is filled or a line drawn with: a CSS colour, or two blended across the mark. */
 export type Paint = string | Gradient;
 
-/** A blend of two stops in a direction on the screen: gradient(0.4, 0) fades a mark's own colour out downwards. */
+/**
+ * A blend of two stops in a direction on the screen: gradient(0.4, 0) fades a mark's own colour out downwards.
+ * @param from The first stop: a CSS colour, or a number for the mark's own colour at that opacity.
+ * @param to The second stop, given as `from` is.
+ * @param toward The way the blend runs on the screen, from `from` to `to`; 'down' when left out.
+ */
 export const gradient = (
   from: string | number,
   to: string | number,

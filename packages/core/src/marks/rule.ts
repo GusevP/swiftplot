@@ -1,10 +1,28 @@
 import type { Col, Label, Mark, Prepared } from '../types.js';
 
 /** A line across the whole plot at each x or each y value, over the data and never a series. */
-export type RuleOptions = { key?: string; color: string; width?: number; dashed?: boolean; text?: string } & (
-  | { x: number | Col }
-  /** A y rule is placed on the chart's second y axis with `yAxis: 'y2'`. */
-  | { y: number | Col; yAxis?: 'y' | 'y2' }
+export type RuleOptions = {
+  /** Pairs the mark with the one it replaces in update(), to keep or morph its shape; its place in `marks` if left out. */
+  key?: string;
+  /** A CSS colour. */
+  color: string;
+  /** The line's width in CSS pixels. @default 1 */
+  width?: number;
+  /** Draws the line dashed. @default false */
+  dashed?: boolean;
+  /** Written beside each line, where it fits inside the plot. */
+  text?: string;
+} & (
+  | {
+      /** The x of the line, or a column of them for one line each. */
+      x: number | Col;
+    }
+  | {
+      /** The y of the line, or a column of them for one line each. */
+      y: number | Col;
+      /** Places the line on the chart's second y axis with 'y2'. @default 'y' */
+      yAxis?: 'y' | 'y2';
+    }
 );
 
 export function rule(o: RuleOptions): Mark {
@@ -59,9 +77,30 @@ export function rule(o: RuleOptions): Mark {
 }
 
 /** A band across the whole plot between two x or two y values, under the data and never a series. */
-export type ZoneOptions = { key?: string; color: string; alpha?: number; text?: string } & (
-  | { x1: number; x2: number }
-  | { y1: number; y2: number; yAxis?: 'y' | 'y2' }
+export type ZoneOptions = {
+  /** Pairs the mark with the one it replaces in update(), to keep or morph its shape; its place in `marks` if left out. */
+  key?: string;
+  /** A CSS colour. */
+  color: string;
+  /** The band's opacity, from 0 to 1. @default 0.15 */
+  alpha?: number;
+  /** Written in the band's top left corner, where it fits inside the plot. */
+  text?: string;
+} & (
+  | {
+      /** One edge of the band along x. */
+      x1: number;
+      /** The band's other edge along x. */
+      x2: number;
+    }
+  | {
+      /** One edge of the band along y. */
+      y1: number;
+      /** The band's other edge along y. */
+      y2: number;
+      /** Places the band on the chart's second y axis with 'y2'. @default 'y' */
+      yAxis?: 'y' | 'y2';
+    }
 );
 
 export function zone(o: ZoneOptions): Mark {

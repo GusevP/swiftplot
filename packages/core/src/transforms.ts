@@ -1,10 +1,10 @@
 import type { Col } from './types.js';
 
 /**
- * Counts values per bin, as the bounds of one bar per bin. `by` is the bin edges in ascending
- * order, or the number of equal bins across the extent of the finite values (rounded to a whole
- * number of at least 1, and 1 when it is not finite; Sturges' rule by default). A bin holds its lower edge and the last bin
+ * Counts values per bin, as the bounds of one bar per bin. A bin holds its lower edge and the last bin
  * also its upper one; NaN, infinite values and values outside the edges are not counted.
+ * @param values The values to count.
+ * @param by The bin edges in ascending order, or how many equal bins span the finite values, rounded and at least 1; Sturges' rule when left out.
  */
 export function bin(values: Col, by?: number | Col) {
   let edges: Float64Array;
@@ -52,6 +52,7 @@ export function bin(values: Col, by?: number | Col) {
 /**
  * Stacks series that share their x column, row by row: each gets the y1 and y2 of its layer.
  * Negative values stack downwards from zero, apart from the positive ones; NaN counts as zero.
+ * @param series The y column of each layer, stacked in this order.
  */
 export function stack(series: Col[]) {
   const n = series[0]?.length ?? 0;
@@ -71,13 +72,23 @@ export function stack(series: Col[]) {
 }
 
 /**
- * The two bounds of one bar per category on a band axis, where category i sits at i: a count for
- * categories 0 to n - 1, or the indices themselves. `width` is the share of the category that the
- * bars of all slots take together; grouped bars pass their own `slot` out of `of`.
+ * The two bounds of one bar per category on a band axis, where category i sits at i.
+ * @param at A count for categories 0 to n - 1, or the indices themselves.
  */
 export function bands(
   at: number | Col,
-  { slot = 0, of = 1, width = 0.8 }: { slot?: number; of?: number; width?: number } = {},
+  {
+    slot = 0,
+    of = 1,
+    width = 0.8,
+  }: {
+    /** Which of the `of` slots in each category these bars take, for grouped bars. @default 0 */
+    slot?: number;
+    /** How many slots each category is split into. @default 1 */
+    of?: number;
+    /** The share of the category that the bars of all slots take together. @default 0.8 */
+    width?: number;
+  } = {},
 ): [Float64Array, Float64Array] {
   const n = typeof at === 'number' ? at : at.length;
   const lo = new Float64Array(n);
@@ -95,6 +106,7 @@ export function bands(
  * The five numbers a box plot draws, for each group of values: minimum, quartiles and maximum.
  * Quartiles are interpolated between the two nearest values; NaN and infinite values are left out,
  * and a group with nothing left gives NaN, which draws nothing.
+ * @param groups The values of each group, one box per group.
  */
 export function fiveNumbers(groups: Col[]) {
   const column = () => new Float64Array(groups.length);

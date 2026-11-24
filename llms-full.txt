@@ -145,20 +145,20 @@ A bar chart always uses categories: one per row (or, with `series`, one per dist
 
 ### Errors and their fixes
 
-Errors are thrown from the chart function and from `update`, and start with the chart's name. They
-list the fields with their kinds and say which prop to pass.
+Errors are thrown from the chart function and from `update`, and start with the chart's name. An
+error about which field to use also lists the fields with their kinds and says which prop to pass.
 
 | Message contains | Cause | Fix |
 |---|---|---|
 | `there is no field of numbers for y` | no number field; often numbers held as text | convert the values with `Number()`, or name `y` |
 | `"<name>" is text, so the rows look like long data` | long data without `series` | pass `series: '<name>'` |
 | `there is no field "<name>"` | a misspelt or missing field | use one of the listed fields |
-| `y "<name>" is text, not numbers` | `y` names a text or date field | name a number field, or convert it |
+| `"<name>" is text, not numbers` | `y`, or a scatter chart's `r`, names a text field; a date field reads `is time` | name a number field, or convert it |
 | `a scatter chart needs two fields of numbers or dates` | fewer than two usable fields | pass `x` and `y` |
 | `a scatter chart has one y` / `with series there is one y` | several `y` where one is allowed | pass one field |
 | `Row N is not an [x, y] pair` | an array row with another length | use row objects or exact pairs |
 | `Columns differ in length` | columns of unequal length | make them the same length |
-| `Accessors work on row objects only` | an accessor with columns, numbers or pairs | name a field instead |
+| `Accessors work on row objects only` | an accessor with columns | name a column; numbers and pairs take no `x`, `y` or `series` |
 
 An update that throws leaves the previous chart on screen.
 

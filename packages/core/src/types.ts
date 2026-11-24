@@ -163,9 +163,11 @@ export type Room = { length: number; horizontal: boolean };
 export type Tick = { value: number; label: string };
 export type Resolved = { lo: number; hi: number; ticks: Tick[] };
 
+/** What x, y and y2 take: a linear axis unless `scale` replaces it, as the axes time(), log(), band() and bare() return do. */
 export type Axis = {
   /** 'nice' widens the extent of the marks' columns to whole steps; 'data' keeps it exact. */
   domain: [number, number] | 'nice' | 'data';
+  /** The axis title; an empty string shows none. */
   label: string;
   /**
    * Replaces the built-in linear scale. It receives the axis itself, so one function serves every
@@ -189,19 +191,22 @@ export type Axis = {
   format?: (value: number) => string;
   /** A transformed axis, such as log(): a real value in the space the marks' columns are in, and back. */
   to?(real: number, axis: Axis): number;
+  /** The inverse of `to`: a value in the marks' space back to the real one. */
   from?(v: number, axis: Axis): number;
 };
 export type Margin = { top: number; right: number; bottom: number; left: number };
 export type Span = [number, number];
 
 export type Options = {
-  /** CSS pixels; when omitted the chart follows its container. */
+  /** The width in CSS pixels; when omitted the chart follows its container. */
   width?: number;
+  /** The height in CSS pixels; when omitted the chart follows its container. */
   height?: number;
   /** CSS pixels around the plot area for ticks and labels. A side left out is sized from the labels. */
   margin?: Partial<Margin>;
-  /** Each axis is `{ domain: 'nice', label: '' }` when left out. */
+  /** The horizontal axis; `{ domain: 'nice', label: '' }` when left out. */
   x?: Axis;
+  /** The vertical axis; `{ domain: 'nice', label: '' }` when left out. */
   y?: Axis;
   /**
    * A second y axis, drawn on the right, for the marks given `yAxis: 'y2'`: it takes its extent from
@@ -212,8 +217,10 @@ export type Options = {
    * 'polar' and 'blank' have no axes: a mark is given the plot rectangle only, and reports a hit
    * as fractions of it, x from the left and y from the bottom. 'polar' is for marks drawn round
    * a centre, such as arcs(); it differs from 'blank' in how a reveal uncovers it.
+   * @default 'axes'
    */
   frame?: 'axes' | 'polar' | 'blank';
+  /** What the chart draws, made by line(), bar() and the other mark functions. */
   marks: Mark[];
   /** Read once, when the chart is created. */
   use?: Feature[];
@@ -222,7 +229,7 @@ export type Options = {
    * the labelled marks. The data itself is not exposed.
    */
   description?: string;
-  /** Opacity multiplier for every other group while one is focused. */
+  /** Opacity multiplier for every other group while one is focused. @default 1 */
   dim?: number;
   /** `light` when left out. Replacing it with another object repaints the chart and restyles its text. */
   theme?: Theme;

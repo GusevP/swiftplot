@@ -1,0 +1,9 @@
+---
+interface Props {
+  file: string;
+}
+
+const { file } = Astro.props;
+---
+
+<a download={file} href={`/data/${file}`}>Download {file}</a>

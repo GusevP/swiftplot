@@ -1,0 +1,38 @@
+---
+import { getCollection, render, type CollectionEntry } from 'astro:content';
+import Pager from '../../components/Pager.astro';
+import Docs from '../../layouts/Docs.astro';
+
+export async function getStaticPaths() {
+  const guides = (await getCollection('guides')).toSorted((a, b) => a.data.order - b.data.order);
+  return guides.map((guide, i) => ({
+    params: { slug: guide.id },
+    props: { guide, guides, previous: guides[i - 1], next: guides[i + 1] },
+  }));
+}
+
+type Guide = CollectionEntry<'guides'>;
+
+interface Props {
+  guide: Guide;
+  guides: Guide[];
+  previous?: Guide;
+  next?: Guide;
+}
+
+const { guide, guides, previous, next } = Astro.props;
+const { Content, headings } = await render(guide);
+const page = (g?: Guide) => g && { href: `/guides/${g.id}`, title: g.data.title };
+const sidebar = [
+  { label: 'Guides', links: guides.map(g => ({ href: `/guides/${g.id}`, label: g.data.title })) },
+  { label: 'Also', links: [{ href: '/examples', label: 'Examples' }] },
+];
+const sections = headings.filter(h => h.depth === 2).map(h => ({ id: h.slug, label: h.text }));
+---
+
+<Docs title={`${guide.data.title} · swiftplot`} sidebar={sidebar} sections={sections}>
+  <h1>{guide.data.title}</h1>
+  <p class="intro">{guide.data.summary}</p>
+  <Content />
+  <Pager previous={page(previous)} next={page(next)} />
+</Docs>

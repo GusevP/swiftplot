@@ -1,0 +1,115 @@
+---
+import ExampleDemo from '../../components/Example.astro';
+import ExampleCode from '../../components/ExampleCode.astro';
+import ExampleData from '../../components/ExampleData.astro';
+import Install from '../../components/Install.astro';
+import Pager from '../../components/Pager.astro';
+import Prose from '../../components/Prose.astro';
+import { defaults } from '../../codegen/index';
+import { referencePath, registry, type Example } from '../../examples/define';
+import { fixtures } from '../../examples/fixtures';
+import { examples } from '../../examples/index';
+import Docs from '../../layouts/Docs.astro';
+import { api, pages, reference } from '../../reference/index';
+import { join, rows } from '../../reference/join';
+
+export function getStaticPaths() {
+  return [...registry([...examples.values(), ...fixtures]).values()].map(definition => ({
+    params: { id: definition.id },
+    props: { definition },
+  }));
+}
+
+interface Props {
+  definition: Example;
+}
+
+const { definition } = Astro.props;
+const entries = definition.kind === 'plot' ? [] : reference[definition.chart];
+const chartDefaults = defaults(entries);
+const options = [
+  ...(definition.kind === 'plot'
+    ? []
+    : entries.filter(e => e.name === 'data').map(entry => ({ page: definition.chart, entry, lines: entry.lines.filter(rows) }))),
+  ...join([definition], pages, api).get(definition.id)!,
+];
+
+const all = [...examples.values()];
+const groups = [...new Set(all.map(e => e.group))];
+const sidebar = [
+  ...groups.map(group => ({
+    label: group,
+    links: all.filter(e => e.group === group).map(e => ({ href: `/examples/${e.id}`, label: e.title })),
+  })),
+  { label: 'More', links: [{ href: '/examples', label: 'All examples' }] },
+];
+const siblings = all.filter(e => e.group === definition.group);
+const at = siblings.indexOf(definition);
+const previous = siblings[at - 1];
+const next = siblings[at + 1];
+
+const sections = [
+  { id: 'code', label: 'Code' },
+  ...(definition.notes.length ? [{ id: 'notes', label: 'Notes' }] : []),
+  ...(options.length ? [{ id: 'options', label: 'Options used' }] : []),
+  { id: 'data', label: 'Data' },
+];
+---
+
+<Docs title={`${definition.title} · swiftplot`} sidebar={sidebar} sections={sections}>
+  <h1>{definition.title}</h1>
+  <p class="intro">{definition.summary}</p>
+  <div data-scope>
+    <ExampleDemo definition={definition} defaults={chartDefaults} />
+
+    <h2 id="code">Code</h2>
+    <Install />
+    <ExampleCode definition={definition} defaults={chartDefaults} live />
+  </div>
+
+  {
+    definition.notes.length > 0 && (
+      <>
+        <h2 id="notes">Notes</h2>
+        <ul>
+          {definition.notes.map(n => (
+            <li>{n}</li>
+          ))}
+        </ul>
+      </>
+    )
+  }
+
+  {
+    options.length > 0 && (
+      <>
+        <h2 id="options">Options used</h2>
+        <table>
+          <thead><tr><th>Option</th><th>What it does here</th></tr></thead>
+          <tbody>
+            {
+              options.map(({ page, entry: e, lines }) => (
+                <tr>
+                  <td>
+                    <a href={`${referencePath(page)}#${e.name}`}>
+                      <code>{definition.kind === 'plot' ? `${page}.${e.name}` : e.name}</code>
+                    </a>
+                  </td>
+                  <td><Prose text={[...new Set(lines.map(l => l.description))].join(' ')} /></td>
+                </tr>
+              ))
+            }
+          </tbody>
+        </table>
+      </>
+    )
+  }
+
+  <h2 id="data">Data</h2>
+  <ExampleData data={definition.data} />
+
+  <Pager
+    previous={previous && { href: `/examples/${previous.id}`, title: previous.title }}
+    next={next && { href: `/examples/${next.id}`, title: next.title }}
+  />
+</Docs>
