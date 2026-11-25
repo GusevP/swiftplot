@@ -30,10 +30,10 @@ const zooms = !!chart && reference[chart].some(e => e.name === 'onViewChange');
 const brushes = !!chart && reference[chart].some(e => e.name === 'onBrush');
 
 const returns: Record<Framework, string> = {
-  js: 'An object with update(props), which merges the props given into the ones the chart has, destroy(), and chart, the underlying chart of the explicit API.',
+  js: 'An object with update(props), which merges the props given into the ones the chart has, destroy(), overlay, an element over the chart for your own DOM, and chart, the underlying chart of the explicit API.',
   react:
-    'A component that renders one div. It also takes className, style, id and onError; there is no ref and no imperative API.',
-  vue: `A component that renders one div; class, style and id go to it. Changes are events: ${zooms ? 'v-model:view, ' : ''}v-model:hidden, v-model:pointer, ${brushes ? '@brush, ' : ''}@click and @error.`,
+    'A component that renders one div. It also takes className, style, id, onError and children, a function of the layout and the hover whose nodes are drawn over the chart; there is no ref and no imperative API.',
+  vue: `A component that renders one div; class, style and id go to it. Changes are events: ${zooms ? 'v-model:view, ' : ''}v-model:hidden, v-model:pointer, ${brushes ? '@brush, ' : ''}@click, @layout, @hover and @error. The default slot, v-slot="{ layout, hover }", is drawn over the chart.`,
 };
 
 const errors = chart ? errorsFor(chart) : [];
@@ -74,12 +74,12 @@ const errorHeaders = ['Message contains', 'Cause', 'Fix'] as const;
         <h2 id="props">Props</h2>
         <PropsTable entries={reference[chart]} />
         <p data-for="vue">
-          In Vue, {zooms && 'onViewChange, '}onHiddenChange, onPointerChange{brushes && ', onBrush'} and onClick are events: {zooms &&
-            'v-model:view, '}v-model:hidden, v-model:pointer{brushes && ', @brush'} and @click.
+          In Vue, {zooms && 'onViewChange, '}onHiddenChange, onPointerChange{brushes && ', onBrush'}, onClick, onLayout and onHover are events: {zooms &&
+            'v-model:view, '}v-model:hidden, v-model:pointer{brushes && ', @brush'}, @click, @layout and @hover.
         </p>
 
         <h2 id="returns">Returns</h2>
-        <p>The chart function returns update and destroy; the React and Vue components destroy the chart on unmount.</p>
+        <p>The chart function returns update, destroy and overlay; the React and Vue components destroy the chart on unmount.</p>
         {fws.map(fw => <p data-for={fw}>{returns[fw]}</p>)}
 
         <h2 id="errors">Errors</h2>

@@ -1,20 +1,33 @@
+import type { Hover, Layout } from 'swiftplot';
 import { equal, plain } from 'swiftplot/charts';
 import {
   defineComponent,
+  Fragment,
   h,
   normalizeStyle,
   onBeforeUnmount,
   onMounted,
+  onUpdated,
   ref,
+  shallowRef,
+  Teleport,
   toHandlerKey,
   toRaw,
   watch,
+  withMemo,
   type Component,
   type ComponentObjectPropsOptions,
   type Prop,
+  type Slot,
+  type VNode,
 } from 'vue';
 
-export type Mount<P> = (el: HTMLElement, props: P) => { update(partial: Partial<P>): void; destroy(): void };
+export type Mount<P> = (
+  el: HTMLElement,
+  props: P,
+) => { update(partial: Partial<P>): void; destroy(): void; readonly overlay: HTMLElement };
+/** Rendered over the chart, in its overlay, from its layout and what the pointer is over. */
+export type OverlaySlot = (props: Shown) => unknown;
 /** Every chart prop but the callbacks, which are listeners. */
 export type Declared<P> = { [K in Exclude<keyof P, `on${string}`>]-?: Prop<unknown> | null };
 type Sized = { width?: number; height?: number };
@@ -28,6 +41,8 @@ const LISTENERS = {
   onHiddenChange: 'update:hidden',
   onPointerChange: 'update:pointer',
   onBrush: 'brush',
+  onLayout: 'layout',
+  onHover: 'hover',
 } as const;
 const HOST_ONLY = new Set<string>([
   'width',
@@ -142,6 +157,25 @@ function sheet(el: HTMLElement) {
   first.observe(parent, { childList: true });
 }
 
+type Shown = { layout: Layout; hover: Hover | null };
+
+const Overlay = defineComponent({
+  props: ['shown', 'stale', 'slot'],
+  setup(props: { shown: () => Shown | undefined; stale: (was: Shown) => boolean; slot: Slot }) {
+    const drawn: VNode[] = [];
+    let was: Shown | undefined;
+    return () => {
+      const shown = props.shown();
+      if (shown) {
+        drawn.length = 0;
+        was = shown;
+        withMemo([], () => h(Fragment, null, props.slot(shown)), drawn, 0);
+      } else if (was && props.stale(was)) drawn.length = 0;
+      return drawn[0];
+    };
+  },
+});
+
 export function bind<P extends Sized, T extends Declared<P> = Declared<P>>(
   chart: Mount<P>,
   declared: T & Record<Exclude<keyof T, keyof Declared<P>>, never>,
@@ -153,11 +187,15 @@ export function bind<P extends Sized, T extends Declared<P> = Declared<P>>(
       onError: null,
       ...Object.fromEntries(Object.values(LISTENERS).map(e => [toHandlerKey(e), null])),
     },
-    setup(props: Props, { attrs, emit }) {
+    setup(props: Props, { attrs, emit, slots }) {
       const host = ref<HTMLElement>();
       let bound: ReturnType<Mount<P>> | undefined;
-      let applied: Props | undefined;
-      let attempted: Props | undefined;
+      let slotted = false;
+      const overlay = shallowRef<HTMLElement>();
+      const layout = shallowRef<Layout>();
+      const hover = shallowRef<Hover | null>(null);
+      const applied = shallowRef<Props>();
+      const attempted = shallowRef<Props>();
       let reported: Key | undefined;
       let sizing: unknown[] | undefined;
       // emit calls a .once listener (onClickOnce, an attr) on its first emit only, for the life of the component.
@@ -168,9 +206,36 @@ export function bind<P extends Sized, T extends Declared<P> = Declared<P>>(
         if (attrs[`${toHandlerKey(event)}Once`]) fired.add(event);
         emit(event, ...args);
       };
-      const forward = Object.fromEntries(
-        Object.entries(LISTENERS).map(([k, e]) => [k, (...args: unknown[]) => send(e, ...args)]),
+      const forward: Props = Object.fromEntries(
+        Object.entries(LISTENERS).map(([k, e]) => [
+          k,
+          (...args: unknown[]) => {
+            if (e === 'layout') layout.value = args[0] as Layout;
+            else if (e === 'hover') hover.value = args[0] as Hover | null;
+            send(e, ...args);
+          },
+        ]),
       );
+      const chartProps = () => {
+        const now: Props = {};
+        for (const [k, v] of Object.entries(props))
+          if (v !== undefined && !HOST_ONLY.has(k)) now[k] = toRaw(v);
+        return now;
+      };
+      // A compiled slot reads the app's state as it is now, so one called before the chart has taken that state, or
+      // while it cannot, meets a hover that names a row the new data lacks, or another frame's layout.
+      const shown = (): Shown | undefined => {
+        if (!layout.value || !applied.value || attempted.value !== applied.value) return;
+        if (changed(applied.value, chartProps()).some(k => !callback(k))) return;
+        // A chart with no room takes props without reporting their layout, and the core hides its root for as long.
+        if (overlay.value!.parentElement!.style.visibility === 'hidden') return;
+        return { layout: layout.value, hover: hover.value };
+      };
+      const stale = (was: Shown) =>
+        attempted.value !== applied.value &&
+        // A failed update may make the last good chart again, which reports the same layout as a new object.
+        (JSON.stringify(was.layout) !== JSON.stringify(layout.value) ||
+          (!!was.hover && was.hover !== hover.value));
 
       const sync = () => {
         const el = host.value!;
@@ -181,22 +246,24 @@ export function bind<P extends Sized, T extends Declared<P> = Declared<P>>(
         sizing = next;
         // width and height size the host only: the core measures it on both axes, so its ResizeObserver
         // follows whatever else resizes the host (min-/max-, !important, a parent, a media query).
-        const now: Props = {};
-        for (const [k, v] of Object.entries(props))
-          if (v !== undefined && !HOST_ONLY.has(k)) now[k] = toRaw(v);
-        for (const [k, e] of Object.entries(LISTENERS)) if (listens(e)) now[k] = forward[k];
+        const now = chartProps();
+        slotted = !!slots.default;
+        for (const [k, e] of Object.entries(LISTENERS))
+          if (listens(e) || (slotted && (e === 'layout' || e === 'hover'))) now[k] = forward[k];
+        if (!now.onLayout) layout.value = undefined;
+        if (!now.onHover) hover.value = null;
 
-        const failed = attempted && attempted !== applied;
+        const failed = attempted.value && attempted.value !== applied.value;
         // After a failure only a change to a prop other than a listener is tried again; listeners reach the last good chart.
-        const held = failed && listens('error') && !changed(attempted!, now).some(k => !callback(k));
-        attempted = now;
+        const held = failed && listens('error') && !changed(attempted.value!, now).some(k => !callback(k));
+        attempted.value = now;
         if (held && !bound) return;
         const callbacks = () => {
           const diff: Props = {};
-          for (const k of changed(applied!, now)) if (callback(k)) diff[k] = now[k];
+          for (const k of changed(applied.value!, now)) if (callback(k)) diff[k] = now[k];
           if (!Object.keys(diff).length) return;
           bound!.update(diff as Partial<P>);
-          applied = { ...applied, ...diff };
+          applied.value = { ...applied.value, ...diff };
         };
         try {
           if (!bound) bound = chart(el, now as P);
@@ -205,7 +272,7 @@ export function bind<P extends Sized, T extends Declared<P> = Declared<P>>(
             return;
           } else {
             const diff: Props = {};
-            for (const k of changed(applied!, now)) diff[k] = now[k];
+            for (const k of changed(applied.value!, now)) diff[k] = now[k];
             if (failed || Object.keys(diff).length) bound.update(diff as Partial<P>);
           }
         } catch (e) {
@@ -217,13 +284,18 @@ export function bind<P extends Sized, T extends Declared<P> = Declared<P>>(
           send('error', e);
           return;
         }
-        applied = now;
+        applied.value = now;
+        if (slotted) overlay.value = bound.overlay;
         reported = undefined;
       };
 
       onMounted(sync);
       // attrs are not props, but reading them through setup's attrs is tracked, so class, style and id changes resize.
       watch(() => [{ ...props }, attrs.class, attrs.style, attrs.id], sync, { flush: 'post' });
+      // A slot that appears or goes changes no prop, so the watcher does not see it.
+      onUpdated(() => {
+        if (slotted !== !!slots.default) sync();
+      });
       onBeforeUnmount(() => {
         detached?.unobserve(host.value!);
         bound?.destroy();
@@ -231,16 +303,23 @@ export function bind<P extends Sized, T extends Declared<P> = Declared<P>>(
       });
 
       return () =>
-        h('div', {
-          ref: host,
-          class: attrs.class,
-          id: attrs.id,
-          style: {
-            ...(props.width !== undefined && { width: `${props.width as number}px` }),
-            ...(props.height !== undefined && { height: `${props.height as number}px` }),
-            ...hostStyle(attrs.style),
+        h(
+          'div',
+          {
+            ref: host,
+            class: attrs.class,
+            id: attrs.id,
+            style: {
+              ...(props.width !== undefined && { width: `${props.width as number}px` }),
+              ...(props.height !== undefined && { height: `${props.height as number}px` }),
+              ...hostStyle(attrs.style),
+            },
           },
-        });
+          // A child of the host rather than a second root, so $el, v-show and scoped styles keep meaning the host.
+          slots.default && overlay.value
+            ? [h(Teleport, { to: overlay.value }, [h(Overlay, { shown, stale, slot: slots.default })])]
+            : undefined,
+        );
     },
   });
 }

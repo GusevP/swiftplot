@@ -16,6 +16,9 @@ export const mount: Mount<Options> = (el, options) => {
     get chart() {
       return c.chart;
     },
+    get overlay() {
+      return c.overlay;
+    },
     update(partial) {
       c.update('theme' in partial ? { ...partial, theme: partial.theme ?? light } : partial);
     },

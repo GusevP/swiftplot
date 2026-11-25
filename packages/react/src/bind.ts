@@ -1,21 +1,36 @@
 import {
   createElement,
+  Fragment,
+  memo,
+  useCallback,
   useEffect,
   useLayoutEffect,
   useRef,
+  useState,
+  useSyncExternalStore,
   type CSSProperties,
   type FunctionComponent,
+  type ReactNode,
 } from 'react';
+import { createPortal } from 'react-dom';
+import type { Hover, Layout } from 'swiftplot';
 import { equal, plain } from 'swiftplot/charts';
 
-export type Mount<P> = (el: HTMLElement, props: P) => { update(partial: Partial<P>): void; destroy(): void };
+export type Mount<P> = (
+  el: HTMLElement,
+  props: P,
+) => { update(partial: Partial<P>): void; destroy(): void; readonly overlay: HTMLElement };
+type Children = (layout: Layout, hover: Hover | null) => ReactNode;
 export type HostProps = {
   className?: string;
   style?: CSSProperties;
   id?: string;
   /** Without it, a failed render throws to the nearest error boundary. */
   onError?: (error: unknown) => void;
+  /** Rendered over the chart, in its overlay, from its layout and what the pointer is over. */
+  children?: Children;
 };
+type Observers = { onLayout?: (layout: Layout) => void; onHover?: (hover: Hover | null) => void };
 type Sized = { width?: number; height?: number };
 type Props = Record<string, unknown>;
 type Bound<P> = {
@@ -23,6 +38,7 @@ type Bound<P> = {
   applied?: Props;
   attempted?: Props;
   sizing?: unknown[];
+  children?: Children;
 };
 type Key = [error: unknown, data: unknown, rest: unknown];
 
@@ -126,6 +142,35 @@ function sheet(el: HTMLElement) {
   first.observe(parent, { childList: true });
 }
 
+type Shown = { layout?: Layout; hover: Hover | null; children?: Children };
+const NOTHING: Shown = { hover: null };
+
+// A store, as React commits a change of one before the frame the chart painted is shown: zoom() reports from
+// requestAnimationFrame, where a state update would land a frame after the canvas.
+function storeOf() {
+  let shown = NOTHING;
+  const listeners = new Set<() => void>();
+  return {
+    get: () => shown,
+    set(next: Partial<Shown>) {
+      shown = { ...shown, ...next };
+      for (const l of listeners) l();
+    },
+    clear(key: keyof Shown) {
+      shown = { ...shown, [key]: NOTHING[key] };
+    },
+    subscribe: (l: () => void) => {
+      listeners.add(l);
+      return () => void listeners.delete(l);
+    },
+  };
+}
+
+const Overlay = memo(({ store }: { store: ReturnType<typeof storeOf> }) => {
+  const { layout, hover, children } = useSyncExternalStore(store.subscribe, store.get);
+  return layout && children ? children(layout, hover) : null;
+});
+
 export function bind<P extends Sized>(chart: Mount<P>): FunctionComponent<P & HostProps> {
   return function Chart(all) {
     // width and height size the host only: the core measures it on both axes, so its ResizeObserver
@@ -135,15 +180,38 @@ export function bind<P extends Sized>(chart: Mount<P>): FunctionComponent<P & Ho
       style,
       id,
       onError,
+      children,
+      onLayout,
+      onHover,
       ref: _,
       width,
       height,
       ...rest
-    } = all as P & HostProps & { ref?: unknown };
+    } = all as P & HostProps & Observers & { ref?: unknown };
     const props: Props = rest;
     const host = useRef<HTMLDivElement>(null);
     const bound = useRef<Bound<P>>({});
     const reported = useRef<Key>(undefined);
+    const [store] = useState(storeOf);
+    const [overlay, setOverlay] = useState<HTMLElement>();
+    const layoutTo = useCallback(
+      (layout: Layout) => {
+        // With the children of the last props the chart took: they may have waited for this layout.
+        store.set({ layout, children: bound.current.children });
+        onLayout?.(layout);
+      },
+      [store, onLayout],
+    );
+    const hoverTo = useCallback(
+      (hover: Hover | null) => {
+        store.set({ hover });
+        onHover?.(hover);
+      },
+      [store, onHover],
+    );
+    // With a listener of the app's alone too: the chart reports nothing anew when children then appear.
+    if (children || onLayout) props.onLayout = layoutTo;
+    if (children || onHover) props.onHover = hoverTo;
 
     useLayout(() => {
       const el = host.current!;
@@ -193,14 +261,34 @@ export function bind<P extends Sized>(chart: Mount<P>): FunctionComponent<P & Ho
         detached?.unobserve(el);
         bound.current.chart?.destroy();
         bound.current = {};
+        store.clear('layout');
+        store.clear('hover');
       };
-    }, []);
+    }, [store]);
+    useLayout(() => {
+      if (!children && !onLayout) store.clear('layout');
+      if (!children && !onHover) store.clear('hover');
+      // Not from the render, which comes before the chart has the props: its hover can name a row the new data lacks.
+      const b = bound.current;
+      if (!children || b.applied === props) b.children = children;
+      const layer = children && b.chart?.overlay;
+      // A chart with no room takes props without reporting their layout, and the core hides its root for as long.
+      const hidden = layer?.parentElement?.style.visibility === 'hidden';
+      if (!hidden && store.get().children !== b.children) store.set({ children: b.children });
+      setOverlay(layer);
+    });
 
-    return createElement('div', {
+    const div = createElement('div', {
       ref: host,
       className,
       id,
       style: { ...style, width: style?.width ?? width, height: style?.height ?? height },
     });
+    return createElement(
+      Fragment,
+      null,
+      div,
+      children && overlay && createPortal(createElement(Overlay, { store }), overlay),
+    );
   };
 }

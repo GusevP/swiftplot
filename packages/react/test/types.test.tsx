@@ -1,9 +1,10 @@
-import { arcs, legend, type Options } from 'swiftplot';
+import { arcs, legend, type Hover, type Layout, type Options } from 'swiftplot';
 import type {
   LineChartProps as CoreLineChartProps,
   PieChartProps as CorePieChartProps,
   TreemapChartProps as CoreTreemapChartProps,
 } from 'swiftplot/charts';
+import type { ReactNode } from 'react';
 import { expectTypeOf, test } from 'vitest';
 
 import type { HostProps } from '../src/bind.js';
@@ -124,4 +125,28 @@ test('types: Plot takes the core options plus the host props and needs marks; th
   expectTypeOf<AreaChartProps<Row[]>['stack']>().toEqualTypeOf<boolean | undefined>();
   expectTypeOf<BarChartProps<Row[]>['stack']>().toEqualTypeOf<boolean | undefined>();
   expectTypeOf<NonNullable<ScatterChartProps<Row[]>['y']>>().not.toBeArray();
+});
+
+test('types: children is a function of the layout and the hover on Plot and on an easy chart', () => {
+  const elements = [
+    <Plot marks={[]}>
+      {(layout, hover) => {
+        expectTypeOf(layout).toEqualTypeOf<Layout>();
+        expectTypeOf(hover).toEqualTypeOf<Hover | null>();
+        expectTypeOf(layout.xPx).toEqualTypeOf<((x: number) => number) | undefined>();
+        return <b style={{ left: layout.xPx?.(1) }}>{hover?.hit?.row}</b>;
+      }}
+    </Plot>,
+    <LineChart data={[1, 2]}>{layout => layout.width}</LineChart>,
+    // @ts-expect-error xPx is there only with axes
+    <Plot marks={[]}>{layout => layout.xPx(1)}</Plot>,
+    <LineChart data={[1, 2]}>
+      {/* @ts-expect-error not an element */}
+      <b />
+    </LineChart>,
+  ];
+  expectTypeOf(elements).toBeArray();
+  expectTypeOf<HostProps['children']>().toEqualTypeOf<
+    ((layout: Layout, hover: Hover | null) => ReactNode) | undefined
+  >();
 });

@@ -75,7 +75,7 @@ Every chart takes:
 | Prop | Type | Notes |
 |---|---|---|
 | `data` | rows, columns, number array, or pairs; a tree for `treemapChart` and `sunburstChart` | see Data. `null` or missing draws an empty frame |
-| `colors` | `string[]` | series colours, in order; a pie, a tree or a sankey takes one per part. `heatmapChart` uses `color` instead |
+| `colors` | `string[]` | series colours, in order, CSS variables (`var(--x)`) too; a pie, a tree or a sankey takes one per part. `heatmapChart` uses `color` instead |
 | `theme` | `'auto' \| 'light' \| 'dark' \| Theme` | `'auto'` (default) follows the page's CSS `color-scheme` |
 | `tooltip` | `boolean` | default on |
 | `legend` | `boolean \| { toggle?, rows? }` | default on with two or more series or named parts; on a heatmap, the strip of its colours. Does nothing on `sankeyChart`, `treemapChart`, `sunburstChart` and on the charts of one series (`histogramChart`, `boxPlotChart`, `candlestickChart`) |
@@ -89,6 +89,8 @@ Every chart takes:
 | `selected` | `{ id: string, rows: number[] }[] \| null` | rows picked out |
 | `onClick` | `(hit, at) => void` | |
 | `pointer`, `onPointerChange` | `{ x, y? } \| null` | show a tooltip from code; link two charts |
+| `onLayout` | `(layout) => void` | the chart's geometry, after the first paint and whenever it changes, for your own nodes over the chart: `{ width, height, margin, frame }`, and with axes `x`, `y`, `y2` as `{ domain, ticks }` and `xPx(x)`, `yPx(y, axis?)`, `xValue(px)`, `yValue(px, axis?)`. Values are real ones, pixels are CSS pixels relative to the chart, and the layout is frozen |
+| `onHover` | `(hover \| null) => void` | the user's pointer over the plot in CSS pixels and what is under it: `{ px, py, hit }`, where `hit` is the one `onClick` gets plus its anchor `px`, `py` (a dot's centre), or `null` with nothing within 20 px (a line answers no pointer). Again when a zoom, new data or a resize changes what is under a resting pointer; `null` once as it leaves the plot or a drag starts |
 
 `lineChart`, `areaChart`, `barChart`, `scatterChart`, `histogramChart`, `candlestickChart` and
 `comboChart` also take:
@@ -147,6 +149,45 @@ accessor `(row, i) => value`; what is left out is guessed as below.
 | `comboChart` | `x`, and `lines`, `bars`, `y2Lines`, `y2Bars`: a field or a list each | `x` as on a line chart; the other four never: give at least one | `y2Axis`, `stack` (the bars, on one axis) |
 | `sankeyChart` | `source`, `target`, `value` | the first two text fields, in order; the only number field left | `blend`, `text` (default true) |
 | `treemapChart`, `sunburstChart` | none: `data` is a tree | | `shade`, `text` (default true) |
+
+### Your own DOM over the chart
+
+The chart handle has `overlay`, an element over the chart (under its tooltip) that lets the pointer through. Append
+absolutely positioned nodes to it and place them from `onLayout` and `onHover`, or use the React children or the Vue
+slot (sections 3 and 4). The first `onLayout` runs before the chart function returns, so set it with `update()` when it
+uses `chart.overlay`:
+
+```ts
+const chart = scatterChart(el, { data: rows, x: 'price', y: 'rating', tooltip: false });
+const tip = chart.overlay.appendChild(document.createElement('div'));
+tip.style.position = 'absolute';
+chart.update({
+  onLayout: ({ xPx, yPx }) => {
+    /* place markers at xPx?.(x), yPx?.(y) */
+  },
+  onHover: hover => {
+    tip.hidden = !hover?.hit;
+    if (!hover?.hit) return;
+    tip.textContent = String(hover.hit.y);
+    tip.style.left = `${hover.hit.px}px`;
+    tip.style.top = `${hover.hit.py}px`;
+  },
+});
+```
+
+- `xPx`, `yPx`, `xValue` and `yValue` are there only on a chart with axes.
+- Neither callback loops on data made anew with equal values.
+- A child with `pointer-events: auto` passes the hover, `onPointerChange` and the built-in tooltip to the chart. Clicks,
+  the wheel, drags, double clicks and pinches on it stay its own. While it is pressed no hover is reported, until the
+  pointer leaves the chart or is cancelled, which reports `null`, or the hovered mark gets new data.
+
+### CSS variable colours
+
+A colour may be `var(--name)` or `var(--name, fallback)` in marks, gradient stops, `theme` and `colors`. It is read at the
+chart's element and kept. After changing a variable, replace `theme` with another object, `chart.update({ theme: { ...theme } })`.
+`theme` must be an object there, not `'auto'` or `'dark'`, and only `dark` itself brings `paletteDark`: with a copy of it, give an
+easy chart `colors: paletteDark` or your own `colors`. A variable with no value draws in the theme's `muted` and warns on
+the console. `sequential()` takes hex stops only, and a custom mark's own `addColorStop` takes no variable.
 
 ### Data
 
@@ -358,7 +399,10 @@ export function Requests({ rows }: { rows: Row[] }) {
 - Components: `LineChart`, `AreaChart`, `BarChart`, `ScatterChart`, `ComboChart`, `PieChart`, `FunnelChart`,
   `RadialBarChart`, `RadarChart`, `HeatmapChart`, `HistogramChart`, `BoxPlotChart`, `CandlestickChart`,
   `SankeyChart`, `TreemapChart`, `SunburstChart` and `Plot`. Props are the
-  chart's props plus `className`, `style`, `id` and `onError`.
+  chart's props plus `className`, `style`, `id`, `onError` and `children`.
+- `children` is a function `(layout, hover) => nodes`, rendered over the chart with the layout it has taken:
+  `{(layout, hover) => hover?.hit && <div style={{ position: 'absolute', left: hover.hit.px, top: hover.hit.py }}>…</div>}`.
+  While an update fails the last good function stays.
 - Field names are type-checked against `data` in JSX.
 - With no height from `height`, `style` or CSS, the chart fills a parent that has a height, else is
   300 px tall.
@@ -368,6 +412,7 @@ export function Requests({ rows }: { rows: Row[] }) {
   stays on screen.
 - The package is marked `'use client'`; it renders one `div` on the server and draws after hydration.
   Give a server-rendered chart a `height`.
+- Keep a `theme` object outside render or in `useMemo`: a new one has CSS variables read again each time.
 - There is no ref and no imperative API: control the chart through props.
 
 ## 4. Vue
@@ -401,9 +446,11 @@ const failed = ref<unknown>();
   `SankeyChart`, `TreemapChart`, `SunburstChart` and `Plot`, with
   the chart's props.
 - Changes are events: `v-model:view` (charts that zoom), `v-model:hidden`, `v-model:pointer`, `@click`,
-  `@brush` (charts with `brush`) and `@error`. `selected` is a plain prop.
+  `@layout`, `@hover`, `@brush` (charts with `brush`) and `@error`. `selected` is a plain prop.
 - **Keep data in a `shallowRef` and replace the array** (`rows.value = next`). Pushing into it is not
   noticed unless `dataVersion` changes.
+- The default slot, `v-slot="{ layout, hover }"`, is rendered over the chart with the layout it has taken. While an update
+  fails, a slot whose hover or layout changed is hidden.
 - `class`, `style` and `id` go to the chart's `div`.
 
 ## 5. The explicit API
@@ -442,6 +489,9 @@ Rules of the explicit API:
 - **The tooltip has no defaults**: `tooltip({ mode: 'x', title, value })` (one row per
   labelled series at the pointer's x, with a crosshair; for lines and areas; `snap: x => other` reads them
   at another x, such as the nearest row's) or `tooltip({ mode: 'nearest', text })` (the nearest point; every mark).
+- **Your own DOM**: `plot()`, `mount()` and `Plot` take `onLayout` and `onHover` as the easy charts do (section 2).
+  `plot()` and `mount()` return `overlay`; `Plot` takes the React children or the Vue slot. An axis's `to` and `from`
+  must stay the same functions between updates: `onLayout` compares them by identity, and state set from it would loop.
 - **Frames**: `'axes'` (default), `'polar'` (pie, donut, radar, radial bars, sunburst), `'blank'`
   (funnel, sankey, treemap).
 - **The container must have a height**, or pass `width` and `height`. `plot()` needs a browser.

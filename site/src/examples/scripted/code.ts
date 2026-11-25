@@ -1,4 +1,10 @@
 import type { Framework } from '../../scripts/preferences';
+import variablesReact from './css-variables/Chart.tsx?raw';
+import variablesVue from './css-variables/Chart.vue?raw';
+import variablesJs from './css-variables/chart.js?raw';
+import overlayReact from './overlay-tooltip/Chart.tsx?raw';
+import overlayVue from './overlay-tooltip/Chart.vue?raw';
+import overlayJs from './overlay-tooltip/chart.js?raw';
 import drillReact from './bar-drill-down/Chart.tsx?raw';
 import newDataReact from './bar-new-data/Chart.tsx?raw';
 import newDataVue from './bar-new-data/Chart.vue?raw';
@@ -22,4 +28,6 @@ export const scriptedCode: Readonly<Record<string, Readonly<Record<Framework, st
   'bar-drill-down': { js: drillJs, react: drillReact, vue: drillVue },
   'linked-crosshairs': { js: linkedJs, react: linkedReact, vue: linkedVue },
   'series-hidden': { js: hiddenJs, react: hiddenReact, vue: hiddenVue },
+  'overlay-tooltip': { js: overlayJs, react: overlayReact, vue: overlayVue },
+  'css-variables': { js: variablesJs, react: variablesReact, vue: variablesVue },
 };

@@ -162,7 +162,7 @@ test('the framework select swaps the signature, what the chart returns and what 
       'vue',
       '@swiftplot/vue',
       '<BarChart :data="rows" />',
-      '@click and @error',
+      '@hover and @error',
       'leaves the previous chart',
       3,
     ],

@@ -1,6 +1,6 @@
 import { NEAREST_PX } from '../chart.js';
 import type { Feature } from '../types.js';
-import { position } from './pointer.js';
+import { owns, position, released } from './pointer.js';
 
 /** A tooltip at the pointer: a row for each visible, labelled line or area at its x, or the text for what is nearest it. */
 export type TooltipOptions =
@@ -56,7 +56,7 @@ export function tooltip(t: TooltipOptions): Feature {
         ...rows.map(r => {
           const e = document.createElement('div');
           e.textContent = r.text;
-          if (r.color) e.style.color = r.color;
+          if (r.color) e.style.color = chart.color(r.color);
           return e;
         }),
       );
@@ -86,7 +86,7 @@ export function tooltip(t: TooltipOptions): Feature {
         fromApp = true;
         ({ x: px, y: py } = p);
       }
-      if (chart.drag.active) return hide();
+      if (chart.drag.active || chart.drag.child) return hide();
       if (t.mode === 'nearest') {
         if (py === undefined) return hide();
         const hit = chart.hit(px, py, NEAREST_PX);
@@ -152,12 +152,12 @@ export function tooltip(t: TooltipOptions): Feature {
     };
     const move = (e: PointerEvent) => {
       inside = true;
-      if (chart.drag.active) {
+      if (chart.drag.active || chart.drag.child) {
         at = null;
         return hide();
       }
       // Over another feature's layer, such as a legend, the focus is that feature's to set.
-      if (e.target !== root) {
+      if (!owns(chart, e.target)) {
         at = null;
         held = false;
         fromApp = false;
@@ -167,6 +167,9 @@ export function tooltip(t: TooltipOptions): Feature {
       at = [e.clientX, e.clientY];
       held = false;
       place();
+    };
+    const release = (e: PointerEvent) => {
+      if (released(chart, e)) move(e);
     };
     const leave = () => {
       at = null;
@@ -192,7 +195,9 @@ export function tooltip(t: TooltipOptions): Feature {
       if (at) out();
     };
     root.addEventListener('pointerdown', move);
-    root.addEventListener('pointermove', move);
+    // Capturing, so a child that stops its own events still moves the tip and brings it back.
+    root.addEventListener('pointermove', move, true);
+    root.addEventListener('pointerup', release, true);
     root.addEventListener('pointerleave', lift);
     root.addEventListener('pointercancel', out);
     document.addEventListener('pointerdown', away, true);
@@ -205,7 +210,8 @@ export function tooltip(t: TooltipOptions): Feature {
       letGo: () => held && leave(),
       destroy() {
         root.removeEventListener('pointerdown', move);
-        root.removeEventListener('pointermove', move);
+        root.removeEventListener('pointermove', move, true);
+        root.removeEventListener('pointerup', release, true);
         root.removeEventListener('pointerleave', lift);
         root.removeEventListener('pointercancel', out);
         document.removeEventListener('pointerdown', away, true);

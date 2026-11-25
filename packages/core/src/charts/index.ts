@@ -6,7 +6,7 @@ export { heatmapChart } from './heatmap.js';
 export { funnelChart, pieChart, radialBarChart } from './parts.js';
 export { radarChart } from './radar.js';
 export { areaChart, barChart, lineChart, scatterChart } from './xy.js';
-export { equal, plain } from './controller.js';
+export { equal, plain } from '../equal.js';
 export type { EasyChart } from './controller.js';
 export { mount } from './mount.js';
 export type { Mount } from './mount.js';

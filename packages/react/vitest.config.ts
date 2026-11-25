@@ -12,7 +12,9 @@ export default defineConfig({
       { find: /^swiftplot\/charts$/, replacement: core('charts/index.ts') },
     ],
   },
-  optimizeDeps: { include: ['react', 'react-dom/client', 'react-dom/server', 'react/jsx-dev-runtime'] },
+  optimizeDeps: {
+    include: ['react', 'react-dom', 'react-dom/client', 'react-dom/server', 'react/jsx-dev-runtime'],
+  },
   test: {
     include: ['test/**/*.test.{ts,tsx}'],
     browser: {

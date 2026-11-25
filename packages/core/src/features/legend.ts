@@ -62,11 +62,13 @@ export function legend({ toggle = true, rows: cap }: LegendOptions = {}): Featur
       const hidden = chart.hidden();
       chart.listed().forEach((k, at) => {
         const id = k.group ?? k.label;
-        k.entries?.forEach((e, row) => entries.push({ ...e, id, part: [at, row] }));
+        k.entries?.forEach((e, row) =>
+          entries.push({ ...e, color: chart.color(e.color), id, part: [at, row] }),
+        );
         if (k.ramp && (id === undefined || !hidden.includes(id))) ramps.push({ label: k.label, ...k.ramp() });
         if (k.entries || k.ramp || k.label === undefined || id === undefined || listed.has(id)) return;
         listed.add(id);
-        entries.push({ label: k.label, color: k.color, id, group: k.group });
+        entries.push({ label: k.label, color: chart.color(k.color), id, group: k.group });
       });
       // By default entries and strips share one budget of rows; a strip left out goes behind "+N more",
       // which needs a row of entries to sit in.
@@ -183,7 +185,8 @@ export function legend({ toggle = true, rows: cap }: LegendOptions = {}): Featur
       chart.focus(e?.group ?? null, mark && { mark, row: e.part![1] });
     };
     // One listener on the chart, not enter and leave on each entry: an entry rebuilt or removed
-    // under the pointer never gets its leave. Capturing, so a tooltip sets its own focus after.
+    // under the pointer never gets its leave. Capturing on the host, so a tooltip sets its own focus after.
+    const host = root.parentElement!;
     const entryAt = (target: EventTarget | null) => {
       const item = [...shown.keys()].find(i => i.contains(target as Node | null));
       return [item, item && shown.get(item)] as const;
@@ -220,8 +223,8 @@ export function legend({ toggle = true, rows: cap }: LegendOptions = {}): Featur
     box.addEventListener('keydown', e => {
       if ((e.key === 'Enter' || e.key === ' ') && flip(e.target)) e.preventDefault();
     });
-    root.addEventListener('pointerdown', move, true);
-    root.addEventListener('pointermove', move, true);
+    host.addEventListener('pointerdown', move, true);
+    host.addEventListener('pointermove', move, true);
     root.addEventListener('pointerleave', lift);
     root.addEventListener('pointercancel', leave);
     document.addEventListener('pointerdown', leave, true);
@@ -235,8 +238,8 @@ export function legend({ toggle = true, rows: cap }: LegendOptions = {}): Featur
       },
       letGo: () => held && leave(),
       destroy() {
-        root.removeEventListener('pointerdown', move, true);
-        root.removeEventListener('pointermove', move, true);
+        host.removeEventListener('pointerdown', move, true);
+        host.removeEventListener('pointermove', move, true);
         root.removeEventListener('pointerleave', lift);
         root.removeEventListener('pointercancel', leave);
         document.removeEventListener('pointerdown', leave, true);

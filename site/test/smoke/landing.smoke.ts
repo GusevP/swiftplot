@@ -191,6 +191,7 @@ test('the wall, the million points, the first-draw chart and the two code demos 
     page.locator('#out-chart'),
   ])
     await expectChartDrawn(page, chart);
+  await expect(page.locator('.wall [aria-pressed]')).toHaveCount(0);
   expect(await liveWebgl(page)).toBeGreaterThanOrEqual(3);
   expect(await liveWebgl(page)).toBeLessThanOrEqual(8);
   expect(errors).toEqual([]);

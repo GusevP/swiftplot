@@ -124,6 +124,7 @@ export function fake<P>() {
     const mark = el.appendChild(document.createElement('i'));
     mark.dataset.fake = '';
     return {
+      overlay: document.createElement('div'),
       update: (partial: Partial<P>) => void calls.update.push(partial),
       destroy() {
         calls.destroy++;
@@ -145,6 +146,7 @@ export function failingOnB<P extends { label?: string }>() {
   const chart = (el: HTMLElement, props: P) => {
     const c = inner(el, props);
     return {
+      overlay: c.overlay,
       update(partial: Partial<P>) {
         c.update(partial);
         if (partial.label === 'B') throw new Error('B');

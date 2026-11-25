@@ -1,6 +1,6 @@
 ---
 title: Themes and colours
-summary: The light and dark themes, the series palettes, gradients and the other blends a mark can be painted with, and a heatmap's colour scale.
+summary: The light and dark themes, CSS variables as colours, the series palettes, gradients and the other blends a mark can be painted with, and a heatmap's colour scale.
 order: 5
 ---
 
@@ -32,7 +32,7 @@ scheme.addEventListener('change', e => chart.update(themed(e.matches)));
 ```
 
 A theme is a plain object, so your own is one too, such as `theme: { ...dark, grid: '#262626' }`. Replacing it with
-another object repaints the chart and restyles its text.
+one of other colours repaints the chart and restyles its text.
 
 The charts from data, in `swiftplot/charts`, pick for themselves. Their `theme` defaults to `'auto'`, which follows the
 computed CSS `color-scheme` of the chart's element, word by word: `dark` without `light`, as in `dark` or `only dark`,
@@ -47,6 +47,31 @@ and does not follow the page.
 
 The charts on this site follow the theme switch in the top bar. On a dark page they take the dark theme and the site's
 own dark colours, and `paletteDark` where the code uses `palette`.
+
+## CSS variables
+
+A colour may name a CSS variable, such as `color: 'var(--brand)'` or `theme: { ...dark, grid: 'var(--line, #333)' }`: a
+mark's colour, a gradient's stops, the theme's colours and `colors` on the charts from data. It is read at the chart's
+element, so a variable set on any element around it counts, and the legend and the tooltip show the same colour.
+
+- The stops of `sequential()` are `#rgb` or `#rrggbb` only.
+- A mark of your own may set `ctx.fillStyle` and `ctx.strokeStyle` to a variable. In a gradient it makes itself,
+  `addColorStop` takes no variable.
+- A variable with no value and no fallback draws in the theme's `muted`, with a warning on the console. It does not throw.
+
+A value is read once and kept. After changing a variable, replace `theme` with another object, even one of the same
+colours, and the chart reads every variable again and, if one has changed, repaints:
+
+```js
+document.documentElement.style.setProperty('--brand', '#22d3ee');
+chart.update({ theme: { ...theme } });
+```
+
+So in React keep the theme object outside the component or in `useMemo`: an inline one reads the variables on each render.
+[Light and dark by CSS variables](/examples/css-variables) switches a chart that way in each framework.
+
+On the charts from data, reading the variables again needs a theme object, not `'auto'` or `'dark'`, and a copy of
+`dark` needs `colors: paletteDark` or your own `colors`: only `dark` itself brings `paletteDark` by default.
 
 ## Series colours
 

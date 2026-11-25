@@ -106,6 +106,24 @@ const hosts = [
   <!-- @vue-expect-error rows are not a tree -->
   <TreemapChart :data="rows" />
   <Plot frame="polar" :marks="pie" :use="[legend()]" v-model:view="view" />
+  <Plot :marks="pie" @layout="l => l.xPx?.(1)" @hover="v => v?.hit?.row">
+    <template #default="{ layout, hover }">
+      <b :style="{ left: `${layout.xPx?.(1)}px` }">{{ hover?.hit?.row }}</b>
+      <!-- @vue-expect-error xPx is there only with axes -->
+      {{ layout.xPx(1) }}
+      <!-- @vue-expect-error hover is null off the plot -->
+      {{ hover.px }}
+    </template>
+  </Plot>
+  <LineChart :data="rows" x="date" y="api" v-slot="{ layout, hover }">
+    {{ layout.width.toFixed() }} {{ hover?.px }}
+    <!-- @vue-expect-error not in the layout -->
+    {{ layout.nope }}
+  </LineChart>
+  <LineChart :data="rows" x="date" y="api">
+    <!-- @vue-expect-error not a slot -->
+    <template #other />
+  </LineChart>
   <!-- @vue-expect-error marks is required -->
   <Plot frame="polar" />
   <!-- @vue-expect-error not an option -->

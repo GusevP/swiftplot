@@ -1,4 +1,4 @@
-import { glLayer, program, rgba } from '../gl.js';
+import { glLayer, program, rgba, stop } from '../gl.js';
 import type { Col, GlLayer, Label, Mark, Prepared, View } from '../types.js';
 
 /**
@@ -391,8 +391,8 @@ export function sankey(o: SankeyOptions): Mark {
         ? undefined
         : ribbons.map((_, i) => {
             const across = ctx.createLinearGradient(x[source[i]!]! + thick, 0, x[target[i]!]!, 0);
-            across.addColorStop(0, shade(source[i]!));
-            across.addColorStop(1, shade(target[i]!));
+            across.addColorStop(0, stop(ctx, shade(source[i]!)));
+            across.addColorStop(1, stop(ctx, shade(target[i]!)));
             return across;
           });
       return {

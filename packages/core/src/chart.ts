@@ -1,15 +1,19 @@
-import { locate, position } from './features/pointer.js';
+import { extend, resolver } from './color.js';
+import { copied, keep, sameData } from './equal.js';
+import { owns, position, presses, released, strayed } from './features/pointer.js';
 import { upTo } from './marks/common.js';
 import { extent, scale } from './scale.js';
 import { FONT, textWidth } from './text.js';
-import { light } from './theme.js';
+import { light, type Theme } from './theme.js';
 import type {
   Axis,
   Chart,
   Feature,
   GlLayer,
   Hit,
+  Hover,
   Internals,
+  Layout,
   Margin,
   Mark,
   Options,
@@ -22,9 +26,18 @@ import type {
 } from './types.js';
 
 export const NEAREST_PX = 20;
+const RELEASES = ['pointermove', 'pointerup', 'pointercancel'] as const;
 
 // What an update of these alone leaves alone: a tip held by a tap stays.
-const LIGHT = new Set(['pointer', 'onClick', 'onPointerChange', 'onViewChange', 'onHiddenChange']);
+const LIGHT = new Set([
+  'pointer',
+  'onClick',
+  'onPointerChange',
+  'onViewChange',
+  'onHiddenChange',
+  'onLayout',
+  'onHover',
+]);
 
 // ponytail: measured crossover is somewhere between 10k and 100k points; tune per device if it matters.
 const GL_FROM = 10_000;
@@ -34,7 +47,9 @@ const same = (a: object, b: object) => {
   return (
     keys.length === Object.keys(b).length &&
     keys.every(
-      k => Object.hasOwn(b, k) && (a as Record<string, unknown>)[k] === (b as Record<string, unknown>)[k],
+      k =>
+        Object.hasOwn(b, k) &&
+        Object.is((a as Record<string, unknown>)[k], (b as Record<string, unknown>)[k]),
     )
   );
 };
@@ -81,13 +96,16 @@ export function plot(el: HTMLElement, options: Options): Chart {
   let dpr = devicePixelRatio;
   const root = document.createElement('div');
   root.style.cssText = `position:relative;font:${FONT};pointer-events:auto`;
+  let overlay: HTMLElement | undefined;
   const layer = <K extends keyof HTMLElementTagNameMap>(tag: K, css = '') => {
     const e = document.createElement(tag);
     e.style.cssText = `position:absolute;pointer-events:none;${css}`;
-    return root.appendChild(e);
+    return root.insertBefore(e, overlay?.parentNode === root ? overlay : null);
   };
   const canvas = layer('canvas', 'left:0;top:0');
   const ctx = canvas.getContext('2d')!;
+  const { color, forget, reread } = resolver(root, () => (o.theme ?? light).muted);
+  extend(ctx, color);
   const axes = layer('div', 'inset:0');
   canvas.setAttribute('role', 'img');
   axes.ariaHidden = 'true';
@@ -305,7 +323,7 @@ export function plot(el: HTMLElement, options: Options): Chart {
     for (const label of wanted.sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0))) {
       const [x, y, w] = [label.x / dpr, label.y / dpr, textWidth(label.text)];
       const l = label.align === 'start' ? x : label.align === 'end' ? x - w : x - w / 2;
-      const box = { l, t: y - 8, r: l + w, b: y + 8, text: label.text, color: label.color };
+      const box = { l, t: y - 8, r: l + w, b: y + 8, text: label.text, color: color(label.color) };
       if (box.l < 0 || box.t < 0 || box.r > W || box.b > H) continue;
       if (kept.some(k => box.l < k.r && k.l < box.r && box.t < k.b && k.t < box.b)) continue;
       kept.push(box);
@@ -330,7 +348,9 @@ export function plot(el: HTMLElement, options: Options): Chart {
   let ruled = '[]';
   const rule = () => {
     const { left, top, width, height } = view;
-    const wanted = [...new Set(visible)].flatMap(k => cache.get(k)?.p.rules ?? []);
+    const wanted = [...new Set(visible)]
+      .flatMap(k => cache.get(k)?.p.rules ?? [])
+      .map(r => ({ ...r, color: color(r.color) }));
     const key = JSON.stringify(wanted.length ? [wanted, left, top, width, height] : []);
     if (key === ruled) return;
     ruled = key;
@@ -528,7 +548,16 @@ export function plot(el: HTMLElement, options: Options): Chart {
     ys2 = has2() ? fitted('y2', { length: h, horizontal: false }) : undefined;
   };
 
-  const theme = () => o.theme ?? light;
+  // The theme last taken, kept from later writes in place.
+  let taken = { ...(o.theme ?? light) };
+  // The theme as given unless it names a variable, so a mark or a feature can tell one theme from another.
+  let styled: Theme | undefined;
+  const theme = () => {
+    if (styled) return styled;
+    const given = o.theme ?? light;
+    const read = Object.fromEntries(Object.entries(given).map(([k, v]) => [k, color(v)])) as Theme;
+    return (styled = same(given, read) ? given : read);
+  };
   const real = (k: Key, v: number) => {
     const a = axisOf(o, k);
     return a.from ? a.from(v, a) : v;
@@ -843,6 +872,59 @@ export function plot(el: HTMLElement, options: Options): Chart {
   let painter: Painter | undefined;
   const paint = (why: Parameters<Painter>[1]) => (painter ? painter(render, why) : render());
 
+  // Nothing in it reads the chart later: what is captured are numbers and each axis's own conversions.
+  const snapshot = (): Layout => {
+    const frame = o.frame ?? 'axes';
+    const size = { width: W, height: H, margin: Object.freeze({ ...m }), frame };
+    if (bare(o)) return Object.freeze(size);
+    const side = (k: Key, { lo, hi, ticks }: Resolved, at: number, by: number) => {
+      const a = axisOf(o, k);
+      const [to, from, density] = [a.to?.bind(a), a.from?.bind(a), dpr];
+      const value = (v: number) => (from ? from(v, a) : v);
+      return {
+        px: (v: number) => (at + (to ? to(v, a) : v) * by) / density,
+        value: (px: number) => value((px * density - at) / by),
+        axis: Object.freeze({
+          domain: Object.freeze<Span>([value(lo), value(hi)]),
+          ticks: Object.freeze(ticks.map(t => Object.freeze({ value: value(t.value), label: t.label }))),
+        }),
+      };
+    };
+    const x = side('x', xs, view.ox, view.kx);
+    const y = side('y', ys, view.oy, -view.ky);
+    const y2 = ys2 && side('y2', ys2, view2.oy, -view2.ky);
+    const on = (axis?: YKey) => (axis === 'y2' && y2 ? y2 : y);
+    return Object.freeze({
+      ...size,
+      x: x.axis,
+      y: y.axis,
+      ...(y2 && { y2: y2.axis }),
+      xPx: x.px,
+      yPx: (v: number, axis?: YKey) => on(axis).px(v),
+      xValue: x.value,
+      yValue: (px: number, axis?: YKey) => on(axis).value(px),
+    });
+  };
+  let destroyed = false;
+  let reported: readonly object[] | undefined;
+  const reportLayout = () => {
+    if (!o.onLayout) reported = undefined;
+    if (!o.onLayout || !drawable || destroyed) return;
+    const next = snapshot();
+    // A conversion may read any field of its axis, such as the base of a log(). Not its scale or format, which
+    // an app may give anew in each update: one made from onLayout would then report without end.
+    const rule = (a: Axis) => (a.to || a.from ? { ...a, domain: String(a.domain), scale: 0, format: 0 } : {});
+    const key = [[axesKey, JSON.stringify(next)], ...keys().map(k => rule(axisOf(o, k)))];
+    if (reported?.length === key.length && key.every((r, i) => same(r, reported![i]!))) return;
+    reported = key;
+    o.onLayout(next);
+  };
+  // It runs the app's code, so each caller calls it last: the app may update or destroy the chart from it.
+  const report = () => {
+    reportLayout();
+    reportHover();
+  };
+
   const refresh = (data: boolean, also?: 'size' | 'focus', restyled = false, asked = false) => {
     const before = viewKey;
     const shown = () => [xs.lo, xs.hi, ys.lo, ys.hi, ys2?.lo, ys2?.hi].join();
@@ -860,6 +942,7 @@ export function plot(el: HTMLElement, options: Options): Chart {
     root.style.visibility = drawable ? '' : 'hidden';
     // Growing back always changes the view, so marks replaced while hidden are prepared then.
     if (!drawable) {
+      reported = undefined;
       flat = [];
       onGl = [];
       cache.clear();
@@ -931,6 +1014,15 @@ export function plot(el: HTMLElement, options: Options): Chart {
   const internals: Internals = {
     root,
     canvas,
+    get overlay() {
+      return overlay;
+    },
+    set overlay(e) {
+      overlay = e;
+      if (!e) return;
+      root.append(e);
+      adopt(e);
+    },
     layer,
     onPaint(p) {
       painter = p;
@@ -955,10 +1047,12 @@ export function plot(el: HTMLElement, options: Options): Chart {
       unfocusGone();
       if (refresh(true, relaid ? undefined : 'size')) sync();
       o.onHiddenChange?.(ids);
+      report();
     },
     size: () => ({ width: W, height: H }),
     margin: () => m,
     theme,
+    color,
     xPx,
     yPx,
     xValue: px => (px * dpr - view.ox) / view.kx,
@@ -1005,12 +1099,23 @@ export function plot(el: HTMLElement, options: Options): Chart {
         ...(!fits.y.fitted && { y: [real('y', ys.lo), real('y', ys.hi)] }),
         ...(ys2 && !fits.y2.fitted && { y2: [real('y2', ys2.lo), real('y2', ys2.hi)] }),
       });
+      report();
       return true;
     },
     real,
     frame: () => o.frame ?? 'axes',
-    drag: { brush: false, pan: false, active: false },
-    sync: () => sync(),
+    drag: {
+      brush: false,
+      pan: false,
+      active: false,
+      get child() {
+        return [...(pressed()?.held.values() ?? [])].includes(true);
+      },
+    },
+    sync() {
+      sync();
+      reportHover();
+    },
     // Topmost first, the reverse of render(): a hit that is no nearer never replaces one above it.
     hit(px, py, max) {
       const lit = drawnFocus();
@@ -1047,16 +1152,130 @@ export function plot(el: HTMLElement, options: Options): Chart {
     pointed = !!p;
     o.onPointerChange?.(p);
   };
-  let at: PointerEvent | undefined;
+  // Not the event itself, which loses its target after its dispatch inside a shadow tree, and not the target, which
+  // the app may take out of the overlay from under the pointer.
+  type Point = { clientX: number; clientY: number; own: boolean; direct: boolean };
+  let at: Point | undefined;
+  let under: ReturnType<typeof clicked>;
   const aim = () => {
-    root.style.cursor = o.onClick && at && clicked(at)?.hit ? 'pointer' : '';
+    under = at && (o.onClick || o.onHover) ? clicked(at) : undefined;
+    root.style.cursor = o.onClick && at?.direct && under?.hit ? 'pointer' : '';
+  };
+  let hoverKey: readonly unknown[] = [];
+  let hoverMark: Mark | undefined;
+  let hoverRow: number | undefined;
+  let hoverData: ReturnType<typeof keep> | undefined;
+  // The values themselves against the mark last seen, and the copy for what was written into that mark's since.
+  const unchanged = (k: Mark) =>
+    k === hoverMark ||
+    (sameData(copied(k.options, hoverRow), hoverData?.data) && sameData(k.options, hoverMark?.options));
+  const reportHover = () => {
+    if (!o.onHover) {
+      hoverKey = [];
+      hoverMark = hoverData = undefined;
+    }
+    if (!o.onHover || destroyed) return;
+    // A press on a child holds the hover, but not over data that no longer has what it names.
+    if (internals.drag.child && at) {
+      const [, , type, id] = hoverKey;
+      const seen = marks.find((k, i) => k.type === type && (k.key ?? i) === id && unchanged(k));
+      if (seen) hoverMark = seen;
+      if (seen || !hoverMark) return;
+    }
+    let next: Hover | null = null;
+    if (under && drawable) {
+      const { px, py, hit } = under;
+      next = {
+        px,
+        py,
+        hit: hit && {
+          ...shaped(hit),
+          px: internals.xPx(hit.x),
+          py: internals.yPx(hit.y, onAxis(hit.mark)),
+        },
+      };
+    }
+    const h = next?.hit;
+    const k = h?.mark;
+    // Not the mark itself, which an app may make anew in each update: one made from onHover would report without end.
+    const key = next
+      ? [
+          next.px,
+          next.py,
+          k?.type,
+          k && (k.key ?? marks.indexOf(k)),
+          k?.label,
+          k?.color,
+          h?.row,
+          h?.px,
+          h?.py,
+          h?.x,
+          h?.y,
+          h?.value,
+          h?.color,
+          h?.distance,
+        ]
+      : [];
+    const repeated = same(hoverKey, key) && (!k || unchanged(k));
+    hoverMark = k;
+    if (repeated) return;
+    hoverRow = h?.row;
+    if (k && hoverData?.of === k.options) hoverData.to(hoverRow);
+    else hoverData = k && keep(k.options, hoverRow);
+    hoverKey = key;
+    o.onHover(next);
+  };
+  const pointOf = (e: MouseEvent): Point => ({
+    clientX: e.clientX,
+    clientY: e.clientY,
+    own: owns(internals, e.target),
+    direct: e.target === root,
+  });
+  const pressed = () => overlay && presses.get(overlay);
+  let tracking = false;
+  const track = () => {
+    const on = internals.drag.child && !destroyed;
+    if (on === tracking) return;
+    tracking = on;
+    for (const type of RELEASES)
+      if (on) document.addEventListener(type, release, true);
+      else document.removeEventListener(type, release, true);
+  };
+  const adopt = (e: HTMLElement) => {
+    const changed = () => {
+      track();
+      if (!destroyed) sync();
+    };
+    presses.set(e, { held: presses.get(e)?.held ?? new Map<number, boolean>(), changed });
+    track();
+  };
+  const press = (e: PointerEvent) => {
+    const p = pressed();
+    if (!p) return;
+    const child = e.target !== root && owns(internals, e.target);
+    for (const [id, held] of p.held) if (!held || id === e.pointerId) p.held.delete(id);
+    if (child) p.held.set(e.pointerId, true);
+    if (child) p.changed();
+    else track();
+  };
+  const release = (e: PointerEvent) => {
+    const p = pressed();
+    if (!p?.held.get(e.pointerId) || e.buttons) return;
+    p.held.set(e.pointerId, false);
+    p.changed();
+  };
+  // Apart from release(): an event on the document has lost a target inside a shadow tree.
+  const lifted = (e: PointerEvent) => {
+    if (released(internals, e)) point(e);
   };
   const point = (e: PointerEvent) => {
-    at = e;
+    if (destroyed || internals.drag.child) return;
+    at = pointOf(e);
     aim();
-    if (internals.drag.active) return tell(null);
-    const { px, py, over } = locate(internals, e);
-    tell(over ? valuesAt(px, py) : null);
+    const { px, py, inside } = position(internals, e.clientX, e.clientY);
+    const over = at.own && inside && internals.frame() === 'axes';
+    tell(over && !internals.drag.active ? valuesAt(px, py) : null);
+    reportHover();
   };
   const valuesAt = (px: number, py: number) => ({
     x: real('x', internals.xValue(px)),
@@ -1065,35 +1284,37 @@ export function plot(el: HTMLElement, options: Options): Chart {
   });
   const unpoint = () => {
     at = undefined;
-    root.style.cursor = '';
+    aim();
     tell(null);
+    reportHover();
   };
-  root.addEventListener('pointerdown', point);
-  root.addEventListener('pointermove', point);
+  // Capturing, so a child that stops its own events still holds its press; the release and the moves, too.
+  root.addEventListener('pointerdown', press, true);
   root.addEventListener('pointerleave', unpoint);
   root.addEventListener('pointercancel', unpoint);
 
-  const clicked = (e: MouseEvent) => {
-    if (internals.drag.active || e.target !== root) return undefined;
+  const clicked = (e: Point) => {
+    if (internals.drag.active || !e.own) return undefined;
     const { px, py, inside } = position(internals, e.clientX, e.clientY);
     if (!inside) return undefined;
     return { px, py, hit: internals.hit(px, py, NEAREST_PX) };
   };
+  const shaped = (hit: Hit & { mark: Mark }) => {
+    const on = onAxis(hit.mark);
+    return {
+      ...hit,
+      mark: declared.get(hit.mark) ?? hit.mark,
+      x: real('x', hit.x),
+      y: real(on, hit.y),
+      ...(hit.value !== undefined && { value: real(on, hit.value) }),
+    };
+  };
   root.addEventListener('click', e => {
-    const c = o.onClick && clicked(e);
+    if (e.target !== root || strayed(internals, e)) return;
+    const c = o.onClick && clicked(pointOf(e));
     if (!c) return;
     const { px, py, hit } = c;
-    const on = hit ? onAxis(hit.mark) : 'y';
-    o.onClick!(
-      hit && {
-        ...hit,
-        mark: declared.get(hit.mark) ?? hit.mark,
-        x: real('x', hit.x),
-        y: real(on, hit.y),
-        ...(hit.value !== undefined && { value: real(on, hit.value) }),
-      },
-      valuesAt(px, py),
-    );
+    o.onClick!(hit && shaped(hit), valuesAt(px, py));
   });
   showing();
   const features: ReturnType<Feature>[] = [];
@@ -1122,12 +1343,14 @@ export function plot(el: HTMLElement, options: Options): Chart {
     watch();
     letGo();
     if (refresh(false, 'size')) sync();
+    report();
   };
   const watch = () => {
     density = matchMedia(`(resolution: ${dpr}dppx)`);
     density.addEventListener('change', redensify, { once: true });
   };
   const teardown = () => {
+    destroyed = true;
     let failed: { e: unknown } | undefined;
     const run = (f: () => void) => {
       try {
@@ -1138,6 +1361,7 @@ export function plot(el: HTMLElement, options: Options): Chart {
     };
     run(() => observer?.disconnect());
     run(() => density?.removeEventListener('change', redensify));
+    track();
     for (const f of features) run(() => f.destroy());
     for (const k of new Set([...marks, ...declared.keys()])) run(() => k.release?.(gl ?? null));
     run(() => glCanvas?.removeEventListener('webglcontextlost', onLost));
@@ -1149,13 +1373,19 @@ export function plot(el: HTMLElement, options: Options): Chart {
   try {
     measure();
     for (const feature of o.use ?? []) features.push(feature(internals));
+    // After the features, whose focus decides which of overlapping marks is on top.
+    root.addEventListener('pointerup', lifted, true);
+    root.addEventListener('pointerdown', point);
+    root.addEventListener('pointermove', point, true);
     if (refresh(true)) sync();
     observer = new ResizeObserver(() => {
       letGo();
       if (refresh(false, measure() ? 'size' : undefined)) sync();
+      report();
     });
     observe();
     watch();
+    report();
   } catch (e) {
     try {
       teardown();
@@ -1165,7 +1395,14 @@ export function plot(el: HTMLElement, options: Options): Chart {
 
   return {
     update(partial) {
-      const keys = Object.keys(partial);
+      const given = partial.theme ?? light;
+      const restyled =
+        'theme' in partial && given !== (o.theme ?? light) && (!same(given, taken) || reread());
+      const keys = Object.keys(partial).filter(k => k !== 'theme' || restyled);
+      if (!keys.length && 'theme' in partial) {
+        o = { ...o, ...partial };
+        return;
+      }
       if (!keys.length || !keys.every(k => LIGHT.has(k))) letGo();
       const prev = o;
       o = { ...o, ...partial };
@@ -1224,7 +1461,11 @@ export function plot(el: HTMLElement, options: Options): Chart {
       const lost = unfocusGone();
       observe();
       const resized = measure();
-      const restyled = theme() !== (prev.theme ?? light);
+      if (restyled) {
+        taken = { ...given };
+        styled = undefined;
+        forget();
+      }
       // Ticks are DOM and change at once, so a new window must not cross-fade with new marks.
       const moved = (['x', 'y', 'y2'] as const).some(k => String(o.view?.[k]) !== String(prev.view?.[k]));
       if (
@@ -1241,7 +1482,12 @@ export function plot(el: HTMLElement, options: Options): Chart {
       )
         sync();
       else aim();
+      report();
     },
     destroy: teardown,
+    get overlay() {
+      if (!overlay) adopt((overlay = layer('div', 'inset:0;isolation:isolate')));
+      return overlay;
+    },
   };
 }

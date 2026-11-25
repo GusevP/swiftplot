@@ -1,5 +1,16 @@
-import { arcs, legend } from 'swiftplot';
-import { createApp, createSSRApp, h, nextTick, ref, shallowRef, type Component } from 'vue';
+import { arcs, dots, legend, zoom, type Feature, type Hover, type Layout } from 'swiftplot';
+import {
+  createApp,
+  createSSRApp,
+  defineComponent,
+  h,
+  inject,
+  nextTick,
+  provide,
+  ref,
+  shallowRef,
+  type Component,
+} from 'vue';
 import { renderToString } from 'vue/server-renderer';
 import { afterEach, expect, test, vi } from 'vitest';
 
@@ -14,6 +25,7 @@ import {
   host,
   hover,
   middleOf,
+  nextFrame,
   pixel,
   render,
   tipOf,
@@ -1018,4 +1030,626 @@ test('server markup hydrates without a warning and then draws', async () => {
   expect([warnings.mock.calls, errors.mock.calls]).toEqual([[], []]);
   warnings.mockRestore();
   errors.mockRestore();
+});
+
+type Scope = { layout: Layout; hover: Hover | null };
+type Draw = (scope: Scope) => unknown;
+const dot = () => [dots({ x: [5], y: [0.5], r: [4], color: '#ff0000' })];
+const span = (hi: number) => ({ label: '', domain: [0, hi] as [number, number] });
+const axes = { x: span(10), y: span(1) };
+const size = { width: 200, height: 100 };
+const plotted = { ...size, margin: ZERO, ...axes };
+const px = (left: number, top: number) => ({
+  position: 'absolute' as const,
+  left: `${left}px`,
+  top: `${top}px`,
+});
+const marked: Draw = ({ layout, hover: at }) => [
+  h('b', { style: px(layout.xPx!(5), layout.yPx!(0.5)) }),
+  at?.hit && h('i', { style: px(at.hit.px, at.hit.py) }),
+  at && h('u', JSON.stringify([at.px, at.py, !!at.hit])),
+];
+/** As a template compiles it: the parent's render gives no new slot, and what the slot reads makes it draw again. */
+const stable = (draw: Draw) => ({ $stable: true, default: draw });
+const slotted = (
+  C: Component,
+  props: () => object,
+  slots: () => object | undefined,
+  container?: HTMLElement,
+) => {
+  const r = render(() => h(C, props(), slots() as never), container);
+  mounted.push(r.unmount);
+  return r;
+};
+const spot = (el: Element, tag: string) => {
+  const e = el.querySelector<HTMLElement>(tag);
+  return e && [parseFloat(e.style.left), parseFloat(e.style.top)];
+};
+const near = (got: number[] | null, want: number[]) => {
+  expect(got).toHaveLength(2);
+  want.forEach((v, i) => expect(got![i]).toBeCloseTo(v, 1));
+};
+const text = (el: Element) => el.querySelector('i')!.textContent;
+const point = (el: HTMLElement, x: number, y: number) => (hover(el, x, y), nextTick());
+const leave = (el: HTMLElement) => (
+  el.firstElementChild!.dispatchEvent(new PointerEvent('pointerleave')),
+  nextTick()
+);
+
+test('a slot renders inside the overlay of a Plot, reaches injections, and follows a resize and a zoom in its frame', async () => {
+  const marks = dot();
+  const use = [zoom()];
+  const width = ref(200);
+  const Injected = defineComponent(() => {
+    const name = inject('name');
+    return () => h('s', name as string);
+  });
+  const App = defineComponent(() => {
+    provide('name', 'app');
+    return () =>
+      h(Plot, { ...plotted, width: width.value, marks, use }, {
+        default: (s: Scope) => [marked(s), h(Injected)],
+      } as never);
+  });
+  const r = mount(App, () => ({}));
+  await nextTick();
+  const marker = r.el.querySelector('b')!;
+  const overlay = marker.parentElement!;
+  expect(overlay.parentElement).toBe(canvasOf(r.el).parentElement);
+  expect(overlay.style.pointerEvents).toBe('none');
+  expect(overlay.querySelector('s')!.textContent).toBe('app');
+  near(spot(r.el, 'b'), [100, 50]);
+  width.value = 400;
+  await twoFrames();
+  near(spot(r.el, 'b'), [200, 50]);
+  wheel(r.el, 0, 50, -100, { ctrlKey: true });
+  await nextFrame();
+  expect(spot(r.el, 'b')![0]).toBeGreaterThan(210);
+  expect(r.el.querySelector('b')).toBe(marker);
+});
+
+test('a hovered dot shows the slot tooltip at its anchor until the pointer leaves; a line hovers with no hit', async () => {
+  const data = rows(() => 0.5);
+  const inPlot = slotted(
+    Plot,
+    () => ({ ...plotted, marks: dot() }),
+    () => ({ default: marked }),
+  );
+  const scatter = slotted(
+    ScatterChart,
+    () => ({ data, ...size, ...look }),
+    () => ({ default: marked }),
+  );
+  await nextTick();
+  for (const { el } of [inPlot, scatter]) {
+    near(spot(el, 'b'), [100, 50]);
+    await point(el, 103, 52);
+    near(spot(el, 'i'), [100, 50]);
+    expect(el.querySelector('u')!.textContent).toBe('[103,52,true]');
+    await leave(el);
+    expect([spot(el, 'i'), spot(el, 'u')]).toEqual([null, null]);
+  }
+  const line = slotted(
+    LineChart,
+    () => ({ data, ...size, ...look }),
+    () => ({ default: marked }),
+  );
+  await point(line.el, 103, 52);
+  expect(line.el.querySelector('u')!.textContent).toBe('[103,52,false]');
+});
+
+test('@layout and @hover fire while bound, with a slot and without one', async () => {
+  const marks = dot();
+  for (const slots of [undefined, { default: marked }]) {
+    const [onLayout, onHover] = [vi.fn(), vi.fn()];
+    const own = ref({});
+    const r = slotted(
+      Plot,
+      () => ({ ...plotted, marks, ...own.value }),
+      () => slots,
+    );
+    await point(r.el, 103, 52);
+    expect([onLayout.mock.calls.length, onHover.mock.calls.length]).toEqual([0, 0]);
+    own.value = { onLayout, onHover };
+    await nextTick();
+    await leave(r.el);
+    await point(r.el, 103, 52);
+    expect(onHover.mock.lastCall![0]).toMatchObject({ px: 103, py: 52, hit: { row: 0 } });
+    r.el.style.width = '300px';
+    await twoFrames();
+    expect(onLayout.mock.lastCall![0].width).toBe(300);
+    own.value = {};
+    await nextTick();
+    const counts = [onLayout.mock.calls.length, onHover.mock.calls.length];
+    await leave(r.el);
+    r.el.style.width = '200px';
+    await twoFrames();
+    expect([onLayout.mock.calls.length, onHover.mock.calls.length]).toEqual(counts);
+  }
+});
+
+test('the host is the same with and without a slot, and a slot that comes and goes recreates nothing', async () => {
+  let made = 0;
+  const counted: Feature = () => (made++, { destroy() {} });
+  const shell = (el: Element) => (el.cloneNode(false) as Element).outerHTML;
+  for (const own of [{}, { onLayout: () => {}, onHover: () => {} }]) {
+    made = 0;
+    const props = { ...plotted, marks: dot(), use: [counted], class: 'c', ...own };
+    const on = ref(false);
+    const width = ref(200);
+    const r = slotted(
+      Plot,
+      () => ({ ...props, width: width.value }),
+      () => (on.value ? { default: marked } : undefined),
+    );
+    const { el } = r;
+    const [canvas, html] = [canvasOf(el), shell(el)];
+    expect(spot(el, 'b')).toBeNull();
+    await point(el, 103, 52);
+    on.value = true;
+    await nextTick();
+    near(spot(el, 'b'), [100, 50]);
+    near(spot(el, 'i'), [100, 50]);
+    expect([shell(el), el.children.length]).toEqual([html, 1]);
+    on.value = false;
+    await nextTick();
+    expect(spot(el, 'b')).toBeNull();
+    await leave(el);
+    width.value = 400;
+    await twoFrames();
+    on.value = true;
+    await nextTick();
+    near(spot(el, 'b'), [200, 50]);
+    expect(spot(el, 'i')).toBeNull();
+    expect([r.container.children.length, r.el, canvasOf(el), made]).toEqual([1, el, canvas, 1]);
+  }
+});
+
+test('a slot that comes and goes while an update is failing makes no other attempt', async () => {
+  const { chart, calls } = failingOnB<Props>();
+  const label = ref('A');
+  const on = ref(false);
+  const onError = vi.fn();
+  slotted(
+    bind(chart, declared),
+    () => ({ label: label.value, onError }),
+    () => (on.value ? { default: () => [] } : undefined),
+  );
+  label.value = 'B';
+  await nextTick();
+  on.value = true;
+  await nextTick();
+  const forwarded = { onLayout: expect.any(Function), onHover: expect.any(Function) };
+  expect(calls.update).toEqual([{ label: 'B' }, forwarded]);
+  on.value = false;
+  await nextTick();
+  expect(calls.update).toEqual([{ label: 'B' }, forwarded, { onLayout: undefined, onHover: undefined }]);
+  expect(onError).toHaveBeenCalledOnce();
+});
+
+test('going back to the last drawn props after a failed update calls the slot once the chart is restored', async () => {
+  const { chart } = failingOnB<Props & { onLayout?: (layout: Layout) => void }>();
+  const log: string[] = [];
+  const Chart = bind((el: HTMLElement, props: Props & { onLayout?: (layout: Layout) => void }) => {
+    const c = chart(el, props);
+    el.append(c.overlay);
+    props.onLayout?.({} as Layout);
+    const update: typeof c.update = partial => (log.push('update'), c.update(partial));
+    return { ...c, update };
+  }, declared);
+  const label = ref('A');
+  slotted(
+    Chart,
+    () => ({ label: label.value, onError: () => {} }),
+    () => ({ default: () => (log.push('draw'), []) }),
+  );
+  await nextTick();
+  for (const l of ['B', 'A']) {
+    label.value = l;
+    await nextTick();
+  }
+  expect(log).toEqual(['draw', 'update', 'update', 'draw']);
+});
+
+test('a slot that comes back after a resize is first called with the layout as it is now', async () => {
+  const marks = dot();
+  const state = shallowRef({ width: 200, on: true });
+  const seen: number[] = [];
+  slotted(
+    Plot,
+    () => ({ ...plotted, width: state.value.width, marks }),
+    () => (state.value.on ? { default: (s: Scope) => (seen.push(s.layout.width), []) } : undefined),
+  );
+  for (const next of [
+    { width: 200, on: false },
+    { width: 400, on: false },
+    { width: 400, on: true },
+  ]) {
+    await twoFrames();
+    seen.length = 0;
+    state.value = next;
+  }
+  await twoFrames();
+  expect([...new Set(seen)]).toEqual([400]);
+});
+
+test('slot nodes survive a feature change that makes the chart again, and the tooltip of the old chart goes', async () => {
+  const data = rows(() => 0.5);
+  const zooms = ref(false);
+  const r = slotted(
+    ScatterChart,
+    () => ({ data, ...size, ...look, zoom: zooms.value, tooltip: false }),
+    () => ({ default: marked }),
+  );
+  await point(r.el, 103, 52);
+  const [canvas, marker] = [canvasOf(r.el), r.el.querySelector('b')!];
+  expect(spot(r.el, 'i')).not.toBeNull();
+  zooms.value = true;
+  await nextTick();
+  expect(canvasOf(r.el)).not.toBe(canvas);
+  expect(r.el.querySelector('b')).toBe(marker);
+  expect(marker.isConnected).toBe(true);
+  expect(spot(r.el, 'i')).toBeNull();
+});
+
+const naming =
+  (data: () => Row[]): Draw =>
+  ({ layout, hover: at }) =>
+    h('i', `${layout.width} ${at?.hit ? data()[at.hit.row!]!.x : 'none'}`);
+/** The slot as a template compiles it, and as a render function makes it anew. */
+const kinds = [
+  (draw: () => Draw) => {
+    const slots = stable(s => draw()(s));
+    return () => slots;
+  },
+  (draw: () => Draw) => () => ({ default: draw() }),
+];
+
+test('a slot that indexes the app rows by the hovered row never meets rows or a frame the chart has not taken', async () => {
+  const few = [{ x: 0, a: 0.5 }];
+  const many = rows(() => 0.5);
+  const marksOf = (data: Row[]) => [
+    dots({ x: data.map(d => d.x), y: data.map(d => d.a), r: data.map(() => 4), color: '#ff0000' }),
+  ];
+  for (const kind of kinds) {
+    for (const plain of [true, false]) {
+      const data = shallowRef(many);
+      const r = slotted(
+        plain ? Plot : ScatterChart,
+        () => (plain ? { ...plotted, marks: marksOf(data.value) } : { data: data.value, ...size, ...look }),
+        kind(() => {
+          const taken = data.value;
+          return naming(() => taken);
+        }),
+      );
+      await point(r.el, 198, 50);
+      expect(text(r.el)).toBe('200 10');
+      data.value = few;
+      await nextTick();
+      expect(text(r.el)).toBe('200 none');
+      data.value = many;
+      await nextTick();
+      expect(text(r.el)).toBe('200 10');
+      r.el.querySelector('i')!.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, buttons: 1 }));
+      data.value = few;
+      await nextTick();
+      expect(text(r.el)).toBe('200 none');
+    }
+
+    const flat = ref(false);
+    const round = {
+      ...size,
+      marks: [arcs({ values: [1, 2], colors: ['#ff0000', '#0000ff'] })],
+      frame: 'polar',
+    };
+    const r = slotted(
+      Plot,
+      () => (flat.value ? { ...plotted, marks: dot() } : round),
+      kind(() => (flat.value ? marked : ({ layout }) => h('i', layout.frame))),
+    );
+    await nextTick();
+    expect(text(r.el)).toBe('polar');
+    flat.value = true;
+    await nextTick();
+    near(spot(r.el, 'b'), [100, 50]);
+  }
+});
+
+test('while an update fails the slot stays as it was drawn until its hover goes, whatever it reads, and draws again with the next good props', async () => {
+  for (const kind of kinds) {
+    const onError = vi.fn();
+    const data = shallowRef(rows(() => 0.5));
+    const note = ref('');
+    const calls: string[] = [];
+    const r = slotted(
+      ScatterChart,
+      () => ({ data: data.value, ...size, ...look, onError }),
+      kind(() => {
+        const [taken, n] = [data.value, note.value];
+        return s => (calls.push(n), naming(() => taken)(s));
+      }),
+    );
+    await point(r.el, 198, 50);
+    data.value = unguessable();
+    await nextTick();
+    expect(onError).toHaveBeenCalledOnce();
+    calls.length = 0;
+    note.value = 'failing';
+    await nextTick();
+    expect([text(r.el), calls]).toEqual(['200 10', []]);
+    await leave(r.el);
+    expect([r.el.querySelector('i'), calls]).toEqual([null, []]);
+    data.value = [{ x: 0, a: 0.5 }];
+    await nextTick();
+    expect(text(r.el)).toBe('200 none');
+    expect(calls).toEqual(['failing']);
+    note.value = 'good';
+    await nextTick();
+    expect(calls).toEqual(['failing', 'good']);
+  }
+});
+
+test('a failing update hides a slot whose hover goes in the same tick, and keeps one drawn with no hover', async () => {
+  for (const kind of kinds) {
+    for (const hovered of [true, false]) {
+      const data = shallowRef(rows(() => 0.5));
+      const r = slotted(
+        ScatterChart,
+        () => ({ data: data.value, ...size, ...look, onError: () => {} }),
+        kind(() => {
+          const taken = data.value;
+          return naming(() => taken);
+        }),
+      );
+      await nextTick();
+      if (hovered) await point(r.el, 198, 50);
+      data.value = unguessable();
+      if (hovered) await leave(r.el);
+      else await point(r.el, 198, 50);
+      await nextTick();
+      expect(r.el.querySelector('i')?.textContent).toBe(hovered ? undefined : '200 none');
+      data.value = rows(() => 0.5);
+      await nextTick();
+      expect(text(r.el)).toBe(hovered ? '200 none' : '200 10');
+    }
+  }
+});
+
+test('a failing update that makes the last good chart again keeps a slot drawn with no hover', async () => {
+  for (const kind of kinds) {
+    const onError = vi.fn();
+    const onLayout = vi.fn();
+    const bad = ref(false);
+    const width = ref(200);
+    const marks = dot();
+    const good = { ...plotted, marks, onError, onLayout };
+    const scale = () => {
+      throw new Error('scale');
+    };
+    const r = slotted(
+      Plot,
+      () => ({ ...good, width: width.value, ...(bad.value && { x: { ...span(10), scale } }) }),
+      kind(() => marked),
+    );
+    await nextTick();
+    const marker = r.el.querySelector('b');
+    bad.value = true;
+    await nextTick();
+    expect(onError).toHaveBeenCalledOnce();
+    expect(onLayout).toHaveBeenCalledTimes(2);
+    expect(r.el.querySelector('b')).toBe(marker);
+    near(spot(r.el, 'b'), [100, 50]);
+    width.value = 400;
+    await twoFrames();
+    expect(spot(r.el, 'b')).toBeNull();
+    bad.value = false;
+    await nextTick();
+    near(spot(r.el, 'b'), [200, 50]);
+  }
+});
+
+test('a failing update hides a slot drawn for a layout that a resize or a zoom replaces, until the next good props', async () => {
+  for (const kind of kinds) {
+    for (const zooms of [false, true]) {
+      const data = shallowRef(rows(() => 0.5));
+      const width = ref(200);
+      const r = slotted(
+        ScatterChart,
+        () => ({ data: data.value, ...size, width: width.value, ...look, zoom: true, onError: () => {} }),
+        kind(() => {
+          const taken = data.value;
+          return s => [taken.length, marked(s)];
+        }),
+      );
+      await nextTick();
+      near(spot(r.el, 'b'), [100, 50]);
+      data.value = unguessable();
+      await nextTick();
+      near(spot(r.el, 'b'), [100, 50]);
+      if (zooms) wheel(r.el, 0, 50, -100, { ctrlKey: true });
+      else width.value = 400;
+      await twoFrames();
+      expect(spot(r.el, 'b')).toBeNull();
+      data.value = rows(() => 0.5);
+      await twoFrames();
+      const [left] = spot(r.el, 'b')!;
+      if (zooms) expect(left).toBeGreaterThan(105);
+      else expect(left).toBeCloseTo(200, 1);
+    }
+  }
+});
+
+test('a slot given while the chart has no room or failed to mount shows once it draws', async () => {
+  const hidden = host();
+  hidden.style.display = 'none';
+  const r = slotted(
+    Plot,
+    () => ({ marks: dot(), ...axes, margin: ZERO }),
+    () => ({ default: marked }),
+    hidden,
+  );
+  await nextTick();
+  expect(spot(r.el, 'b')).toBeNull();
+  hidden.style.display = '';
+  await twoFrames();
+  expect(spot(r.el, 'b')![1]).toBeGreaterThan(0);
+
+  const data = shallowRef(unguessable());
+  const failed = slotted(
+    LineChart,
+    () => ({ data: data.value, ...size, ...look, onError: () => {} }),
+    () => ({ default: marked }),
+  );
+  await nextTick();
+  expect(spot(failed.el, 'b')).toBeNull();
+  data.value = rows(() => 0.5);
+  await nextTick();
+  near(spot(failed.el, 'b'), [100, 50]);
+});
+
+test('a slot for another frame, given as the chart loses its room, waits for the layout of that frame', async () => {
+  const round = {
+    ...size,
+    marks: [arcs({ values: [1, 2], colors: ['#ff0000', '#0000ff'] })],
+    frame: 'polar',
+  };
+  const gone = { style: { display: 'none' } };
+  for (const kind of kinds) {
+    for (const byResize of [true, false]) {
+      const frames: string[] = [];
+      const state = shallowRef({ flat: false, gone: false });
+      const r = slotted(
+        Plot,
+        () => ({
+          ...(state.value.flat ? { ...plotted, frame: 'axes', marks: dot() } : round),
+          ...(state.value.gone && gone),
+        }),
+        kind(() => {
+          const { flat } = state.value;
+          return s => {
+            if (flat) frames.push(s.layout.frame);
+            return flat ? marked(s) : h('i', s.layout.frame);
+          };
+        }),
+      );
+      await nextTick();
+      expect(text(r.el)).toBe('polar');
+      state.value = { flat: true, gone: true };
+      await nextTick();
+      await twoFrames();
+      expect([frames, spot(r.el, 'b')]).toEqual([[], null]);
+      if (byResize) r.el.style.display = '';
+      else state.value = { flat: true, gone: false };
+      await twoFrames();
+      near(spot(r.el, 'b'), [100, 50]);
+      expect(new Set(frames)).toEqual(new Set(['axes']));
+    }
+  }
+});
+
+test('a slot taken away while the chart has no room stays away when it draws', async () => {
+  const marks = dot();
+  const on = ref(true);
+  const gone = ref(false);
+  const r = slotted(
+    Plot,
+    () => ({ ...plotted, marks, onLayout: () => {}, ...(gone.value && { style: { display: 'none' } }) }),
+    () => (on.value ? { default: marked } : undefined),
+  );
+  gone.value = true;
+  await twoFrames();
+  on.value = false;
+  await nextTick();
+  gone.value = false;
+  await twoFrames();
+  expect(spot(r.el, 'b')).toBeNull();
+});
+
+test('a slot is called once for a hover, for a render of the app and for a change of what it reads', async () => {
+  const props = { ...plotted, marks: dot() };
+  const note = ref('a');
+  const tick = ref(0);
+  const draw = vi.fn(() => h('i', note.value));
+  const r = slotted(
+    Plot,
+    () => (tick.value, props),
+    () => ({ default: () => draw() }),
+  );
+  await nextTick();
+  for (const change of [() => hover(r.el, 103, 52), () => tick.value++, () => (note.value = 'b')]) {
+    draw.mockClear();
+    change();
+    await nextTick();
+    expect(draw).toHaveBeenCalledOnce();
+  }
+  expect(text(r.el)).toBe('b');
+});
+
+test('the server renders the host alone with a slot, it hydrates without a warning, and unmounting leaves nothing', async () => {
+  const view = () => h(Plot, { ...plotted, marks: dot() }, { default: marked } as never);
+  const bare = () => h(Plot, { ...plotted, marks: dot() });
+  const html = await renderToString(createSSRApp({ render: view }));
+  expect(html).toBe(await renderToString(createSSRApp({ render: bare })));
+  const warnings = vi.spyOn(console, 'warn');
+  const errors = vi.spyOn(console, 'error');
+  const container = host();
+  container.innerHTML = html;
+  const app = createSSRApp({ render: view });
+  app.mount(container);
+  await nextTick();
+  near(spot(container, 'b'), [100, 50]);
+  app.unmount();
+  expect(container.querySelector('b')).toBeNull();
+  expect([warnings.mock.calls, errors.mock.calls]).toEqual([[], []]);
+  warnings.mockRestore();
+  errors.mockRestore();
+});
+
+test('no loop: an inline slot, listeners that set state, marks and axis conversions rebuilt in every render', async () => {
+  let [renders, draws] = [0, 0];
+  const App = defineComponent(() => {
+    const layout = shallowRef<Layout>();
+    const at = shallowRef<Hover | null>(null);
+    return () => {
+      renders++;
+      return h(
+        Plot,
+        {
+          ...plotted,
+          marks: dot(),
+          'data-seen': [layout.value?.width, at.value?.px].join(),
+          onLayout: (l: Layout) => (layout.value = l),
+          onHover: (v: Hover | null) => (at.value = v),
+        } as never,
+        { default: (s: Scope) => (draws++, marked(s)) } as never,
+      );
+    };
+  });
+  const r = mount(App, () => ({}));
+  await twoFrames();
+  const settled = [renders, draws];
+  hover(r.el, 103, 52);
+  await twoFrames();
+  near(spot(r.el, 'i'), [100, 50]);
+  expect(settled[0]).toBeLessThanOrEqual(3);
+  expect(renders - settled[0]!).toBeLessThanOrEqual(2);
+  expect(draws - settled[1]!).toBeLessThanOrEqual(2);
+
+  draws = 0;
+  const tick = ref(0);
+  // Conversions made anew are a new layout to the core, which an app that keeps it in its state would render for.
+  const inline = slotted(
+    Plot,
+    () => (
+      tick.value,
+      { ...plotted, x: { ...span(10), to: (v: number) => v, from: (v: number) => v }, marks: dot() }
+    ),
+    () => ({ default: (s: Scope) => (draws++, marked(s)) }),
+  );
+  await twoFrames();
+  const before = draws;
+  tick.value++;
+  await twoFrames();
+  near(spot(inline.el, 'b'), [100, 50]);
+  expect(draws - before).toBe(1);
 });

@@ -12,7 +12,7 @@ export default defineConfig({
       { find: /^swiftplot\/charts$/, replacement: core('charts/index.ts') },
     ],
   },
-  optimizeDeps: { include: ['vue', 'vue/server-renderer'] },
+  optimizeDeps: { include: ['vue', 'vue/server-renderer', 'vue/dist/vue.esm-browser.prod.js'] },
   test: {
     include: ['test/**/*.test.{ts,tsx}'],
     browser: {

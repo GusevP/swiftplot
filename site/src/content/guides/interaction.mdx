@@ -24,7 +24,8 @@ chart again, or in React and Vue change the component's `key`.
 [Updates and animation](/guides/updates-and-animation#change-the-features) shows how.
 
 In Vue, `onHiddenChange`, `onViewChange` and `onPointerChange` below arrive as the `update:hidden`, `update:view` and
-`update:pointer` events, so `v-model:hidden` and the like work.
+`update:pointer` events, so `v-model:hidden` and the like work, and `onClick`, `onLayout` and `onHover` as `click`,
+`layout` and `hover`.
 
 ## Legend and hidden series
 
@@ -105,6 +106,65 @@ const charts = [a, b].map((el, i) =>
   }),
 );
 ```
+
+## Drawing over the chart
+
+`chart.overlay` is an element over the whole chart, under its tooltip, for your own DOM: markers, labels, or a tooltip of
+your own with `tooltip()` left out. `onLayout` and `onHover` say where to put it, in CSS pixels from the chart's top left
+corner.
+
+- `onLayout(layout)` gets `{ width, height, margin, frame }`, and on a chart with axes what each shows, `x`, `y` and `y2`
+  as `{ domain, ticks }`, and the functions `xPx(x)`, `yPx(y, axis)`, `xValue(px)` and `yValue(px, axis)`, all in the
+  axes' own values. It is called after the first paint and whenever the geometry changes, and not while the chart has no
+  room. Each layout is a new frozen object and keeps converting by its own geometry.
+- `onHover(hover)` gets `{ px, py, hit }` as the pointer moves over the plot, and again when a zoom, new data or a resize
+  changes what is under it at rest. `hit` is the one `onClick` gets, with the `px` and `py` it is anchored at, such as a
+  dot's centre; it is `null` with nothing within 20 px, and a line or an area answers no pointer. `onHover(null)` comes once
+  as the pointer leaves the plot or a drag starts.
+
+The first `onLayout` runs inside `plot()`, before you have the chart. To place something in `chart.overlay` from it, take
+the chart first and set it with `update()`, which calls it with the current layout:
+
+```js
+const chart = plot(el, options);
+const marker = chart.overlay.appendChild(document.createElement('span'));
+const tip = chart.overlay.appendChild(document.createElement('div'));
+marker.style.position = tip.style.position = 'absolute';
+marker.textContent = 'Target';
+
+chart.update({
+  onLayout({ xPx, yPx }) {
+    marker.style.left = `${xPx(20)}px`;
+    marker.style.top = `${yPx(50)}px`;
+  },
+  onHover(hover) {
+    const hit = hover?.hit;
+    tip.hidden = !hit;
+    if (!hit) return;
+    tip.textContent = `${hit.x}, ${hit.y}`;
+    tip.style.left = `${hit.px}px`;
+    tip.style.top = `${hit.py}px`;
+  },
+});
+```
+
+The charts from data take both callbacks and have the same `overlay`, which stays, with its children, when a changed
+feature creates the chart again. [Your own markers and tooltip](/examples/overlay-tooltip) is such a chart.
+
+Either callback may set the options that draw the chart without looping: data or marks made anew with equal values report
+nothing. An axis's `to` and `from` must stay the same functions, though. `onLayout` compares them by identity, so an axis
+that makes them in each update, set from `onLayout`, would report without end. `log()` already keeps them.
+
+The overlay lets the pointer through. A child you give `pointer-events: auto`, such as a button, takes it:
+
+- `onHover`, `onPointerChange` and the built-in tooltip go on over it as over the plot. The cursor is its own, and a touch
+  on it reports no hover.
+- A click, the wheel, a drag, a brush, a double click or a pinch on it is its own and does not reach the chart. A pan begun
+  on the plot goes on across it.
+- While it is pressed and the pointer stays in the chart, no hover is reported and the last one stays, so an element you
+  show from `onHover` is not taken away under the press. A pointer that leaves the chart, or whose press the browser
+  cancels, reports `null` as usual, and new data of the hovered mark reports what is then under it. The
+  built-in tooltip hides until the mouse or pen is released.
 
 ## Where to go next
 

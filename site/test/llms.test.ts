@@ -64,6 +64,13 @@ describe('llms()', () => {
   });
 });
 
+test('llms-full.txt gives the explicit API the overlay, its callbacks and the axis rule of onLayout', () => {
+  const full = readFileSync(new URL('../../llms-full.txt', import.meta.url), 'utf8');
+  const section = full.split(/^(?=## )/m).find(s => s.startsWith('## 5. The explicit API'));
+  for (const name of ['overlay', 'onLayout', 'onHover', 'to', 'from'])
+    expect(section).toContain(`\`${name}\``);
+});
+
 test('/llms-full.txt is the root llms-full.txt byte for byte', async () => {
   const response = await GET({} as APIContext);
   expect(Buffer.from(await response.arrayBuffer())).toEqual(

@@ -111,3 +111,46 @@ test('/examples/series-hidden keeps its checkboxes and the legend in step', asyn
   await expect(box('jobs')).toBeChecked();
   expect(errors).toEqual([]);
 });
+
+test('/examples/overlay-tooltip shows its own markers, and a tooltip by the dot pointed at', async ({
+  page,
+}) => {
+  const errors = watch(page);
+  const canvas = await open(page, 'overlay-tooltip');
+  for (const name of ['Brew Lab', 'Elm Street', 'Juniper'])
+    await expect(demo(page).locator('span', { hasText: name })).toBeVisible();
+  const box = (await canvas.boundingBox())!;
+  const at = await onMark(canvas);
+  const tip = demo(page).getByText('rated 4.9').locator('..');
+  await expect(tip).toBeHidden();
+  await page.mouse.move(box.x + at.x, box.y + at.y);
+  await expect(tip).toBeVisible();
+  await expect(tip).toContainText('Juniper');
+  const { x, y, width, height } = (await tip.boundingBox())!;
+  expect(Math.abs(x + width + 12 - box.x - at.x)).toBeLessThan(12);
+  expect(Math.abs(y + height / 2 - box.y - at.y)).toBeLessThan(12);
+  await page.mouse.move(0, 0);
+  await expect(tip).toBeHidden();
+  expect(errors).toEqual([]);
+});
+
+test('/examples/css-variables repaints its bars and text from the variables changed', async ({ page }) => {
+  const errors = watch(page);
+  const canvas = await open(page, 'css-variables');
+  const at = await onMark(canvas);
+  const colours = async () => ({
+    bar: await canvas.evaluate((c: HTMLCanvasElement, { x, y }) => {
+      const scale = c.width / c.clientWidth;
+      return [...c.getContext('2d')!.getImageData((x + 10) * scale, (y + 10) * scale, 1, 1).data];
+    }, at),
+    text: await demo(page)
+      .getByText('Cobalt')
+      .evaluate(e => getComputedStyle(e).color),
+  });
+  await expect.poll(colours).toEqual({ bar: [8, 145, 178, 255], text: 'rgb(51, 65, 85)' });
+  await demo(page).getByRole('button', { name: 'Dark' }).click();
+  await expect.poll(colours).toEqual({ bar: [34, 211, 238, 255], text: 'rgb(203, 213, 225)' });
+  await demo(page).getByRole('button', { name: 'Light' }).click();
+  await expect.poll(colours).toEqual({ bar: [8, 145, 178, 255], text: 'rgb(51, 65, 85)' });
+  expect(errors).toEqual([]);
+});

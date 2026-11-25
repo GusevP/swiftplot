@@ -1,6 +1,7 @@
 import { plot } from '../chart.js';
+import { equal } from '../equal.js';
 import type { Theme } from '../theme.js';
-import type { Chart, Feature, Internals, Mark, Options, Span } from '../types.js';
+import type { Chart, Feature, Hover, Internals, Layout, Mark, Options, Span } from '../types.js';
 import { themeOf } from './defaults.js';
 import { source, type Data, type Source } from './source.js';
 import type { Axes, Base } from './types.js';
@@ -20,7 +21,9 @@ type Passed =
   | 'onViewChange'
   | 'onHiddenChange'
   | 'onClick'
-  | 'onPointerChange';
+  | 'onPointerChange'
+  | 'onLayout'
+  | 'onHover';
 export type Built = {
   options: Omit<Options, 'use' | Passed>;
   /** Compared by value across updates: a change recreates the chart. */
@@ -28,32 +31,17 @@ export type Built = {
   use(): Feature[];
 };
 export type Build<P> = (props: P, context: Context) => Built;
-export type EasyChart<P> = { update(props: Partial<P>): void; destroy(): void; readonly chart: Chart };
+export type EasyChart<P> = {
+  update(props: Partial<P>): void;
+  destroy(): void;
+  readonly chart: Chart;
+  /** The chart's own overlay, the same element with its children when the chart is made again. */
+  readonly overlay: HTMLElement;
+};
 
 const STATE = ['view', 'hidden', 'selected', 'pointer'] as const;
 const CALLBACKS = ['onHiddenChange', 'onClick', 'onPointerChange'] as const;
-export const PASSED = new Set<string>([...STATE, ...CALLBACKS, 'onViewChange']);
-
-export const plain = (v: unknown): v is Record<string, unknown> =>
-  typeof v === 'object' &&
-  v !== null &&
-  (Array.isArray(v) || Object.getPrototypeOf(v) === Object.prototype || Object.getPrototypeOf(v) === null);
-
-/** Plain objects and arrays by value, anything else (typed arrays, functions, themes) by identity. */
-export const equal = (a: unknown, b: unknown): boolean => same(a, b, new Map());
-
-function same(a: unknown, b: unknown, seen: Map<object, Set<object>>): boolean {
-  if (Object.is(a, b)) return true;
-  if (!plain(a) || !plain(b) || Array.isArray(a) !== Array.isArray(b)) return false;
-  if (Array.isArray(a) && a.length !== b.length) return false;
-  const pairs = seen.get(a) ?? seen.set(a, new Set()).get(a)!;
-  if (pairs.has(b)) return true;
-  pairs.add(b);
-  const keys = Object.keys(a);
-  return (
-    keys.length === Object.keys(b).length && keys.every(k => Object.hasOwn(b, k) && same(a[k], b[k], seen))
-  );
-}
+export const PASSED = new Set<string>([...STATE, ...CALLBACKS, 'onViewChange', 'onLayout', 'onHover']);
 
 /** As the core keeps a mark: by key, type and options. */
 const sameMarks = (a: readonly Mark[], b: readonly Mark[]) =>
@@ -102,7 +90,13 @@ export function create<P extends ControllerProps>(
   };
 
   let internals: Internals | undefined;
-  const keep: Feature = c => ((internals = c), { destroy() {} });
+  let overlay: HTMLElement | undefined;
+  const keep: Feature = c => {
+    overlay ??= internals?.overlay;
+    if (overlay) c.overlay = overlay;
+    internals = c;
+    return { destroy() {} };
+  };
   const windowed: { x?: Span; y?: Span; y2?: Span } = {};
   const remember = (v: { x?: Span; y?: Span; y2?: Span }) => {
     const whole = internals!.domain();
@@ -118,8 +112,42 @@ export function create<P extends ControllerProps>(
     props.onViewChange?.(v);
   };
 
+  // The app may update the chart from onLayout or onHover, which must not run inside an update still being applied.
+  let applying = false;
+  let pending: { layout?: Layout; hover?: Hover | null } = {};
+  let hovered = false;
+  const tell = (hover: Hover | null) => {
+    hovered = !!hover;
+    props.onHover?.(hover);
+  };
+  const onLayout = (layout: Layout) => {
+    if (applying) pending.layout = layout;
+    else props.onLayout?.(layout);
+  };
+  const onHover = (hover: Hover | null) => {
+    if (applying) pending.hover = hover;
+    else tell(hover);
+  };
+  // The hover is read after onLayout, as an update made from it reports a newer one itself.
+  const flush = () => {
+    const { layout } = pending;
+    delete pending.layout;
+    try {
+      if (layout) props.onLayout?.(layout);
+    } finally {
+      const { hover } = pending;
+      delete pending.hover;
+      if (hover !== undefined && !destroyed) tell(hover);
+    }
+  };
+
   const wanted = (p: P, b: Built): Record<string, unknown> => {
-    const w: Record<string, unknown> = { ...b.options, onViewChange };
+    const w: Record<string, unknown> = {
+      ...b.options,
+      onViewChange,
+      onLayout: p.onLayout && onLayout,
+      onHover: p.onHover && onHover,
+    };
     for (const k of CALLBACKS) w[k] = p[k];
     for (const k of STATE) if (p[k] !== undefined) w[k] = p[k];
     return w;
@@ -148,8 +176,18 @@ export function create<P extends ControllerProps>(
   let live = true;
   let held: readonly string[] = [];
 
-  /** With r, the options are built again from it; without, only passed props changed. */
   function apply(next: P, r?: Read) {
+    applying = true;
+    try {
+      change(next, r);
+    } finally {
+      applying = false;
+      flush();
+    }
+  }
+
+  /** With r, the options are built again from it; without, only passed props changed. */
+  function change(next: P, r?: Read) {
     let b = built;
     let t = themed;
     let th = theme;
@@ -172,6 +210,7 @@ export function create<P extends ControllerProps>(
     });
     const fail = (e: unknown): never => {
       if (t !== themed) t.dispose();
+      pending = hovered ? { hover: null } : {};
       held = hidden;
       try {
         chart = plot(el, { ...sent, ...carried(props), use: [...built.use(), keep] } as Options);
@@ -182,6 +221,7 @@ export function create<P extends ControllerProps>(
     const drop = () => {
       if (!live) return;
       live = false;
+      if (hovered) pending.hover = null;
       chart.destroy();
     };
     const commit = (s: Record<string, unknown>) => {
@@ -215,7 +255,13 @@ export function create<P extends ControllerProps>(
     for (const k of new Set([...Object.keys(kept), ...Object.keys(want)])) {
       if (!(k in want) && (STATE as readonly string[]).includes(k)) continue;
       const [was, now] = [kept[k], want[k]];
-      const same = k === 'marks' ? sameMarks(was as Mark[], now as Mark[]) : equal(was, now);
+      // A theme replaced by an equal one is how an app asks for changed CSS variables to be read again.
+      const same =
+        k === 'theme'
+          ? was === now
+          : k === 'marks'
+            ? sameMarks(was as Mark[], now as Mark[])
+            : equal(was, now);
       if (!same) partial[k] = now;
     }
     if (Object.keys(partial).length) {
@@ -235,6 +281,9 @@ export function create<P extends ControllerProps>(
   return {
     get chart() {
       return chart;
+    },
+    get overlay() {
+      return (overlay ??= chart.overlay);
     },
     update(partial) {
       if (destroyed) return;

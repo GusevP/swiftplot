@@ -159,6 +159,10 @@ export type Base = {
   pointer?: Options['pointer'];
   /** Called as the user's pointer moves over the plot, and with null as it leaves; never for update(). */
   onPointerChange?: Options['onPointerChange'];
+  /** Called with the chart's geometry after the first paint and whenever it changes, for drawing your own nodes over the chart. */
+  onLayout?: Options['onLayout'];
+  /** Called as the user's pointer moves over the plot, in CSS pixels with what is within 20 px of it, and with null as it leaves. */
+  onHover?: Options['onHover'];
 };
 
 type Name<T> = keyof T & string;

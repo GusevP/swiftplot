@@ -41,7 +41,7 @@ import {
   zone,
   zoom,
 } from '../src/index.js';
-import type { Axis, Col, Internals, Mark, Options } from '../src/index.js';
+import type { Axis, Col, Hover, Internals, Layout, Mark, Options } from '../src/index.js';
 import type { GlLayer } from '../src/types.js';
 import { columns, span, type Curve } from '../src/marks/common.js';
 import { scale } from '../src/scale.js';
@@ -9636,4 +9636,1529 @@ test('a drag that pans y alone pans it from the first pixels', async () => {
   drag(el, [50, 50], [50, 56]);
   await nextFrame();
   expect(internals.view().y.map(v => +v.toFixed(6))).toEqual([0.28, 0.78]);
+});
+
+const LIME = [0, 255, 0, 255];
+const MUTED = [...channels(light.muted), 255];
+const varHost = (vars: Record<string, string> = { '--c': '#00ff00' }) => {
+  const el = host();
+  for (const [k, v] of Object.entries(vars)) el.style.setProperty(k, v);
+  return el;
+};
+const thick = (color: string, label?: string) =>
+  line({ x: [0, 10], y: [0.5, 0.5], curve: 'step', color, width: 10, label });
+/** One bar over the middle fifth, and `n - 1` with no size at the left edge. */
+const oneBar = (color: string, n: number) => {
+  const only = (v: number) => Float64Array.from({ length: n }, (_, i) => (i ? 0 : v));
+  return bar({ x1: only(4), x2: only(6), y1: only(0), y2: only(1), color });
+};
+const oneDot = (color: string, n: number) =>
+  dots({
+    x: Float64Array.from({ length: n }, (_, i) => (i ? 0 : 5)),
+    y: new Float64Array(n).fill(0.5),
+    r: new Float64Array(n).fill(6),
+    color,
+  });
+const warnings = () => vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+test.each([
+  ['a line', thick],
+  ['a bar', (c: string) => oneBar(c, 1)],
+  ['dots', (c: string) => oneDot(c, 1)],
+])('%s draws a CSS variable colour on the canvas', (_, mark) => {
+  const el = varHost();
+  plot(el, { ...frame, marks: [mark('var(--c)')] });
+  expect(pixel(el, 50, 50)).toEqual(LIME);
+});
+
+test.each([
+  ['a bar', oneBar],
+  ['dots', oneDot],
+])('%s draws a CSS variable colour on WebGL, translucent ones too', (_, mark) => {
+  const el = varHost();
+  plot(el, { ...frame, marks: [mark('var(--c)', 20_000)] });
+  expect(pixel(el, 50, 50, 1)).toEqual(LIME);
+
+  const faint = varHost({ '--c': 'rgba(0, 0, 255, 0.5)' });
+  plot(faint, { ...frame, marks: [mark('var(--c)', 20_000)] });
+  const [r, g, b, a] = pixel(faint, 50, 50, 1);
+  expect([r, g, b]).toEqual([0, 0, 255]);
+  expect(Math.abs(a! - 128)).toBeLessThanOrEqual(1);
+});
+
+test('gradient stops, slices and ribbons draw CSS variable colours', () => {
+  const blended = varHost();
+  plot(blended, {
+    ...frame,
+    marks: [bar({ x1: [0], x2: [10], y1: [0], y2: [1], color: RED, fill: gradient('var(--c)', 'var(--c)') })],
+  });
+  expect(pixel(blended, 50, 50)).toEqual(LIME);
+
+  const swept = varHost();
+  plot(swept, { ...pie, marks: [arcs({ values: [1], colors: ['var(--c)'], sweep: 0.4 })] });
+  const [r, g, b, a] = pixel(swept, 49, 5);
+  expect([r, g, b]).toEqual([0, 255, 0]);
+  expect(a).toBeGreaterThan(240);
+
+  for (const blend of [false, true]) {
+    const flowing = varHost();
+    plot(flowing, {
+      width: 100,
+      height: 100,
+      margin: { top: 0, right: 0, bottom: 0, left: 0 },
+      frame: 'blank',
+      marks: [
+        sankey({ nodes: ['A', 'B'], source: [0], target: [1], value: [1], colors: ['var(--c)'], blend }),
+      ],
+    });
+    expect(pixel(flowing, 5, 50)).toEqual(LIME);
+    const ribbon = pixel(flowing, 50, 50);
+    expect([ribbon[0], ribbon[2]]).toEqual([0, 0]);
+    expect(ribbon[1]).toBeGreaterThan(250);
+    expect(ribbon[3]).toBeGreaterThan(90);
+  }
+});
+
+test("a custom mark's fill and stroke, and the theme's own colours, may be CSS variables", () => {
+  const el = varHost({ '--c': '#00ff00', '--grid': '#0000ff', '--text': '#ff00ff' });
+  const custom: Mark = {
+    type: 'custom',
+    color: 'var(--c)',
+    options: {},
+    points: 0,
+    channels: { x: [], y: [] },
+    prepare: ({ ctx, dpr }) => ({
+      paint() {
+        ctx.fillStyle = 'var(--c)';
+        ctx.fillRect(0, 0, 10 * dpr, 10 * dpr);
+        ctx.strokeStyle = 'var(--c)';
+        ctx.lineWidth = 10 * dpr;
+        ctx.strokeRect(30 * dpr, 30 * dpr, 40 * dpr, 40 * dpr);
+      },
+    }),
+  };
+  plot(el, {
+    ...frame,
+    y: {
+      domain: [0, 1],
+      label: '',
+      scale: () => ({ lo: 0, hi: 1, ticks: [{ value: 0.2, label: 'fifth' }] }),
+    },
+    theme: { ...light, grid: 'var(--grid)', text: 'var(--text)' },
+    marks: [custom],
+  });
+  expect(pixel(el, 5, 5)).toEqual(LIME);
+  expect(pixel(el, 30, 50)).toEqual(LIME);
+  expect(pixel(el, 90, 80)).toEqual([0, 0, 255, 255]);
+  const tick = [...el.querySelectorAll('div')].find(d => d.textContent === 'fifth')!;
+  expect(getComputedStyle(tick).color).toBe('rgb(255, 0, 255)');
+});
+
+test.each([
+  ['var(--missing, #f00)', RED_PIXEL],
+  ['var(--missing, currentColor)', [1, 2, 3, 255]],
+  ['var(--black)', [0, 0, 0, 255]],
+  ['var(--white)', [255, 255, 255, 255]],
+  ['var(--clear)', [0, 0, 0, 0]],
+])('%s has a value and draws it without a warning', (color, expected) => {
+  const warn = warnings();
+  const el = varHost({ '--black': '#000', '--white': '#fff', '--clear': 'transparent' });
+  el.style.color = 'rgb(1, 2, 3)';
+  plot(el, {
+    ...frame,
+    y: { ...frame.y, scale: () => ({ lo: 0, hi: 1, ticks: [] }) },
+    marks: [thick(color)],
+  });
+  expect(pixel(el, 50, 50)).toEqual(expected);
+  expect(warn).not.toHaveBeenCalled();
+});
+
+test.each([
+  ['currentColor', 'var(--missing, currentColor)'],
+  ['a property that does not inherit', 'var(--own)'],
+  ['an escaped name of one', 'var(--own\\.b)'],
+  ['a hex escape in its name', 'var(--o\\77 n)'],
+  ['a hex escape for its dash', 'var(\\2d-own)'],
+  ['one named in a fallback', 'var(--missing, var(--own))'],
+  ['a color-scheme', 'var(--missing, light-dark(#f00, #0f0))'],
+])("%s is the chart root's, whatever the page's rules give its children", (_, color) => {
+  const style = document.createElement('style');
+  style.textContent = `
+    @property --own { syntax: '<color>'; inherits: false; initial-value: #f00; }
+    @property --own\\.b { syntax: '<color>'; inherits: false; initial-value: #f00; }
+    .rooted > div { color: #0f0; color-scheme: dark; --own: #0f0; --own\\.b: #0f0; }
+    .rooted > div > div { color: #f00 !important; color-scheme: light; --own: #f00; --own\\.b: #f00; }
+    .rooted * { flood-color: #f00 !important; lighting-color: #00f !important; }`;
+  document.head.append(style);
+  const el = host();
+  el.className = 'rooted';
+  plot(el, { ...frame, marks: [thick(color)] });
+  style.remove();
+  expect(pixel(el, 50, 50)).toEqual(LIME);
+});
+
+test.each(['var(--missing)', 'var(--word)', 'var('])(
+  '%s draws in muted and warns once, and the legend, tooltip, label and rule show the same colour',
+  color => {
+    const warn = warnings();
+    const el = varHost({ '--word': 'banana' });
+    const labelled: Mark = {
+      type: 'labelled',
+      color,
+      options: {},
+      points: 0,
+      channels: { x: [], y: [] },
+      prepare: ({ dpr }) => ({
+        labels: [{ x: 100 * dpr, y: 60 * dpr, text: 'limit', color }],
+        paint() {},
+      }),
+    };
+    const chart = plot(el, {
+      ...frame,
+      width: 200,
+      height: 200,
+      marks: [thick(color, 'a'), rule({ x: 2, color }), labelled],
+      use: [legend(), tooltip({ mode: 'x', title: () => 'tip', value: String })],
+    });
+    expect(pixel(el, 150, 112)).toEqual(MUTED);
+    const swatch = el.querySelector<HTMLElement>('span > span')!;
+    expect(getComputedStyle(swatch).backgroundColor).toBe(rgb(light.muted));
+    hover(el, 100, 100);
+    const shown = (text: string) =>
+      getComputedStyle([...el.querySelectorAll('div')].findLast(d => d.textContent === text)!).color;
+    expect(shown('a: 0.5')).toBe(rgb(light.muted));
+    expect(shown('limit')).toBe(rgb(light.muted));
+    const upright = [...el.querySelectorAll('div')].find(d => d.style.borderLeftStyle === 'solid')!;
+    expect(getComputedStyle(upright).borderLeftColor).toBe(rgb(light.muted));
+    chart.update({ theme: { ...light } });
+    chart.update({ marks: [thick(color, 'b')] });
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0]![0]).toContain(color);
+  },
+);
+
+test('a muted colour that has no value itself gives way to the light one', () => {
+  warnings();
+  const el = varHost();
+  plot(el, { ...frame, theme: { ...light, muted: 'var(--missing)' }, marks: [thick('var(--gone)')] });
+  expect(pixel(el, 50, 50)).toEqual(MUTED);
+});
+
+test('a chart made in a detached host draws a :root variable on the canvas and on WebGL', () => {
+  document.documentElement.style.setProperty('--detached', '#00ff00');
+  for (const [n, nth] of [
+    [1, 0],
+    [10_000, 1],
+  ] as const) {
+    const el = document.createElement('div');
+    plot(el, { ...frame, marks: [oneBar('var(--detached)', n)] });
+    expect(pixel(el, 50, 50, nth)).toEqual(LIME);
+  }
+  document.documentElement.style.removeProperty('--detached');
+});
+
+test.each([
+  [1, 0],
+  [10_000, 1],
+])('a changed variable is seen once the theme is replaced, not before (%d bars)', (n, nth) => {
+  const el = varHost();
+  const marks = () => [oneBar('var(--c)', n)];
+  const same = marks();
+  const chart = plot(el, { ...frame, marks: same, use: [legend()], theme: light });
+  el.style.setProperty('--c', '#0000ff');
+  chart.update({ marks: same, theme: light });
+  chart.update({ dim: 0.5 });
+  expect(pixel(el, 50, 50, nth)).toEqual(LIME);
+  chart.update({ theme: { ...light } });
+  expect(pixel(el, 50, 50, nth)).toEqual([0, 0, 255, 255]);
+});
+
+test('a theme replaced by an equal one that resolves as before repaints and lets go of nothing', () => {
+  const whys: string[] = [];
+  const letGo = vi.fn();
+  let prepared = 0;
+  const el = varHost();
+  const own = { ...light, grid: 'var(--c)' };
+  const marks = () => [thick('var(--c)')];
+  const counted: Mark = { ...anyhow({}), prepare: () => (prepared++, { paint() {} }) };
+  const chart = plot(el, {
+    ...frame,
+    theme: own,
+    marks: [counted],
+    use: [c => (c.onPaint((draw, why) => (whys.push(why), draw())), { letGo, destroy() {} })],
+  });
+  chart.update({ theme: { ...own } });
+  expect([whys, letGo.mock.calls.length, prepared]).toEqual([['data'], 0, 1]);
+  chart.update({ theme: { ...own }, marks: marks() });
+  expect(whys.splice(0)).toEqual(['data', 'data']);
+  letGo.mockClear();
+  el.style.setProperty('--c', '#0000ff');
+  chart.update({ theme: { ...own }, marks: marks() });
+  expect([whys.splice(0), letGo.mock.calls.length]).toEqual([['size'], 1]);
+  own.grid = '#ff0000';
+  chart.update({ theme: { ...own } });
+  expect(whys.splice(0)).toEqual(['size']);
+  own.muted = '#00ff00';
+  chart.update({ theme: own });
+  expect(whys.splice(0)).toEqual(['size']);
+  own.muted = '#0000ff';
+  chart.update({ theme: { ...own } });
+  expect(whys).toEqual(['size']);
+});
+
+test('a theme written in place since the chart was made and passed as a new object restyles it', () => {
+  const own = { ...light };
+  const el = host();
+  const chart = plot(el, { ...frame, theme: own, marks: [thick('var(--missing, #00ff00)')] });
+  const axes = () => [...el.querySelectorAll('div')].some(d => d.style.color === 'rgb(255, 0, 0)');
+  own.text = '#ff0000';
+  chart.update({ theme: { ...own } });
+  expect(axes()).toBe(true);
+});
+
+test('a theme replaced by an equal one alone hit tests nothing under a resting pointer and updates no feature', () => {
+  const hit = vi.fn(() => ({ x: 5, y: 0.5, distance: 0, row: 0 }));
+  const update = vi.fn();
+  const { el, chart } = pointed({
+    theme: { ...light },
+    marks: [{ ...anyhow({}), label: 'A', prepare: () => ({ paint() {}, hit }) }],
+    use: [tooltip({ mode: 'nearest', text: () => 'tip' }), () => ({ update, destroy() {} })],
+  });
+  hover(el, 60, 60);
+  hit.mockClear();
+  update.mockClear();
+  chart.update({ theme: { ...light } });
+  expect([hit.mock.calls.length, update.mock.calls.length]).toEqual([0, 0]);
+  chart.update({ theme: { ...light, text: '#ff0000' } });
+  expect(update).toHaveBeenCalledTimes(1);
+});
+
+test("a replaced theme restyles the legend's swatches in a variable's new colour", () => {
+  const el = varHost();
+  const chart = plot(el, { ...frame, marks: [thick('var(--c)', 'a')], use: [legend()] });
+  const swatch = () => getComputedStyle(el.querySelector('span > span')!).backgroundColor;
+  el.style.setProperty('--c', '#0000ff');
+  chart.update({ dim: 0.5 });
+  expect(swatch()).toBe('rgb(0, 255, 0)');
+  chart.update({ theme: { ...light } });
+  expect(swatch()).toBe('rgb(0, 0, 255)');
+});
+
+test('a missing variable throws nothing on the frames of an animation', async () => {
+  warnings();
+  const errors: unknown[] = [];
+  const failed = (e: ErrorEvent) => (e.preventDefault(), errors.push(e.error));
+  addEventListener('error', failed);
+  const el = varHost();
+  const flow = (value: number) =>
+    sankey({
+      nodes: ['A', 'B', 'C'],
+      source: [0, 0],
+      target: [1, 2],
+      value: [value, 1],
+      colors: ['var(--missing)'],
+      blend: true,
+      text: false,
+    });
+  const options = { width: 100, height: 100, frame: 'blank', margin: pie.margin } as const;
+  const chart = plot(el, { ...options, marks: [flow(1)], use: [animate({ duration: 20 })] });
+  await new Promise(done => setTimeout(done, 60));
+  chart.update({ marks: [flow(2)] });
+  await new Promise(done => setTimeout(done, 60));
+  removeEventListener('error', failed);
+  expect(errors).toEqual([]);
+  expect(pixel(el, 5, 50)).toEqual(MUTED);
+});
+
+const laidOut = (options: Partial<Options> = {}) => {
+  const onLayout = vi.fn<(layout: Layout) => void>();
+  const made = windowed({ onLayout, ...options });
+  const layout = () => onLayout.mock.calls.at(-1)![0];
+  return { ...made, onLayout, layout };
+};
+
+test('onLayout fires once after the first paint, with the size, margin, domains and ticks, and px where the labels are', () => {
+  const el = host();
+  const painted: number[][] = [];
+  const onLayout = vi.fn<(layout: Layout) => void>(() => void painted.push(pixel(el, 150, 41)));
+  plot(el, {
+    ...frame,
+    width: 300,
+    margin: { left: 40, bottom: 30 },
+    y: { domain: [0, 1], label: '', format: v => `y ${v}` },
+    y2: { domain: [0, 100], label: 'Right' },
+    marks: [flat(0.5)],
+    onLayout,
+  });
+  expect(onLayout).toHaveBeenCalledTimes(1);
+  expect(painted).toEqual([RED_PIXEL]);
+  const layout = onLayout.mock.calls[0]![0];
+  expect(layout).toMatchObject({
+    width: 300,
+    height: 100,
+    frame: 'axes',
+    margin: { top: 12, left: 40, bottom: 30 },
+    x: { domain: [0, 10] },
+    y: { domain: [0, 1] },
+    y2: { domain: [0, 100] },
+  });
+  expect(layout.x!.ticks).toContainEqual({ value: 4, label: '4' });
+  const box = el.getBoundingClientRect();
+  const label = (text: string) => texts(el).find(t => t.text === text)!.box;
+  const x = label('4');
+  expect(x.left + x.width / 2 - box.left).toBeCloseTo(layout.xPx!(4), 1);
+  const y = label(layout.y!.ticks[0]!.label);
+  expect(y.top + y.height / 2 - box.top).toBeCloseTo(layout.yPx!(layout.y!.ticks[0]!.value), 1);
+  const right = label('100');
+  expect(right.top + right.height / 2 - box.top).toBeCloseTo(layout.yPx!(100, 'y2'), 1);
+});
+
+test('the conversions of a layout go there and back on linear, log, time and band axes and on y2', () => {
+  const day = Date.UTC(2026, 0, 1);
+  const cases: [Axis, number][] = [
+    [{ domain: [0, 10], label: '' }, 3],
+    [log({ label: '', domain: [1, 1000] }), 20],
+    [time({ label: '', domain: [day, day + 864e5 * 10] }), day + 864e5 * 4],
+    [band({ label: '', categories: ['a', 'b', 'c'] }), 1],
+  ];
+  for (const [axis, v] of cases) {
+    const { layout } = laidOut({ x: axis, y: axis, y2: axis });
+    const { xPx, yPx, xValue, yValue } = layout();
+    const near = (got: number) => expect(got / v).toBeCloseTo(1, 9);
+    near(xValue!(xPx!(v)));
+    near(yValue!(yPx!(v)));
+    near(yValue!(yPx!(v, 'y2'), 'y2'));
+  }
+  const { layout } = laidOut({
+    height: 300,
+    y: log({ label: '', domain: [1, 1000] }),
+    y2: { domain: [0, 100], label: '' },
+  });
+  const { y, yPx, yValue } = layout();
+  expect(y!.domain).toEqual([1, 1000]);
+  expect(y!.ticks.map(t => String(+t.value.toPrecision(12)))).toEqual(y!.ticks.map(t => t.label));
+  expect(yPx!(10)).toBeCloseTo(200);
+  expect(yPx!(10, 'y2')).toBeCloseTo(270);
+  expect(yValue!(270, 'y2')).toBeCloseTo(10);
+});
+
+test('onLayout fires once per update that changes the geometry, and for a feature moving the window', () => {
+  const { chart, internals, onLayout, layout } = laidOut({ margin: {}, marks: [flat(0.5)] });
+  const wide = { domain: [0, 1], label: '', format: (v: number) => `a wider ${v}` } satisfies Axis;
+  const before = layout().margin.left;
+  for (const partial of [
+    { width: 200 },
+    { y: wide },
+    { view: { x: [2, 6] } },
+    { x: { domain: [0, 10], label: 'Title' } },
+    { y2: { domain: [0, 100], label: '' } },
+  ] as Partial<Options>[]) {
+    onLayout.mockClear();
+    chart.update(partial);
+    expect(onLayout, JSON.stringify(partial)).toHaveBeenCalledTimes(1);
+  }
+  expect(layout().margin.left).toBeGreaterThan(before);
+  expect(layout().x!.domain).toEqual([2, 6]);
+  onLayout.mockClear();
+  internals.propose({ x: [3, 5] });
+  expect(onLayout).toHaveBeenCalledTimes(1);
+  expect(layout().x!.domain).toEqual([3, 5]);
+});
+
+test('onLayout does not fire for what leaves the geometry alone, and fires when set where there was none', () => {
+  const { chart, internals, onLayout } = laidOut({ marks: [flat(0.5)] });
+  onLayout.mockClear();
+  const other = vi.fn();
+  chart.update({ marks: [flat(0.25)] });
+  chart.update({ dim: 0.5 });
+  internals.focus('A');
+  chart.update({ pointer: { x: 3 } });
+  chart.update({ theme: { ...light, grid: '#ff0000' } });
+  chart.update({ onLayout: other });
+  expect(onLayout).not.toHaveBeenCalled();
+  expect(other).not.toHaveBeenCalled();
+  chart.update({ width: 200 });
+  expect(onLayout).not.toHaveBeenCalled();
+  expect(other).toHaveBeenCalledTimes(1);
+  chart.update({ onLayout: undefined });
+  chart.update({ onLayout });
+  expect(onLayout).toHaveBeenCalledTimes(1);
+  expect(onLayout.mock.calls[0]![0].width).toBe(200);
+});
+
+test('an update of onLayout alone lets nothing go', () => {
+  const letGo = vi.fn();
+  const { chart } = laidOut({ use: [() => ({ letGo, destroy() {} })] });
+  chart.update({ onLayout: vi.fn() });
+  expect(letGo).not.toHaveBeenCalled();
+});
+
+test('an earlier layout converts by its own geometry and its own rule', () => {
+  const { chart, layout } = laidOut({ y: { domain: [0, 1000], label: '' } });
+  const first = layout();
+  const [x, y] = [first.xPx!(5), first.yPx!(500)];
+  chart.update({ width: 200, height: 200 });
+  expect([first.width, first.xPx!(5), first.yPx!(500)]).toEqual([100, x, y]);
+  expect([layout().xPx!(5), layout().yPx!(500)]).toEqual([100, 100]);
+  const linear = layout();
+  chart.update({ y: log({ label: '', domain: [10, 1000] }) });
+  expect(linear.yPx!(500)).toBe(100);
+  expect(linear.yValue!(100)).toBe(500);
+  const ten = layout();
+  expect(ten.yPx!(100)).toBeCloseTo(100);
+  chart.update({ y: { domain: [0, 1000], label: '' } });
+  expect(ten.yPx!(100)).toBeCloseTo(100);
+  expect(ten.yValue!(100)).toBeCloseTo(100);
+});
+
+test('onLayout reports another frame, and another rule of an axis whose ticks and bounds stay', () => {
+  const round = laidOut({ frame: 'polar', marks: [] });
+  round.onLayout.mockClear();
+  round.chart.update({ frame: 'blank' });
+  expect(round.layout().frame).toBe('blank');
+
+  const rule = (k: number): Axis => ({
+    domain: [0, 10],
+    label: '',
+    to: v => v / k,
+    from: v => v * k,
+    scale: plain,
+  });
+  const plain = () => ({ lo: 0, hi: 10, ticks: [{ value: 0, label: 'zero' }] });
+  const custom = laidOut({ x: rule(1) });
+  custom.onLayout.mockClear();
+  custom.chart.update({ x: rule(2) });
+  expect(custom.onLayout).toHaveBeenCalledTimes(1);
+  expect(custom.layout().xPx!(10)).toBe(50);
+
+  const blind = (base: number) => ({ ...log({ label: '', base, format: () => '' }), scale: plain });
+  const based = laidOut({ x: blind(10) });
+  based.onLayout.mockClear();
+  based.chart.update({ x: blind(2) });
+  expect(based.onLayout).toHaveBeenCalledTimes(1);
+  expect(based.layout().xValue!(100)).toBe(1024);
+});
+
+test('onLayout reports a changed parameter of a conversion that leaves the bounds and ticks where they are', () => {
+  const fixed = {
+    domain: [0, 1] as [number, number],
+    label: '',
+    to: (v: number, a: Axis) => v ** (a as Axis & { exp: number }).exp,
+    from: (v: number, a: Axis) => v ** (1 / (a as Axis & { exp: number }).exp),
+    scale: () => ({ lo: 0, hi: 1, ticks: [0, 1].map(value => ({ value, label: String(value) })) }),
+  };
+  const power = (exp: number) => ({ ...fixed, exp });
+  const { chart, onLayout, layout } = laidOut({ x: power(0.5) });
+  onLayout.mockClear();
+  chart.update({ x: power(0.5) });
+  expect(onLayout).not.toHaveBeenCalled();
+  chart.update({ x: power(0.25) });
+  expect(onLayout).toHaveBeenCalledTimes(1);
+  expect(layout().xPx!(0.0625)).toBeCloseTo(50);
+});
+
+test('a conversion may read the standard fields of its axis, and fresh but equal ones report nothing', () => {
+  const ends = { lo: 0, hi: 1, ticks: [0, 1].map(value => ({ value, label: String(value) })) };
+  const to = (v: number, a: Axis) => v ** a.step!;
+  const from = (v: number, a: Axis) => v ** (1 / a.step!);
+  const power = (step: number): Axis => ({
+    domain: [0, 1],
+    label: '',
+    step,
+    to,
+    from,
+    scale: () => ends,
+    format: v => String(v),
+  });
+  const { chart, onLayout, layout } = laidOut({ x: power(1) });
+  onLayout.mockClear();
+  chart.update({ x: power(1) });
+  expect(onLayout).not.toHaveBeenCalled();
+  chart.update({ x: power(2) });
+  expect(onLayout).toHaveBeenCalledTimes(1);
+  expect(layout().xPx!(0.5)).toBeCloseTo(25);
+});
+
+test('onLayout reports nothing for a converted axis given anew with its properties in another order', () => {
+  const axis: Axis = { domain: [0, 10], label: '', to: v => v / 2, from: v => v * 2 };
+  const { chart, onLayout } = laidOut({ x: axis });
+  onLayout.mockClear();
+  chart.update({ x: Object.fromEntries(Object.entries(axis).toReversed()) as unknown as Axis });
+  expect(onLayout).not.toHaveBeenCalled();
+});
+
+test('onLayout reports nothing for a band axis given anew with equal categories', () => {
+  const days = () => band({ label: '', categories: ['a', 'b', 'c'] });
+  const { chart, onLayout } = laidOut({ x: days() });
+  onLayout.mockClear();
+  chart.update({ x: days() });
+  expect(onLayout).not.toHaveBeenCalled();
+});
+
+test('onLayout is called after the features are up to date and onViewChange or onHiddenChange has run', () => {
+  const order: string[] = [];
+  const say = (what: string) => () => void order.push(what);
+  const { chart, internals } = laidOut({
+    margin: {},
+    marks: [flat(0.5), line({ x: [0, 10], y: [0, 100], label: 'B', color: RED })],
+    y: { domain: 'data', label: '' },
+    use: [() => ({ update: say('sync'), destroy() {} })],
+    onLayout: say('layout'),
+    onViewChange: say('view'),
+    onHiddenChange: say('hidden'),
+  });
+  expect(order.splice(0)).toEqual(['sync', 'layout']);
+  internals.propose({ x: [3, 5] });
+  expect(order.splice(0)).toEqual(['sync', 'view', 'layout']);
+  internals.hide(['B']);
+  expect(order.splice(0)).toEqual(['sync', 'hidden', 'layout']);
+  chart.update({ width: 200 });
+  expect(order).toEqual(['sync', 'layout']);
+});
+
+test('a layout is frozen all the way down, on copies', () => {
+  const own = [{ value: 5, label: 'five' }];
+  const { layout, internals } = laidOut({
+    x: { domain: [0, 10], label: '', scale: () => ({ lo: 0, hi: 10, ticks: own }) },
+  });
+  const l = layout() as any;
+  for (const write of [
+    () => (l.width = 1),
+    () => (l.margin.left = 1),
+    () => (l.x.domain = [0, 1]),
+    () => (l.x.domain[0] = 1),
+    () => l.x.ticks.push({}),
+    () => (l.x.ticks[0].value = 1),
+    () => (l.xPx = undefined),
+  ])
+    expect(write).toThrow(TypeError);
+  own[0]!.label = 'six';
+  own.push({ value: 6, label: 'six' });
+  expect(l.x.ticks).toEqual([{ value: 5, label: 'five' }]);
+  expect(Object.isFrozen(internals.margin())).toBe(false);
+});
+
+test('a polar or a blank frame gives the size, the margin and the frame only', () => {
+  for (const name of ['polar', 'blank'] as const) {
+    const { layout } = laidOut({ frame: name, margin: {} });
+    expect(layout()).toEqual({
+      width: 100,
+      height: 100,
+      frame: name,
+      margin: { top: 8, right: 8, bottom: 8, left: 8 },
+    });
+    expect(Object.keys(layout()).sort()).toEqual(['frame', 'height', 'margin', 'width']);
+  }
+});
+
+test('onLayout does not fire while the chart has no room, and fires when it gets room', () => {
+  const { chart, onLayout, layout } = laidOut({ width: 0 });
+  chart.update({ height: 50 });
+  expect(onLayout).not.toHaveBeenCalled();
+  chart.update({ width: 100 });
+  expect(onLayout).toHaveBeenCalledTimes(1);
+  expect(layout()).toMatchObject({ width: 100, height: 50 });
+  chart.update({ width: 0 });
+  expect(onLayout).toHaveBeenCalledTimes(1);
+  chart.update({ width: 100 });
+  expect(onLayout).toHaveBeenCalledTimes(2);
+  // Taken away and set again while there is no room: the next layout is reported though it is as before.
+  chart.update({ width: 0 });
+  chart.update({ onLayout: undefined });
+  chart.update({ onLayout });
+  chart.update({ width: 100 });
+  expect(onLayout).toHaveBeenCalledTimes(3);
+});
+
+test('an update made from onLayout reports its own layout, once', () => {
+  const { chart, onLayout, layout } = laidOut();
+  onLayout.mockClear();
+  onLayout.mockImplementationOnce(() => chart.update({ height: 200 }));
+  chart.update({ width: 200 });
+  expect(onLayout).toHaveBeenCalledTimes(2);
+  expect(layout()).toMatchObject({ width: 200, height: 200 });
+});
+
+const pointed = (options: Partial<Options> = {}) => {
+  const onHover = vi.fn<(hover: Hover | null) => void>();
+  const made = clickable({ onClick: undefined, onHover, ...options });
+  const last = () => onHover.mock.lastCall![0]!;
+  const reports = () => onHover.mock.calls.map(([h]) => h && [h.px, h.py, h.hit && h.hit.row]);
+  return { ...made, onHover, last, reports };
+};
+const about = (v: number) => expect.closeTo(v, 5);
+
+test('onHover gives the pointer and the hit at its anchor, null for empty plot, and null once off the plot or in a drag', async () => {
+  const { el, dot, onHover, last, reports } = pointed({ use: [zoom()] });
+  hover(el, 65, 60);
+  expect(last()).toEqual({
+    px: 65,
+    py: 60,
+    hit: { mark: dot, row: 1, x: 5, y: 0.5, px: 60, py: 60, distance: about(5) },
+  });
+  onHover.mockClear();
+  hover(el, 65, 60);
+  hover(el, 66, 60);
+  hover(el, 95, 60);
+  for (const y of [60, 30]) hover(el, 5, y);
+  hover(el, 95, 60);
+  for (let i = 0; i < 2; i++) leave(el);
+  expect(reports()).toEqual([[66, 60, 1], [95, 60, null], null, [95, 60, null], null]);
+  onHover.mockClear();
+  drag(el, [75, 60], [40, 60]);
+  expect(reports()).toEqual([[75, 60, 1], null]);
+  await new Promise(r => setTimeout(r, 0));
+  expect(reports()).toHaveLength(3);
+  expect(reports()[2]!.slice(0, 2)).toEqual([40, 60]);
+});
+
+test('onHover reports real values and an anchor on the mark of each kind', () => {
+  const lower = bar({ x: [2], y: [0.2], width: 4, color: RED, label: 'A', stack: 's' });
+  const upper = bar({ x: [2], y: [0.3], width: 4, color: BLUE, label: 'B', stack: 's' });
+  const stacked = pointed({ marks: [lower, upper] });
+  hover(stacked.el, 30, 75);
+  expect(stacked.last().hit).toMatchObject({ mark: upper, value: about(0.3), y: about(0.5), py: about(60) });
+
+  const right = dots({ x: [5], y: [80], r: [3], color: RED, yAxis: 'y2' });
+  const twoAxes = pointed({ marks: [right], y2: { domain: [0, 100], label: '' } });
+  hover(twoAxes.el, 60, 31);
+  expect(twoAxes.last().hit).toMatchObject({ mark: right, x: 5, y: 80, px: about(60), py: about(30) });
+
+  const y = log({ label: '', domain: [1, 10_000] });
+  const decades = pointed({ y, marks: [dots({ x: [5], y: y.col([100]), r: [3], color: RED })] });
+  hover(decades.el, 61, 60);
+  expect(decades.last().hit).toMatchObject({ y: about(100), px: about(60), py: about(60) });
+
+  const pie = arcs({ values: [1, 1], colors: [RED, BLUE] });
+  const round = pointed({ frame: 'polar', marks: [pie] });
+  hover(round.el, 100, 50);
+  const { hit } = round.last();
+  expect(hit).toMatchObject({ mark: pie, row: 0 });
+  expect(pixel(round.el, hit!.px, hit!.py)).toEqual(RED_PIXEL);
+  expect(hit!.px).toBeGreaterThan(60);
+
+  const bareLine = pointed({ marks: [flat(0.5)] });
+  hover(bareLine.el, 60, 60);
+  expect(bareLine.last()).toEqual({ px: 60, py: 60, hit: null });
+});
+
+test('under a resting pointer onHover reports the new hit after a zoom, a pan, new data and a resize', async () => {
+  const { el, chart, internals, onHover, last } = pointed({ use: [zoom({ wheel: 'plain' })] });
+  hover(el, 60, 60);
+  const moved = (px: number) => {
+    expect(onHover).toHaveBeenCalledTimes(1);
+    expect(last().hit).toMatchObject({ px: about(px) });
+    onHover.mockClear();
+  };
+  moved(60);
+  chart.update({ view: { x: [0, 9] } });
+  moved(10 + 500 / 9);
+  internals.propose({ x: [0.5, 9.5] });
+  moved(60);
+  chart.update({ marks: [dots({ x: [5.5], y: [0.5], r: [3], color: RED })] });
+  moved(10 + 500 / 9);
+  chart.update({ width: 130 });
+  moved(10 + (5 * 110) / 9);
+  internals.propose(null);
+  moved(10 + 5.5 * 11);
+  wheel(el, 60, 60, -200);
+  await nextFrame();
+  expect(onHover).toHaveBeenCalledTimes(1);
+  chart.update({ marks: [] });
+  expect(last()).toEqual({ px: 60, py: 60, hit: null });
+  chart.update({ width: 0 });
+  expect(last()).toBeNull();
+});
+
+test('onHover does not report an update that leaves what is under the pointer alone, nor another callback', () => {
+  const other = vi.fn();
+  const { el, chart, dot, block, onHover } = pointed();
+  hover(el, 60, 60);
+  onHover.mockClear();
+  chart.update({ pointer: { x: 3 } });
+  chart.update({
+    marks: [dot, block],
+    x: { ...frame.x },
+    margin: { top: 10, right: 10, bottom: 10, left: 10 },
+  });
+  chart.update({ dim: 0.5 });
+  chart.update({ onHover: other });
+  expect(onHover).not.toHaveBeenCalled();
+  expect(other).not.toHaveBeenCalled();
+  chart.update({ onHover: undefined });
+  chart.update({ onHover });
+  expect(onHover).toHaveBeenCalledTimes(1);
+  leave(el);
+  chart.update({ onHover: undefined });
+  chart.update({ onHover });
+  expect(onHover.mock.calls.slice(1)).toEqual([[null]]);
+});
+
+test('onHover does not report marks and data made anew with equal values, also from an update it makes itself', () => {
+  const fresh = (label = 'A') => [
+    dots({ x: [2, 5], y: [0.9, 0.5], r: [3, 3], color: RED, label }),
+    bar({ x1: [1], x2: [2], y1: [0], y2: [0.3], color: RED, label: 'B' }),
+  ];
+  const { el, chart, onHover, last } = pointed({ marks: fresh() });
+  onHover.mockImplementation(() => {
+    if (onHover.mock.calls.length < 10) chart.update({ marks: fresh() });
+  });
+  hover(el, 60, 60);
+  expect(onHover).toHaveBeenCalledTimes(1);
+  chart.update({ marks: fresh() });
+  expect(onHover).toHaveBeenCalledTimes(1);
+  onHover.mockReset();
+  chart.update({ marks: fresh('renamed') });
+  expect(last().hit!.mark.label).toBe('renamed');
+
+  const stacked = () =>
+    [0.2, 0.3].map((h, i) =>
+      bar({ x: [2], y: [h], width: 4, color: [RED, BLUE][i]!, label: 'AB'[i]!, stack: 's' }),
+    );
+  const bars = pointed({ marks: stacked() });
+  hover(bars.el, 30, 75);
+  bars.chart.update({ marks: stacked() });
+  expect(bars.onHover).toHaveBeenCalledTimes(1);
+  bars.chart.update({ marks: stacked().reverse() });
+  expect(bars.onHover).toHaveBeenCalledTimes(2);
+});
+
+const flow = { source: [0], target: [1], value: [1] };
+const twins = { parent: [-1, -1], value: [1, 1] };
+test.each<[string, 'polar' | 'blank', [number, number], ((changed?: boolean) => Mark)[]]>([
+  [
+    'arcs',
+    'polar',
+    [40, 60],
+    [
+      c => arcs({ values: [1, 1], colors: [RED, BLUE], labels: ['a', c ? 'c' : 'b'], text: () => '' }),
+      c => arcs({ values: [1, 1], colors: [RED, c ? GREEN : BLUE], labels: ['a', 'b'] }),
+      c => arcs({ values: Float64Array.of(1, 1).map(v => (c ? v * 2 : v)), colors: [RED, BLUE] }),
+    ],
+  ],
+  [
+    'funnel',
+    'blank',
+    [60, 80],
+    [c => funnel({ values: c ? [4, 3] : [4, 4], colors: [RED], labels: ['a', 'b'] })],
+  ],
+  [
+    'radialBars',
+    'polar',
+    [60, 12],
+    [c => radialBars({ values: [1, 1], max: 1, colors: [RED, BLUE], labels: [c ? 'c' : 'a', 'b'] })],
+  ],
+  ['sankey', 'blank', [12, 60], [c => sankey({ ...flow, nodes: [c ? 'c' : 'a', 'b'], colors: [RED] })]],
+  ['treemap', 'blank', [30, 40], [c => treemap({ ...twins, nodes: [c ? 'c' : 'a', 'b'], colors: [RED] })]],
+  ['sunburst', 'polar', [100, 50], [c => sunburst({ ...twins, nodes: [c ? 'c' : 'a', 'b'], colors: [RED] })]],
+])(
+  'onHover reports changed data of %s at the same anchor, and not equal data made anew',
+  (_, kind, at, makes) => {
+    for (const make of makes) {
+      const { el, chart, onHover, last } = pointed({ frame: kind, marks: [make()] });
+      onHover.mockImplementation(() => {
+        if (onHover.mock.calls.length < 10) chart.update({ marks: [make()] });
+      });
+      hover(el, ...at);
+      expect(last().hit).not.toBeNull();
+      chart.update({ marks: [make()] });
+      expect(onHover).toHaveBeenCalledTimes(1);
+      onHover.mockReset();
+      const changed = make(true);
+      chart.update({ marks: [changed] });
+      expect(onHover).toHaveBeenCalledTimes(1);
+      expect(last().hit!.mark).toBe(changed);
+    }
+  },
+);
+
+test.each<[string, 'polar' | 'box', [number, number], (v: Float64Array) => Mark]>([
+  ['heatmap', 'box', [30, 30], v => heatmap({ values: v, columns: 2, x: [0, 10], y: [0, 1] })],
+  ['arcs', 'polar', [40, 60], v => arcs({ values: v, colors: [RED, BLUE, GREEN, RED] })],
+])(
+  'onHover reports data of %s written in place and passed as a new view or array, and no new view of equal data',
+  (_, kind, at, make) => {
+    for (const anew of [(v: Float64Array) => v.subarray(0), (v: Float64Array) => v.slice()]) {
+      const v = Float64Array.of(1, 1, 1, 1);
+      const { el, chart, onHover, last } = pointed({
+        ...(kind === 'polar' && { frame: kind }),
+        marks: [make(v)],
+      });
+      onHover.mockImplementation(() => {
+        if (onHover.mock.calls.length < 10) chart.update({ marks: [make(anew(v))] });
+      });
+      hover(el, ...at);
+      expect(last().hit).not.toBeNull();
+      expect(onHover).toHaveBeenCalledTimes(1);
+      for (const value of [2, 3]) {
+        onHover.mockReset();
+        v.fill(value);
+        const changed = make(anew(v));
+        chart.update({ marks: [changed] });
+        expect(onHover).toHaveBeenCalledTimes(1);
+        expect(last().hit!.mark).toBe(changed);
+      }
+    }
+  },
+);
+
+test('onHover keeps no data of a mark it left, or with no listener, to compare a later one with', () => {
+  const ways: ((
+    chart: ReturnType<typeof plot>,
+    mark: Mark,
+    onHover: Options['onHover'],
+  ) => [() => void, () => void])[] = [
+    (chart, mark) => [() => chart.update({ marks: [] }), () => chart.update({ marks: [mark] })],
+    (chart, _, onHover) => [() => chart.update({ onHover: undefined }), () => chart.update({ onHover })],
+  ];
+  for (const way of ways) {
+    const v = Float64Array.of(1, 1, 1, 1);
+    const make = (values: Float64Array) => arcs({ values, colors: [RED, BLUE, GREEN, RED] });
+    const mark = make(v);
+    const { el, chart, onHover, last } = pointed({ frame: 'polar', marks: [mark] });
+    const [leave, back] = way(chart, mark, onHover);
+    hover(el, 40, 60);
+    leave();
+    v.fill(2);
+    onHover.mockClear();
+    back();
+    expect(onHover).toHaveBeenCalledTimes(1);
+    expect(last().hit!.mark).toBe(mark);
+    chart.update({ marks: [make(v.slice())] });
+    expect(onHover).toHaveBeenCalledTimes(1);
+  }
+});
+
+const anyhow = (options: object): Mark => ({
+  type: 'own',
+  color: RED,
+  points: 1,
+  channels: { x: [], y: [] },
+  options,
+  prepare: () => ({ paint() {}, hit: () => ({ x: 5, y: 0.5, distance: 0, row: 1500 }) }),
+});
+
+test('onHover reads a little of a long column as the pointer comes to its mark, and not its keys', () => {
+  let reads = 0;
+  const column = () =>
+    new Proxy(
+      Array.from({ length: 20_000 }, () => 1),
+      {
+        get: (t, k, self) => (reads++, Reflect.get(t, k, self)),
+        ownKeys: t => ((reads += t.length), Reflect.ownKeys(t)),
+      },
+    );
+  const { el, chart, onHover } = pointed({ marks: [anyhow({ values: column() })] });
+  hover(el, 60, 60);
+  expect(onHover).toHaveBeenCalledTimes(1);
+  expect(reads).toBeLessThan(3000);
+  reads = 0;
+  chart.update({ marks: [anyhow({ values: column() })] });
+  expect(onHover).toHaveBeenCalledTimes(1);
+  expect(reads).toBeLessThan(60_000);
+});
+
+const under = (options: object) => {
+  const at = { row: 1500 };
+  const mark = {
+    ...anyhow(options),
+    prepare: () => ({ paint() {}, hit: () => ({ x: 5, y: 0.5, distance: 0, row: at.row }) }),
+  };
+  return { at, mark };
+};
+
+test('onHover reads no more than the row of a long column as the pointer moves over the same mark', () => {
+  let reads = 0;
+  const values = new Proxy(
+    Array.from({ length: 20_000 }, () => 1),
+    { get: (t, k, self) => (reads++, Reflect.get(t, k, self)) },
+  );
+  const { at, mark } = under({ values });
+  const { el, onHover } = pointed({ marks: [mark] });
+  hover(el, 60, 60);
+  reads = 0;
+  for (let i = 1; i <= 10; i++) {
+    at.row = 1500 + i;
+    hover(el, 60 + i, 60);
+  }
+  expect(onHover).toHaveBeenCalledTimes(11);
+  expect(reads).toBeLessThan(100);
+});
+
+test('onHover follows the row the pointer moved to within a long column: equal data reports nothing, a write in place does', () => {
+  const values = Float64Array.from({ length: 20_000 }, (_, i) => i);
+  const { at, mark } = under({ values });
+  const { el, chart, onHover } = pointed({ marks: [mark] });
+  hover(el, 60, 60);
+  at.row = 5003;
+  hover(el, 61, 60);
+  chart.update({ marks: [{ ...mark, options: { values: values.subarray(0) } }] });
+  expect(onHover).toHaveBeenCalledTimes(2);
+  values[5003] = 7;
+  chart.update({ marks: [{ ...mark, options: { values: values.subarray(0) } }] });
+  expect(onHover).toHaveBeenCalledTimes(3);
+});
+
+test('onHover does not read the columns of a mark replaced by an equal one as the pointer moves on', () => {
+  const a = new Float64Array(20_000);
+  const { at, mark } = under({ values: a });
+  const { el, chart, onHover } = pointed({ marks: [mark] });
+  hover(el, 60, 60);
+  const b = a.slice();
+  chart.update({ marks: [{ ...mark, options: { values: b } }] });
+  a.fill(9);
+  at.row = 5003;
+  hover(el, 61, 60);
+  expect(onHover).toHaveBeenCalledTimes(2);
+  chart.update({ marks: [{ ...mark, options: { values: b.slice() } }] });
+  expect(onHover).toHaveBeenCalledTimes(2);
+});
+
+test.each([
+  ['typed array', (n: number) => new Float64Array(n).fill(1)],
+  ['array', (n: number) => Array.from({ length: n }, () => 1)],
+])('onHover reports a changed row of a long %s, and one hovered or all written in place', (_, make) => {
+  for (const row of [0, 1500, 19_999, 7, 'all'] as const)
+    for (const inPlace of [false, true]) {
+      if (inPlace && row === 7) continue;
+      const v = make(20_000);
+      const { el, chart, onHover } = pointed({ marks: [anyhow({ values: v })] });
+      hover(el, 60, 60);
+      if (!inPlace) chart.update({ marks: [anyhow({ values: v.slice() })] });
+      expect(onHover).toHaveBeenCalledTimes(1);
+      const next = inPlace ? v : v.slice();
+      if (row === 'all') next.fill(2);
+      else next[row] = 2;
+      chart.update({ marks: [anyhow({ values: next.slice() })] });
+      expect(onHover, `${row} ${inPlace}`).toHaveBeenCalledTimes(2);
+    }
+});
+
+test.each<[string, () => unknown, () => unknown]>([
+  ['a date', () => new Date(5), () => new Date(6)],
+  ['a map', () => new Map([['a', [new Date(5)]]]), () => new Map([['a', [new Date(6)]]])],
+  ['a set', () => new Set([1, 2]), () => new Set([1, 3])],
+  ['a URL', () => new URL('https://a.test/1'), () => new URL('https://a.test/2')],
+  ['an instance with a cycle', () => new Own(1), () => new Own(2)],
+])(
+  'onHover reports %s changed in the options of a custom mark, and not an equal one made anew',
+  (_, make, other) => {
+    const { el, chart, onHover } = pointed({ marks: [anyhow({ value: make() })] });
+    const again = (made: () => unknown) => () => {
+      if (onHover.mock.calls.length < 10) chart.update({ marks: [anyhow({ value: made() })] });
+    };
+    onHover.mockImplementation(again(make));
+    hover(el, 60, 60);
+    expect(onHover).toHaveBeenCalledTimes(1);
+    onHover.mockReset();
+    onHover.mockImplementation(again(other));
+    chart.update({ marks: [anyhow({ value: other() })] });
+    expect(onHover).toHaveBeenCalledTimes(1);
+  },
+);
+
+class Own {
+  self = this;
+  constructor(readonly v: number) {}
+}
+
+test('during a press on an overlay child onHover compares with the mark last seen, also one of equal data', () => {
+  const { el, chart, onHover } = overlaid('auto', {
+    marks: [anyhow({ values: new Float64Array(5000) })],
+  });
+  const a = new Float64Array(5000);
+  chart.update({ marks: [anyhow({ values: a })] });
+  sendUnder(el, 'pointermove', 60, 60);
+  sendUnder(el, 'pointerdown', 60, 60, { buttons: 1 });
+  chart.update({ marks: [anyhow({ values: new Float64Array(5000) })] });
+  expect(onHover).toHaveBeenCalledTimes(1);
+  a[3] = 1;
+  chart.update({ marks: [anyhow({ values: a.subarray(0) })] });
+  expect(onHover).toHaveBeenCalledTimes(2);
+});
+
+test('onHover names the bar on top once the tooltip has focused its series, from the first move', () => {
+  const whole = (group: string, color: string) =>
+    bar({ x1: [0], x2: [10], y1: [0], y2: [1], color, label: group, group });
+  const [under, over] = [whole('A', RED), whole('B', BLUE)];
+  const near = line({ x: [0, 10], y: [0.5, 0.5], color: RED, label: 'near', group: 'A' });
+  const { el, last } = pointed({
+    dim: 0.3,
+    marks: [under, over, near],
+    use: [tooltip({ mode: 'x', title: String, value: String })],
+  });
+  hover(el, 60, 60);
+  expect(last().hit!.mark).toBe(under);
+});
+
+test('onHover reports the new value of a hit whose pixels a changed conversion leaves where they are', () => {
+  const fixed = () => ({ lo: 0, hi: 1, ticks: [] });
+  const rule = (k: number): Axis => ({
+    domain: [0, 1],
+    label: '',
+    to: v => v / k,
+    from: v => v * k,
+    scale: fixed,
+  });
+  const { el, chart, onHover, last } = pointed({ y: rule(1) });
+  hover(el, 60, 60);
+  expect(last().hit).toMatchObject({ y: 0.5, py: 60 });
+  chart.update({ y: rule(10) });
+  expect(onHover).toHaveBeenCalledTimes(2);
+  expect(last().hit).toMatchObject({ y: 5, py: 60 });
+});
+
+test('onHover works beside a tooltip and onClick, and costs no hit test over what onClick does', () => {
+  const hit = vi.fn(() => ({ x: 5, y: 0.5, distance: 0, extra: {} }));
+  const custom: Mark = {
+    type: 'counted',
+    color: RED,
+    label: 'counted',
+    options: {},
+    points: 1,
+    channels: { x: [], y: [] },
+    prepare: () => ({ paint() {}, hit }),
+  };
+  const perMove = (options: Partial<Options>) => {
+    const { el } = pointed({ marks: [custom], onHover: undefined, ...options });
+    hit.mockClear();
+    hover(el, 70, 60);
+    return hit.mock.calls.length;
+  };
+  const onHover = vi.fn();
+  expect(perMove({})).toBe(0);
+  expect(perMove({ onHover })).toBe(1);
+  expect(perMove({ onClick() {} })).toBe(1);
+  expect(perMove({ onClick() {}, onHover })).toBe(1);
+
+  const onClick = vi.fn();
+  const use = [tooltip({ mode: 'nearest', text: label => label })];
+  const { el, chart, ...made } = pointed({ marks: [custom], onClick, use });
+  expect(hover(el, 70, 60).innerText).toContain('counted');
+  click(el, 70, 60);
+  expect(onClick).toHaveBeenCalledTimes(1);
+  expect(made.last()).toMatchObject({ px: 70, hit: { mark: custom, px: 60 } });
+  chart.update({ dim: 0.5 });
+  expect(made.onHover).toHaveBeenCalledTimes(1);
+});
+
+test('onHover is called last: after the features, onViewChange or onHiddenChange, onPointerChange and onLayout', () => {
+  const order: string[] = [];
+  const say = (what: string) => () => void order.push(what);
+  const { el, chart, internals } = pointed({
+    use: [() => ({ update: say('sync'), destroy() {} })],
+    onPointerChange: say('pointer'),
+    onViewChange: say('view'),
+    onHiddenChange: say('hidden'),
+    onLayout: say('layout'),
+    onHover: say('hover'),
+  });
+  order.length = 0;
+  hover(el, 60, 60);
+  expect(order.splice(0)).toEqual(['pointer', 'hover']);
+  internals.propose({ x: [1, 9.5] });
+  expect(order.splice(0)).toEqual(['sync', 'view', 'layout', 'hover']);
+  internals.hide(['A']);
+  expect(order.splice(0)).toEqual(['sync', 'hidden', 'hover']);
+  chart.update({ hidden: [], width: 130 });
+  expect(order).toEqual(['sync', 'layout', 'hover']);
+});
+
+test('an update made from onHover reports its own hover, once, and a destroyed chart reports none', () => {
+  const { el, chart, onHover, last } = pointed();
+  onHover.mockImplementationOnce(() => chart.update({ width: 130 }));
+  hover(el, 60, 60);
+  expect(onHover).toHaveBeenCalledTimes(2);
+  expect(last().hit).toMatchObject({ px: 65 });
+
+  const gone = pointed({ onPointerChange: () => gone.chart.destroy() });
+  hover(gone.el, 60, 60);
+  expect(gone.onHover).not.toHaveBeenCalled();
+  const dropped = pointed({ onLayout: ({ width }) => width === 130 && dropped.chart.destroy() });
+  hover(dropped.el, 60, 60);
+  dropped.chart.update({ width: 130 });
+  expect(dropped.onHover).toHaveBeenCalledTimes(1);
+});
+
+test('onHover keeps a resting pointer in a shadow tree through an update', () => {
+  const shadow = host().attachShadow({ mode: 'open' });
+  const el = shadow.appendChild(document.createElement('div'));
+  const onHover = vi.fn();
+  const chart = plot(el, { ...frame, marks: [pile(1)], onHover });
+  hover(el, 50, 50);
+  chart.update({ dim: 0.5 });
+  expect(onHover.mock.calls.map(([h]) => h && h.px)).toEqual([50]);
+});
+
+const sendUnder = (el: HTMLElement, type: string, x: number, y: number, init: MouseEventInit = {}) => {
+  const where = { ...at(el, x, y), ...init };
+  const target = document.elementFromPoint(where.clientX, where.clientY)!;
+  const pointer = { pointerType: 'mouse', pointerId: 1, ...where };
+  target.dispatchEvent(
+    type === 'wheel'
+      ? new WheelEvent(type, { deltaY: -200, ...where })
+      : type === 'dblclick'
+        ? new MouseEvent(type, where)
+        : new PointerEvent(type, pointer),
+  );
+  return target;
+};
+const overlaid = (pointerEvents: 'none' | 'auto', options: Partial<Options> = {}) => {
+  const onClick = vi.fn();
+  const made = pointed({ onClick, ...options });
+  const child = made.chart.overlay.appendChild(document.createElement('div'));
+  child.style.cssText = `position:absolute;left:50px;top:50px;width:20px;height:20px;pointer-events:${pointerEvents}`;
+  return { ...made, onClick, child };
+};
+
+test('overlay is one div over the whole chart, above all it draws and under its tooltip, until destroy', () => {
+  const { el, chart } = pointed({
+    x: { domain: [0, 10], label: 'Time' },
+    use: [tooltip({ mode: 'nearest', text: () => 'tip' })],
+  });
+  const root = el.firstElementChild!;
+  const before = root.childElementCount;
+  const { overlay } = chart;
+  expect(chart.overlay).toBe(overlay);
+  expect(root.childElementCount).toBe(before + 1);
+  expect(overlay.tagName).toBe('DIV');
+  expect(overlay.parentNode).toBe(root);
+  expect(getComputedStyle(overlay).pointerEvents).toBe('none');
+  expect(overlay.getBoundingClientRect()).toEqual(root.getBoundingClientRect());
+
+  const cover = overlay.appendChild(document.createElement('div'));
+  cover.style.cssText = 'position:absolute;inset:0;z-index:1000';
+  chart.update({ marks: [pile(20_000), rule({ y: 0.5, color: RED, text: 'limit' })] });
+  expect(el.querySelectorAll('canvas')).toHaveLength(2);
+  hover(el, 60, 60);
+  const all = [...root.querySelectorAll<HTMLElement>('*')];
+  for (const e of all) e.style.pointerEvents = 'auto';
+  const named = (text: string) => all.find(e => !e.children.length && e.textContent === text)!;
+  const stacked = (e: Element) => {
+    const { clientX, clientY } = middleOf(e);
+    return document.elementsFromPoint(clientX, clientY);
+  };
+  expect(stacked(named('tip'))[0]).toBe(named('tip'));
+  for (const e of [named('limit'), named('Time'), ...el.querySelectorAll('canvas')]) {
+    const order = stacked(e).filter(s => s !== named('tip') && s !== named('tip').parentNode);
+    expect(order[0]).toBe(cover);
+    expect(order).toContain(e);
+  }
+
+  chart.destroy();
+  expect(overlay.isConnected).toBe(false);
+});
+
+test('a hover, a click, a zoom and a brush go through the overlay and a child that takes no pointer', async () => {
+  const onSelect = vi.fn();
+  const { el, dot, last, onClick, internals, child } = overlaid('none', {
+    use: [zoom(), brush({ axes: 'x', onSelect })],
+  });
+  child.style.inset = '0';
+  child.style.width = child.style.height = 'auto';
+  const root = el.firstElementChild!;
+  expect(sendUnder(el, 'pointermove', 60, 60)).toBe(root);
+  expect(last()).toMatchObject({ px: 60, hit: { mark: dot, row: 1 } });
+  sendUnder(el, 'click', 60, 60);
+  expect(onClick.mock.calls[0]![0]).toMatchObject({ mark: dot, row: 1 });
+  sendUnder(el, 'pointerdown', 40, 60);
+  for (const type of ['pointermove', 'pointerup']) sendUnder(el, type, 80, 60);
+  expect(onSelect.mock.lastCall![0].x).toEqual([about(3), about(7)]);
+  await new Promise(r => setTimeout(r, 0));
+  sendUnder(el, 'wheel', 60, 60, { ctrlKey: true });
+  await nextFrame();
+  expect(internals.view().x[0]).toBeGreaterThan(0);
+});
+
+test('moving onto an interactive overlay child over a dot and off it reports no null hover and keeps the tooltip up', () => {
+  const { el, child, dot, reports, last } = overlaid('auto', {
+    use: [tooltip({ mode: 'nearest', text: () => 'tip' })],
+  });
+  const tip = tipOf(el);
+  for (const x of [45, 55, 60, 65, 75]) {
+    const target = sendUnder(el, 'pointermove', x, 60);
+    expect(target).toBe(x > 50 && x < 70 ? child : el.firstElementChild);
+    expect(last()).toMatchObject({ px: x, hit: { mark: dot, row: 1 } });
+    expect(tip()).toBe(true);
+  }
+  expect(reports()).not.toContain(null);
+});
+
+test.each([true, false])(
+  'an overlay child that stops its moves keeps none from the chart (legend first: %s)',
+  first => {
+    const onPointerChange = vi.fn();
+    const use = [legend(), tooltip({ mode: 'nearest', text: (_, x) => `tip ${x}` })];
+    const { el, child, internals, reports } = overlaid('auto', {
+      margin: { top: 10, right: 10, bottom: 10, left: 10 },
+      height: 140,
+      dim: 0.3,
+      onPointerChange,
+      use: first ? use : use.reverse(),
+    });
+    child.addEventListener('pointermove', e => e.stopPropagation());
+    child.style.top = `${internals.yPx(0.5) - 10}px`;
+    const focus = vi.spyOn(internals, 'focus');
+    const entry = [...el.querySelectorAll<HTMLElement>('[role=button]')].find(e => e.textContent === 'B')!;
+    entry.dispatchEvent(new PointerEvent('pointermove', middleOf(entry)));
+    expect(focus).toHaveBeenLastCalledWith('B', undefined);
+    const where = middleOf(child);
+    child.dispatchEvent(new PointerEvent('pointermove', where));
+    expect(el.innerText).toContain('tip 5');
+    expect(focus).toHaveBeenLastCalledWith('A', expect.anything());
+    expect(reports()).toHaveLength(1);
+    expect(onPointerChange).toHaveBeenCalledTimes(1);
+  },
+);
+
+test('a hover on an overlay child stays when the child goes from under the pointer', () => {
+  const { el, chart, child, reports } = overlaid('auto');
+  expect(sendUnder(el, 'pointermove', 60, 60)).toBe(child);
+  child.remove();
+  chart.update({ dim: 0.5 });
+  expect(reports()).toEqual([[60, 60, 1]]);
+});
+
+test('over an overlay child the cursor is its own and onPointerChange goes on', () => {
+  const onPointerChange = vi.fn();
+  const { el, child } = overlaid('auto', { onPointerChange });
+  sendUnder(el, 'pointermove', 47, 60);
+  expect(getComputedStyle(el.firstElementChild!).cursor).toBe('pointer');
+  expect(sendUnder(el, 'pointermove', 60, 60)).toBe(child);
+  expect(getComputedStyle(child).cursor).toBe('auto');
+  expect(onPointerChange.mock.calls).toEqual([
+    [{ x: about(3.7), y: about(0.5) }],
+    [{ x: about(5), y: about(0.5) }],
+  ]);
+});
+
+test('a wheel, a drag, a double click and a pinch on an overlay child do not reach the chart', async () => {
+  const onSelect = vi.fn();
+  const { el, child, internals } = overlaid('auto', { use: [zoom(), brush({ onSelect })] });
+  const view = () => internals.view().x;
+  const swipe = async (x: number, init: MouseEventInit = {}) => {
+    const target = sendUnder(el, 'pointerdown', x, 60, { buttons: 1, ...init });
+    for (const to of [60, 100]) sendUnder(el, 'pointermove', to, 60, { buttons: 1, ...init });
+    sendUnder(el, 'pointerup', 100, 60, init);
+    await nextFrame();
+    return target;
+  };
+  const pinch = async (y: number) => {
+    for (const [pointerId, x] of [
+      [1, 55],
+      [2, 65],
+    ] as const)
+      sendUnder(el, 'pointerdown', x, y, { pointerId, pointerType: 'touch' } as PointerEventInit);
+    sendUnder(el, 'pointermove', 100, y, { pointerId: 2, pointerType: 'touch' } as PointerEventInit);
+    for (const pointerId of [1, 2])
+      sendUnder(el, 'pointerup', 100, y, { pointerId, pointerType: 'touch' } as PointerEventInit);
+    await nextFrame();
+  };
+  const wheel = async (x: number) => {
+    const target = sendUnder(el, 'wheel', x, 60, { ctrlKey: true });
+    await nextFrame();
+    return target;
+  };
+
+  expect(await wheel(60)).toBe(child);
+  expect(view()).toEqual([0, 10]);
+  await pinch(60);
+  expect(view()).toEqual([0, 10]);
+  await swipe(60);
+  expect(onSelect).not.toHaveBeenCalled();
+  await swipe(60, { shiftKey: true });
+  expect(view()).toEqual([0, 10]);
+
+  await wheel(40);
+  const zoomed = view();
+  expect(zoomed).not.toEqual([0, 10]);
+  sendUnder(el, 'dblclick', 60, 60);
+  await nextFrame();
+  expect(view()).toEqual(zoomed);
+  for (const [from, to] of [
+    [60, 40],
+    [40, 40],
+  ] as const) {
+    for (let i = 0; i < 2; i++) {
+      sendUnder(el, 'pointerdown', from, 60, { buttons: 1 });
+      sendUnder(el, 'pointerup', to, 60);
+      sendUnder(el, 'click', to, 60);
+    }
+    sendUnder(el, 'dblclick', to, 60);
+    await nextFrame();
+    expect(view()).toEqual(from === 60 ? zoomed : [0, 10]);
+  }
+  await pinch(80);
+  expect(view()).not.toEqual([0, 10]);
+  await swipe(40);
+  expect(onSelect).toHaveBeenCalled();
+});
+
+test('a pan begun on the plot goes on across an overlay child', async () => {
+  const { el, child, internals } = overlaid('auto', { use: [zoom()] });
+  sendUnder(el, 'wheel', 40, 60, { ctrlKey: true });
+  await nextFrame();
+  const lo = internals.view().x[0];
+  sendUnder(el, 'pointerdown', 45, 60, { buttons: 1 });
+  expect(sendUnder(el, 'pointermove', 60, 60, { buttons: 1 })).toBe(child);
+  expect(sendUnder(el, 'pointerup', 65, 60)).toBe(child);
+  await nextFrame();
+  expect(internals.view().x[0]).toBeLessThan(lo);
+});
+
+test('a click on an overlay child reaches the child and not onClick, wherever its press is released', () => {
+  const { el, child, onClick } = overlaid('auto');
+  const own = vi.fn();
+  child.addEventListener('click', own);
+  const press = (x: number) => sendUnder(el, 'pointerdown', x, 60, { buttons: 1 });
+  sendUnder(el, 'click', 60, 60);
+  expect(onClick).not.toHaveBeenCalled();
+  press(60);
+  for (const type of ['pointerup', 'click']) sendUnder(el, type, 60, 60);
+  expect(own).toHaveBeenCalledTimes(2);
+  press(60);
+  // The browser clicks the common ancestor of the two ends.
+  for (const type of ['pointerup', 'click']) sendUnder(el, type, 45, 60);
+  expect(onClick).not.toHaveBeenCalled();
+  press(45);
+  for (const type of ['pointerup', 'click']) sendUnder(el, type, 45, 60);
+  expect(onClick).toHaveBeenCalledTimes(1);
+});
+
+test('while a press on an overlay child is held no hover is reported and the tooltip is down', () => {
+  const onPointerChange = vi.fn();
+  const { el, chart, child, reports } = overlaid('auto', {
+    onPointerChange,
+    use: [tooltip({ mode: 'nearest', text: () => 'tip' })],
+  });
+  child.addEventListener('pointerdown', e => e.stopPropagation());
+  const tip = tipOf(el);
+  sendUnder(el, 'pointermove', 60, 60);
+  expect(tip()).toBe(true);
+  const before = [reports(), onPointerChange.mock.calls.length];
+  const held = () => expect([reports(), onPointerChange.mock.calls.length]).toEqual(before);
+  sendUnder(el, 'pointerdown', 60, 60, { buttons: 1 });
+  for (const x of [65, 75, 45]) sendUnder(el, 'pointermove', x, 60, { buttons: 1 });
+  chart.update({ marks: [dots({ x: [2, 5], y: [0.9, 0.5], r: [3, 3], color: RED, label: 'A' })] });
+  chart.update({ view: { x: [0, 9] } });
+  chart.update({ view: undefined });
+  held();
+  // The row it names is gone, and the last hover with it.
+  const gone = [...(before[0] as unknown[]), [60, 60, null]];
+  for (let i = 0; i < 2; i++) {
+    chart.update({ marks: [dots({ x: [2], y: [0.5], r: [3], color: RED })] });
+    expect(reports()).toEqual(gone);
+  }
+  expect(onPointerChange.mock.calls.length).toBe(before[1]);
+  expect(tip()).toBe(false);
+  sendUnder(el, 'pointerup', 45, 60);
+  expect(reports().at(-1)).toEqual([45, 60, 0]);
+  expect(onPointerChange).toHaveBeenCalledTimes(2);
+  expect(tip()).toBe(true);
+  sendUnder(el, 'pointermove', 46, 60);
+  expect(reports().at(-1)).toEqual([46, 60, 0]);
+  expect(tip()).toBe(true);
+
+  sendUnder(el, 'pointerdown', 60, 60, { buttons: 1 });
+  leave(el);
+  expect(reports().at(-1)).toBeNull();
+});
+
+test("a press on an overlay child keeps the app's pointer tooltip down until that pointer's release, also off the chart", () => {
+  const { el, child } = overlaid('auto', {
+    pointer: { x: 5, y: 0.5 },
+    use: [tooltip({ mode: 'nearest', text: () => 'tip' })],
+  });
+  for (const type of ['pointerdown', 'pointermove'])
+    child.addEventListener(type, e => {
+      if ((e as PointerEvent).buttons) e.stopPropagation();
+    });
+  const tip = tipOf(el);
+  const off = (type: string, pointerId: number) =>
+    document.body.dispatchEvent(new PointerEvent(type, { bubbles: true, pointerId }));
+  expect(tip()).toBe(true);
+  for (const hovered of [false, true]) {
+    if (hovered) sendUnder(el, 'pointermove', 60, 60);
+    sendUnder(el, 'pointerdown', 60, 60, { buttons: 1 });
+    expect(tip()).toBe(false);
+    off('pointermove', 2);
+    expect(tip()).toBe(false);
+    off('pointerup', 1);
+    expect(tip()).toBe(true);
+  }
+});
+
+test.each(['pointercancel', 'pointermove'])(
+  'a press on an overlay child ends with a %s off the chart, by its pointer and with no button held',
+  type => {
+    const onPointerChange = vi.fn();
+    const { el, reports } = overlaid('auto', {
+      pointer: { x: 5, y: 0.5 },
+      onPointerChange,
+      use: [tooltip({ mode: 'nearest', text: () => 'tip' })],
+    });
+    const tip = tipOf(el);
+    const off = (pointerId: number, buttons: number, of = type) =>
+      document.body.dispatchEvent(new PointerEvent(of, { bubbles: true, pointerId, buttons }));
+    sendUnder(el, 'pointerdown', 60, 60, { buttons: 1 });
+    off(2, 0);
+    off(1, 1, 'pointermove');
+    sendUnder(el, 'pointermove', 47, 60, { buttons: 1 });
+    expect([tip(), reports(), onPointerChange.mock.calls.length]).toEqual([false, [], 0]);
+    leave(el);
+    off(1, 0);
+    expect(tip()).toBe(true);
+    sendUnder(el, 'pointermove', 47, 60);
+    expect(reports()).toEqual([[47, 60, 1]]);
+    expect(onPointerChange).toHaveBeenCalledTimes(1);
+  },
+);
+
+test('of several pointers pressed on an overlay child each holds it, and keeps its click from the chart, for itself', () => {
+  const { el, reports, onClick } = overlaid('auto', {
+    pointer: { x: 5, y: 0.5 },
+    use: [tooltip({ mode: 'nearest', text: () => 'tip' })],
+  });
+  const tip = tipOf(el);
+  const send = (type: string, x: number, pointerId: number, pointerType = 'touch') => {
+    const buttons = type === 'pointerdown' ? 1 : 0;
+    const init: PointerEventInit = { pointerId, pointerType, buttons };
+    sendUnder(el, type, x, 60, init);
+  };
+  for (const finger of [2, 3]) send('pointerdown', 60, finger);
+  send('pointerup', 60, 3);
+  expect(tip()).toBe(false);
+  send('pointerdown', 45, 1, 'mouse');
+  expect(tip()).toBe(false);
+  for (const type of ['pointerup', 'click']) send(type, 45, 1, 'mouse');
+  expect(onClick).toHaveBeenCalledTimes(1);
+  send('pointermove', 47, 1, 'mouse');
+  expect(reports()).toEqual([]);
+  send('pointerup', 60, 2);
+  send('click', 45, 2);
+  expect(onClick).toHaveBeenCalledTimes(1);
+  send('pointermove', 46, 1, 'mouse');
+  expect(reports()).toEqual([[46, 60, 1]]);
+  expect(tip()).toBe(true);
+});
+
+test("a feature's own control over the plot stays out of the hover, the click and the gestures beside an overlay", async () => {
+  const { el, onClick, internals, last } = overlaid('auto', {
+    use: [
+      c => (
+        c.layer('button', 'left:20px;top:30px;width:20px;height:20px;pointer-events:auto'),
+        { destroy() {} }
+      ),
+      zoom(),
+    ],
+  });
+  sendUnder(el, 'pointermove', 45, 60);
+  expect(last()).not.toBeNull();
+  expect(sendUnder(el, 'pointermove', 30, 40).tagName).toBe('BUTTON');
+  expect(last()).toBeNull();
+  sendUnder(el, 'click', 30, 40);
+  sendUnder(el, 'wheel', 30, 40, { ctrlKey: true });
+  await nextFrame();
+  expect(onClick).not.toHaveBeenCalled();
+  expect(internals.view().x).toEqual([0, 10]);
 });

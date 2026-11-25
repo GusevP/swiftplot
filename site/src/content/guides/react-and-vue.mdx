@@ -65,7 +65,7 @@ export function Requests() {
 }
 ```
 
-In Vue they are events: `v-model:view`, `v-model:hidden` and `v-model:pointer`, and `@click`.
+In Vue they are events: `v-model:view`, `v-model:hidden` and `v-model:pointer`, and `@click`, `@layout` and `@hover`.
 
 ```vue
 <script setup lang="ts">
@@ -83,6 +83,63 @@ const view = ref<Options['view']>();
 ```
 
 `selected` is a plain prop in both: the app sets it, from a click for example.
+
+## Your own nodes over the chart
+
+Every component renders nodes of yours over its chart, with the layout and the hover that `onLayout` and `onHover` report:
+[Drawing over the chart](/guides/interaction#drawing-over-the-chart) has what is in them and how a child that takes the
+pointer behaves. In React give a function as children:
+
+```tsx
+import { ScatterChart } from '@swiftplot/react';
+import rows from './points.json';
+
+export function Points() {
+  return (
+    <ScatterChart data={rows} tooltip={false}>
+      {(layout, hover) =>
+        hover?.hit && (
+          <div style={{ position: 'absolute', left: hover.hit.px, top: hover.hit.py }}>
+            {hover.hit.x}, {hover.hit.y}
+          </div>
+        )
+      }
+    </ScatterChart>
+  );
+}
+```
+
+In Vue it is the default slot:
+
+```vue
+<script setup lang="ts">
+import { ScatterChart } from '@swiftplot/vue';
+import rows from './points.json';
+</script>
+
+<template>
+  <ScatterChart :data="rows" :tooltip="false" v-slot="{ hover }">
+    <div
+      v-if="hover?.hit"
+      :style="{ position: 'absolute', left: `${hover.hit.px}px`, top: `${hover.hit.py}px` }"
+    >
+      {{ hover.hit.x }}, {{ hover.hit.y }}
+    </div>
+  </ScatterChart>
+</template>
+```
+
+- `layout.xPx` and `layout.yPx` are there only on a chart with axes.
+- The nodes are drawn with the data and the layout the chart has taken. While an update fails, React keeps the last
+  children function and calls it as the layout and the hover change. Vue leaves the slot as it was drawn, and hides it once
+  the hover it was drawn with or the layout changes.
+- In React the nodes move in the same frame as the canvas, where state of your own set from `onLayout` may land a frame
+  later: place what must not trail a zoom from the children's arguments.
+- An axis's `to` and `from` must stay the same functions between renders, as `onLayout` compares them by identity: made
+  inline, with state set from `onLayout`, they would loop. State set from `onHover` does not loop, also with data made anew
+  with equal values.
+
+[Your own markers and tooltip](/examples/overlay-tooltip) is a full example in each framework.
 
 ## Errors
 
@@ -105,6 +162,8 @@ height and is 300 px tall otherwise, but that fallback is applied in the browser
 
 - Each render compares the props by identity, and the chart then compares them by value, so an inline object such as
   `xAxis={{ label: 'Day' }}` costs little.
+- `theme` is the exception: replacing it is how a changed [CSS variable](/guides/themes-and-colours#css-variables) is seen,
+  so an inline theme object has the variables read on each render. Keep it outside the component.
 - `data` built during render and inline accessors are converted again on every render, and an inline `xAxis.format`
   repaints the data. Build them outside render, or with `useMemo` and `useCallback`.
 - In Vue keep the data in a `shallowRef` and replace the array. A deep `ref` wraps every row for nothing the chart uses.

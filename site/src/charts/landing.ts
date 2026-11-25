@@ -194,7 +194,9 @@ const tiles: Record<string, Build> = {
 export function tile(el: HTMLElement): void {
   const { example, state, tile: id } = el.dataset;
   if (example) {
-    void load(example).then(definition => mountExample(el, definition, JSON.parse(state ?? '{}') as State));
+    void load(example).then(definition =>
+      mountExample(el, definition, JSON.parse(state ?? '{}') as State, { legend: false }),
+    );
     return;
   }
   draw(el, tiles[id!]!, { x: bare(), y: bare(), dim: 0.35 });

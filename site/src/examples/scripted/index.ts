@@ -64,4 +64,30 @@ export const scripted: readonly ScriptedExample[] = [
       'The y axis fits the series that are shown.',
     ],
   },
+  {
+    ...page,
+    id: 'overlay-tooltip',
+    title: 'Your own markers and tooltip',
+    summary:
+      'Made-up cafes by price and rating: the name tags and the tooltip are the page’s own elements, kept over the chart.',
+    notes: [
+      'The chart keeps an overlay element for your own DOM. React children and the Vue slot render into it.',
+      'onLayout gives the functions from values to pixels, first with the chart and again whenever its geometry changes.',
+      'onHover gives what is under the pointer and the point to anchor a tooltip at, and null once the pointer leaves.',
+    ],
+  },
+  {
+    kind: 'scripted',
+    group: 'Bar',
+    tags: ['compare'],
+    id: 'css-variables',
+    title: 'Light and dark by CSS variables',
+    summary:
+      'Five made-up teams and their points: the bars and the theme name CSS variables, and a button changes them.',
+    notes: [
+      'A colour given as var(--name) is read where the chart stands, so it can come from any element around it.',
+      'A changed variable is seen once theme is replaced with another object, even one of the same colours.',
+      'In React keep the theme objects outside the component: one made in each render has the variables read each time.',
+    ],
+  },
 ];

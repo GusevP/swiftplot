@@ -26,6 +26,7 @@ import { xy } from '../src/charts/xy.js';
 import { bandTitle, colorsFor, formatNumber, themeOf, timeTitle } from '../src/charts/defaults.js';
 import { assign, type Assigned, type Family, type FieldProps } from '../src/charts/fields.js';
 import { source, type Data } from '../src/charts/source.js';
+import { copied, sameData } from '../src/equal.js';
 import type {
   AreaProps,
   Axes,
@@ -53,7 +54,7 @@ import {
 } from '../src/index.js';
 import type { BandAxis } from '../src/scales/band.js';
 import type { ColorScale } from '../src/scales/color.js';
-import type { Col, Feature, Internals, Mark, Options } from '../src/types.js';
+import type { Col, Feature, Hover, Internals, Layout, Mark, Options, Span } from '../src/types.js';
 import { palette, paletteDark } from '../src/paint.js';
 import { dark, light, type Theme } from '../src/theme.js';
 import {
@@ -3405,7 +3406,6 @@ test('equal compares plain objects and arrays by value and anything else by iden
       () => 0,
     ),
   ).toBe(false);
-  expect(equal(dark, { ...dark })).toBe(true);
   expect(equal(new Date(0), new Date(0))).toBe(false);
   expect(equal(NaN, NaN)).toBe(true);
   expect(equal([], Array(1))).toBe(false);
@@ -3420,6 +3420,31 @@ test('equal compares plain objects and arrays by value and anything else by iden
   };
   expect(equal(cycle(1), cycle(1))).toBe(true);
   expect(equal(cycle(1), cycle(2))).toBe(false);
+});
+
+test('arrays are compared and copied with their holes and own properties, and a sparse one without scanning its length', () => {
+  const sparse = (unit: string) => {
+    const a: unknown[] = [1];
+    a.length = 2 ** 32 - 1;
+    return Object.assign(a, { unit });
+  };
+  const holed = [1];
+  holed.length = 2;
+  for (const same of [equal, sameData]) {
+    expect(same(sparse('a'), sparse('a'))).toBe(true);
+    expect(same(sparse('a'), sparse('b'))).toBe(false);
+    expect(same(holed, [1, undefined])).toBe(false);
+  }
+  expect(sameData(sparse('a'), copied(sparse('a')))).toBe(true);
+  expect(sameData(holed, copied(holed))).toBe(true);
+});
+
+test('DataViews are compared by identity and not copied', () => {
+  const view = () => new DataView(new ArrayBuffer(8));
+  const a = view();
+  expect(sameData({ a }, copied({ a }))).toBe(true);
+  expect(sameData({ a }, { a: view() })).toBe(false);
+  expect(sameData({ a }, { a: new Uint8Array(8) })).toBe(false);
 });
 
 test('mount installs a mark whose key alone changed and prepares it', () => {
@@ -5991,4 +6016,378 @@ test('types: comboChart takes number fields of rows and columns', () => {
     later.update({ data: CLIMATE, bars: 'nope' });
   };
   expect(wrong).toBeTypeOf('function');
+});
+
+test('an easy chart sees a changed variable once its theme is replaced by an equal one', () => {
+  const el = host();
+  el.style.setProperty('--c', '#00ff00');
+  const theme = { ...light };
+  const props = { ...BOX, data: BOTH, y: ['sun', 'rain'] as const, colors: ['var(--c)'], theme };
+  const c = lineChart(el, props);
+  const { chart } = c;
+  const swatch = () => getComputedStyle(entriesOf(el)[0]!.firstElementChild!).backgroundColor;
+  const update = vi.spyOn(chart, 'update');
+  el.style.setProperty('--c', '#0000ff');
+  c.update({ theme });
+  expect(update).not.toHaveBeenCalled();
+  expect(swatch()).toBe('rgb(0, 255, 0)');
+  c.update({ theme: { ...theme } });
+  expect(keysOf(update)).toEqual([['theme']]);
+  expect(swatch()).toBe('rgb(0, 0, 255)');
+  expect(c.chart).toBe(chart);
+});
+
+test('an inline theme of equal colours leaves an update of the data a data change', () => {
+  const whys: string[] = [];
+  const theme = () => ({ ...dark, grid: '#262626' });
+  const grab: Feature = c => (c.onPaint((draw, why) => (whys.push(why), draw())), { destroy() {} });
+  const m = mount(host(), { ...explicit(), theme: theme(), use: [grab] });
+  const marks = explicit().marks;
+  m.update({ theme: theme(), marks });
+  m.update({ theme: theme() });
+  m.update({ theme: theme(), marks: [line({ x: [0, 10], y: [0, 1], color: '#ff0000' })] });
+  expect(whys.at(-1)).toBe('data');
+  expect(whys).not.toContain('size');
+});
+
+test('lineChart and mount pass onLayout on, and a chart recreated for a changed feature reports its layout again', () => {
+  const onLayout = vi.fn<(layout: Layout) => void>();
+  const c = lineChart(host(), { data: pair(), y: 'a', ...BOX, onLayout });
+  expect(onLayout).toHaveBeenCalledTimes(1);
+  expect(onLayout.mock.calls[0]![0]).toMatchObject({ frame: 'axes', x: { domain: [0, 10] } });
+  c.update({ zoom: true });
+  expect(onLayout).toHaveBeenCalledTimes(2);
+  expect(lineChart.spec({ data: pair(), y: 'a', onLayout })).toHaveProperty('onLayout', onLayout);
+
+  const mounted = vi.fn<(layout: Layout) => void>();
+  const m = mount(host(), { ...explicit(), onLayout: mounted });
+  expect(mounted).toHaveBeenCalledTimes(1);
+  m.update({ width: 300 });
+  expect(mounted).toHaveBeenCalledTimes(2);
+  expect(mounted.mock.lastCall![0].width).toBe(300);
+});
+
+test('a new inline onLayout on every update is not called for it, and the newest one is called for a new layout', () => {
+  const fns = [vi.fn(), vi.fn(), vi.fn()];
+  const c = lineChart(host(), { data: pair(), y: 'a', ...BOX, onLayout: fns[0] });
+  for (const onLayout of fns.slice(1)) c.update({ onLayout });
+  expect(fns.map(f => f.mock.calls.length)).toEqual([1, 0, 0]);
+  c.update({ width: 333 });
+  expect(fns.map(f => f.mock.calls.length)).toEqual([1, 0, 1]);
+  c.update({ onLayout: undefined });
+  c.update({ onLayout: fns[0] });
+  expect(fns.map(f => f.mock.calls.length)).toEqual([2, 0, 1]);
+});
+
+test('an update made from onLayout applies on top of the update that reported it, recreated or not', () => {
+  for (const partial of [{ width: 300 }, { zoom: true }]) {
+    const el = host();
+    const onLayout = vi.fn<(layout: Layout) => void>();
+    const c = lineChart(el, { data: pair(), y: 'a', ...BOX, onLayout });
+    onLayout.mockImplementationOnce(() => c.update({ height: 250 }));
+    c.update(partial);
+    expect(el.childElementCount).toBe(1);
+    expect(onLayout.mock.lastCall![0]).toMatchObject({ height: 250 });
+    const calls = onLayout.mock.calls.length;
+    c.update({ height: 250 });
+    expect(onLayout).toHaveBeenCalledTimes(calls);
+    c.update({ height: 260 });
+    expect(onLayout.mock.lastCall![0]).toMatchObject({ height: 260 });
+  }
+});
+
+test('a chart recreated from onLayout during a zoom keeps the zoomed window', async () => {
+  const el = host();
+  const onLayout = vi.fn<(layout: Layout) => void>();
+  const onViewChange = vi.fn<(v: { x: Span }) => void>();
+  const c = lineChart(el, { data: pair(), y: 'a', ...BOX, zoom: true, onLayout, onViewChange });
+  const was = c.chart;
+  onLayout.mockClear();
+  onLayout.mockImplementationOnce(() => c.update({ tooltip: false }));
+  await zoomIn(el);
+  expect(c.chart).not.toBe(was);
+  expect(onViewChange).toHaveBeenCalledTimes(1);
+  const [{ x }] = onViewChange.mock.lastCall!;
+  expect(x[1] - x[0]).toBeLessThan(10);
+  expect(onLayout).toHaveBeenCalledTimes(2);
+  for (const [layout] of onLayout.mock.calls) expect(layout.x!.domain).toEqual(x);
+});
+
+test('a chart recreated in onViewChange reports only the layout of the new one', async () => {
+  const el = host();
+  const onLayout = vi.fn<(layout: Layout) => void>();
+  const c = lineChart(el, { data: pair(), y: 'a', ...BOX, zoom: true, onLayout });
+  c.update({ onViewChange: () => c.update({ tooltip: false, width: 300 }) });
+  onLayout.mockClear();
+  await zoomIn(el);
+  expect(onLayout.mock.calls.map(([l]) => l.width)).toEqual([300]);
+});
+
+test('an onLayout that throws in an update leaves the chart updated and live', () => {
+  const el = host();
+  const onLayout = vi.fn<(layout: Layout) => void>();
+  const c = lineChart(el, { data: pair(), y: 'a', ...BOX, onLayout });
+  onLayout.mockImplementationOnce(boom);
+  const was = c.chart;
+  expect(() => c.update({ width: 300 })).toThrow('boom');
+  expect(c.chart).toBe(was);
+  expect(el.childElementCount).toBe(1);
+  c.update({ width: 310 });
+  expect(onLayout.mock.lastCall![0].width).toBe(310);
+});
+
+test('a failed update reports the layout of the chart that replaced it', () => {
+  const onLayout = vi.fn<(layout: Layout) => void>();
+  const m = mount(host(), { ...explicit(), onLayout });
+  expect(() => m.update({ width: 300, marks: [throwing] })).toThrow('boom');
+  expect(onLayout).toHaveBeenCalledTimes(2);
+  expect(onLayout.mock.lastCall![0].width).toBe(200);
+});
+
+test('lineChart and mount pass onHover on, and a new inline one on every update is not called for it', () => {
+  const el = host();
+  const fns = [vi.fn(), vi.fn()];
+  const c = lineChart(el, { data: pair(), y: 'a', ...BOX, onHover: fns[0] });
+  hover(el, 60, 60);
+  expect(fns[0]!.mock.calls).toEqual([[{ px: 60, py: 60, hit: null }]]);
+  c.update({ onHover: fns[1] });
+  expect(fns[1]).not.toHaveBeenCalled();
+  hover(el, 61, 60);
+  expect(fns.map(f => f.mock.calls.length)).toEqual([1, 1]);
+  expect(lineChart.spec({ data: pair(), y: 'a', onHover: fns[0] })).toHaveProperty('onHover', fns[0]);
+
+  const mounted = vi.fn();
+  const box = host();
+  mount(box, { ...explicit(), onHover: mounted });
+  hover(box, 60, 60);
+  expect(mounted).toHaveBeenCalledTimes(1);
+});
+
+const scattered = (props: Partial<ScatterChartProps<{ x: number; y: number }[]>> = {}) => {
+  const el = host();
+  const onHover = vi.fn<(hover: Hover | null) => void>();
+  const data = [0, 5, 10].map(v => ({ x: v, y: v }));
+  const onLayout = vi.fn<(layout: Layout) => void>();
+  const c = scatterChart(el, { data, x: 'x', y: 'y', ...BOX, margin: ZERO, onHover, onLayout, ...props });
+  const { width, height } = onLayout.mock.lastCall![0];
+  hover(el, width / 2, height / 2);
+  expect(onHover.mock.lastCall![0]).toMatchObject({ hit: { row: 1, px: width / 2 } });
+  return { el, c, onHover, onLayout, data, width, height };
+};
+
+test('onHover does not report inline accessors or rows made anew with equal values', () => {
+  const props = () => ({
+    data: [0, 5, 10].map(v => ({ x: v, y: v })),
+    x: (d: { x: number }) => d.x,
+    y: (d: { y: number }) => d.y,
+  });
+  const { c, onHover } = scattered(props());
+  onHover.mockClear();
+  onHover.mockImplementation(() => onHover.mock.calls.length < 10 && c.update(props()));
+  c.update(props());
+  expect(onHover).not.toHaveBeenCalled();
+});
+
+test('onHover does not report views of equal columns made anew', () => {
+  const el = host();
+  const onHover = vi.fn<(hover: Hover | null) => void>();
+  const v = Float64Array.of(0, 5, 10);
+  const data = () => ({ x: v.subarray(0), y: v.subarray(0) });
+  const c = scatterChart(el, { data: data(), x: 'x', y: 'y', ...BOX, margin: ZERO, onHover });
+  onHover.mockImplementation(() => {
+    if (onHover.mock.calls.length < 10) c.update({ data: data() });
+  });
+  hover(el, BOX.width / 2, BOX.height / 2);
+  expect(onHover.mock.lastCall![0]!.hit).not.toBeNull();
+  expect(onHover).toHaveBeenCalledTimes(1);
+});
+
+test('onHover reports a renamed slice of a pie, and not rows made anew with equal values', () => {
+  const rows = (second = 'b') => [
+    { name: 'a', n: 1 },
+    { name: second, n: 1 },
+  ];
+  const el = host();
+  const onHover = vi.fn<(hover: Hover | null) => void>();
+  const c = pieChart(el, { data: rows(), value: 'n', label: 'name', ...BOX, legend: false, onHover });
+  onHover.mockImplementation(() => {
+    if (onHover.mock.calls.length < 10) c.update({ data: rows() });
+  });
+  hover(el, 70, 50);
+  expect(onHover.mock.lastCall![0]!.hit).not.toBeNull();
+  c.update({ data: rows() });
+  expect(onHover).toHaveBeenCalledTimes(1);
+  onHover.mockReset();
+  c.update({ data: rows('c') });
+  expect(onHover).toHaveBeenCalledTimes(1);
+  expect(onHover.mock.lastCall![0]!.hit!.mark.entries).toMatchObject([{ label: 'a' }, { label: 'c' }]);
+});
+
+test('an update made from onHover applies on top of the update that reported it', () => {
+  const { c, data, onHover, width, height } = scattered();
+  onHover.mockImplementationOnce(() => c.update({ height: height + 20 }));
+  c.update({ width: width + 10 });
+  expect(onHover.mock.lastCall![0]!.hit).toMatchObject({ px: width / 2 + 5, py: height / 2 + 10 });
+  const calls = onHover.mock.calls.length;
+  c.update({ data, height: height + 20 });
+  expect(onHover).toHaveBeenCalledTimes(calls);
+});
+
+test('onHover after an update comes after onLayout, keeps the newest hover when onLayout updates or throws, and stops with destroy', () => {
+  const { c, onHover, onLayout, width } = scattered();
+  const anchors = () => onHover.mock.calls.map(([h]) => h!.hit!.px);
+  onHover.mockClear();
+  onLayout.mockImplementationOnce(() => c.update({ width: width + 20 }));
+  c.update({ width: width + 10 });
+  expect(anchors()).toEqual([width / 2 + 10]);
+  onHover.mockClear();
+  onLayout.mockImplementationOnce(boom);
+  expect(() => c.update({ width: width + 10 })).toThrow('boom');
+  expect(anchors()).toEqual([width / 2 + 5]);
+  onHover.mockClear();
+  onLayout.mockImplementationOnce(() => c.destroy());
+  c.update({ width });
+  expect(onHover).not.toHaveBeenCalled();
+});
+
+test('the overlay is the same element with its children through a recreation, a failed one and the retry', () => {
+  const el = host();
+  const c = lineChart(el, { data: pair(), y: 'a', ...BOX });
+  const { overlay } = c;
+  expect(c.chart.overlay).toBe(overlay);
+  const child = overlay.appendChild(document.createElement('b'));
+  const kept = (was: typeof c.chart) => {
+    expect(c.chart).not.toBe(was);
+    expect(c.overlay).toBe(overlay);
+    expect(c.chart.overlay).toBe(overlay);
+    expect(overlay.parentNode).toBe(el.firstElementChild);
+    expect([...overlay.childNodes]).toEqual([child]);
+  };
+  let was = c.chart;
+  c.update({ tooltip: false });
+  kept(was);
+  was = c.chart;
+  c.update({ tooltip: true });
+  kept(was);
+  was = c.chart;
+  expect(() => c.update({ zoom: true, yAxis: { format: boom } })).toThrow('boom');
+  kept(was);
+  was = c.chart;
+  c.update({ zoom: true, yAxis: {} });
+  kept(was);
+  c.destroy();
+  expect(overlay.isConnected).toBe(false);
+});
+
+test('a press on an overlay child is held, and its click kept from the chart, when the chart is made again from it', () => {
+  const el = host();
+  const [onHover, onPointerChange, onClick] = [vi.fn(), vi.fn(), vi.fn()];
+  const c = lineChart(el, { data: pair(), y: 'a', ...BOX, zoom: true, onHover, onPointerChange, onClick });
+  const child = c.overlay.appendChild(document.createElement('b'));
+  const send = (target: Element, type: string, buttons: number) => {
+    const spot = { buttons, ...middleOf(el.firstElementChild!) };
+    target.dispatchEvent(type === 'click' ? new MouseEvent(type, spot) : new PointerEvent(type, spot));
+  };
+  child.addEventListener('pointerdown', () => c.update({ zoom: false }), { once: true });
+  const was = c.chart;
+  send(child, 'pointerdown', 1);
+  expect(c.chart).not.toBe(was);
+  const root = el.firstElementChild!;
+  for (const target of [child, root]) send(target, 'pointermove', 1);
+  expect(onHover).not.toHaveBeenCalled();
+  expect(onPointerChange).not.toHaveBeenCalled();
+  expect(tipOf(el)()).toBe(false);
+  for (const type of ['pointerup', 'click']) send(root, type, 0);
+  expect(onClick).not.toHaveBeenCalled();
+  expect(onHover).toHaveBeenCalledTimes(1);
+  expect(onPointerChange).toHaveBeenCalledTimes(1);
+  expect(tipOf(el)()).toBe(true);
+  send(root, 'pointermove', 0);
+  expect(onHover).toHaveBeenCalledTimes(1);
+  send(root, 'pointerdown', 1);
+  for (const type of ['pointerup', 'click']) send(root, type, 0);
+  expect(onClick).toHaveBeenCalledTimes(1);
+});
+
+test('a release is listened for on the document only while a child of the overlay is pressed, by the live chart', () => {
+  const docs = documentListeners();
+  const el = host();
+  const c = lineChart(el, { data: pair(), y: 'a', ...BOX, zoom: true });
+  const child = c.overlay.appendChild(document.createElement('b'));
+  const idle = docs.left().length;
+  const send = (type: string, pointerId: number) =>
+    child.dispatchEvent(new PointerEvent(type, { bubbles: true, pointerId }));
+  expect(docs.left().some(([type]) => type === 'pointermove')).toBe(false);
+  for (const id of [1, 2]) send('pointerdown', id);
+  expect(docs.left()).toHaveLength(idle + 3);
+  c.update({ zoom: false });
+  expect(docs.left()).toHaveLength(idle + 3);
+  send('pointerup', 1);
+  expect(docs.left()).toHaveLength(idle + 3);
+  send('pointerup', 2);
+  expect(docs.left()).toHaveLength(idle);
+
+  // The old chart's root is still on the event's path here.
+  el.addEventListener('pointerdown', () => c.update({ zoom: true }), { once: true, capture: true });
+  send('pointerdown', 1);
+  expect(docs.left()).toHaveLength(idle + 3);
+  send('pointerup', 1);
+  expect(docs.left()).toHaveLength(idle);
+  send('pointerdown', 1);
+  c.destroy();
+  expect(docs.left()).toEqual([]);
+});
+
+test('an overlay first read while no chart is live is the one of the next chart', () => {
+  let fail = false;
+  const c = create<TestProps>(host(), { data: pair(), y: ['a', 'b'] }, (p, ctx) => {
+    const b = testBuild(p, ctx);
+    return { ...b, use: () => (fail ? [boom] : b.use()) };
+  });
+  fail = true;
+  expect(() => c.update({ zoom: true })).toThrow('boom');
+  const { overlay } = c;
+  expect(overlay.isConnected).toBe(false);
+  fail = false;
+  c.update({ zoom: true });
+  expect(c.overlay).toBe(overlay);
+  expect(c.chart.overlay).toBe(overlay);
+  expect(overlay.isConnected).toBe(true);
+});
+
+test('mount keeps the overlay and its children through updates and its rollback', () => {
+  const el = host();
+  const m = mount(el, explicit());
+  const { overlay } = m;
+  const child = overlay.appendChild(document.createElement('b'));
+  m.update({ width: 300, theme: dark });
+  const was = m.chart;
+  expect(() => m.update({ marks: [throwing] })).toThrow('boom');
+  expect(m.chart).not.toBe(was);
+  expect(m.overlay).toBe(overlay);
+  expect(m.chart.overlay).toBe(overlay);
+  expect(overlay.parentNode).toBe(el.firstElementChild);
+  expect([...overlay.childNodes]).toEqual([child]);
+});
+
+test('a chart made again under a hover reports one null, also after a failure, and none with nothing hovered', () => {
+  const { c, el, onHover, width, height } = scattered();
+  const recreated = (change: () => void) => {
+    onHover.mockClear();
+    change();
+    expect(onHover.mock.calls).toEqual([[null]]);
+    onHover.mockClear();
+  };
+  recreated(() => c.update({ zoom: true }));
+  c.update({ zoom: false });
+  expect(onHover).not.toHaveBeenCalled();
+  const again = () => hover(el, width / 2, height / 2);
+  again();
+  recreated(() => expect(() => c.update({ zoom: true, yAxis: { format: boom } })).toThrow('boom'));
+  again();
+  recreated(() => expect(() => c.update({ yAxis: { format: boom } })).toThrow('boom'));
+  again();
+  const next = vi.fn();
+  c.update({ zoom: true, onHover: next });
+  expect(next.mock.calls).toEqual([[null]]);
 });

@@ -1,12 +1,21 @@
-import { act, Component, createElement as h, createRef, StrictMode, useState, type ReactNode } from 'react';
+import {
+  act,
+  Component,
+  createElement as h,
+  createRef,
+  Fragment,
+  StrictMode,
+  useState,
+  type ReactNode,
+} from 'react';
 import { hydrateRoot, type Root } from 'react-dom/client';
 import { renderToString } from 'react-dom/server';
-import { arcs, legend, type Feature } from 'swiftplot';
+import { arcs, dots, legend, zoom, type Feature, type Hover, type Layout } from 'swiftplot';
 import { afterEach, expect, test, vi } from 'vitest';
 
 import { bind } from '../src/bind.js';
 import { LineChart, PieChart, Plot, ScatterChart } from '../src/index.js';
-import { failingOnB, fake, host, hover, pixel, render, twoFrames, wheel } from './helpers.js';
+import { failingOnB, fake, host, hover, nextFrame, pixel, render, twoFrames, wheel } from './helpers.js';
 
 type Props = {
   data?: unknown;
@@ -703,4 +712,363 @@ test('server markup is one sized, empty div that hydrates without a warning and 
   expect([errors.mock.calls, warnings.mock.calls, onRecoverableError.mock.calls]).toEqual([[], [], []]);
   errors.mockRestore();
   warnings.mockRestore();
+});
+
+const dot = () => [dots({ x: [5], y: [0.5], r: [4], color: '#ff0000' })];
+const span = (hi: number) => ({ label: '', domain: [0, hi] as [number, number] });
+const axes = { x: span(10), y: span(1) };
+const plotted = { width: 200, height: 100, margin: ZERO, ...axes };
+const marked = (layout: Layout, hover: Hover | null) =>
+  h(
+    Fragment,
+    null,
+    h('b', { style: { position: 'absolute', left: layout.xPx!(5), top: layout.yPx!(0.5) } }),
+    hover?.hit && h('i', { style: { position: 'absolute', left: hover.hit.px, top: hover.hit.py } }),
+    hover && h('u', null, JSON.stringify([hover.px, hover.py, !!hover.hit])),
+  );
+const spot = (el: Element, tag: string) => {
+  const e = el.querySelector<HTMLElement>(tag);
+  return e && [parseFloat(e.style.left), parseFloat(e.style.top)];
+};
+const near = (got: number[] | null, want: number[]) => {
+  expect(got).toHaveLength(2);
+  want.forEach((v, i) => expect(got![i]).toBeCloseTo(v, 1));
+};
+const settle = () => act(twoFrames);
+const point = (el: HTMLElement, x: number, y: number) => act(() => void hover(el, x, y));
+const leave = (el: HTMLElement) =>
+  act(() => void el.firstElementChild!.dispatchEvent(new PointerEvent('pointerleave')));
+
+test('children render inside the overlay of a Plot and follow a resize and a zoom', async () => {
+  const marks = dot();
+  const use = [zoom()];
+  const node = (width: number) => h(Plot, { ...plotted, width, marks, use, children: marked });
+  const r = mount(node(200));
+  const marker = r.el.querySelector('b')!;
+  const overlay = marker.parentElement!;
+  expect(overlay.parentElement).toBe(r.el.firstElementChild);
+  expect(overlay.style.pointerEvents).toBe('none');
+  near(spot(r.el, 'b'), [100, 50]);
+  r.rerender(node(400));
+  await settle();
+  near(spot(r.el, 'b'), [200, 50]);
+  await act(async () => {
+    wheel(r.el, 0, 50, -100, { ctrlKey: true });
+    await twoFrames();
+  });
+  expect(spot(r.el, 'b')![0]).toBeGreaterThan(210);
+  expect(r.el.querySelector('b')).toBe(marker);
+});
+
+test('a marker moves in the frame in which a zoom moves its dot', async () => {
+  const r = mount(h(Plot, { ...plotted, marks: dot(), use: [zoom()], children: marked }));
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', false);
+  try {
+    wheel(r.el, 0, 50, -100, { ctrlKey: true });
+    await nextFrame();
+    expect(spot(r.el, 'b')![0]).toBeGreaterThan(110);
+  } finally {
+    vi.unstubAllGlobals();
+  }
+});
+
+test('a hovered dot shows the overlay tooltip at its anchor until the pointer leaves; a line hovers with no hit', () => {
+  const plotNode = mount(h(Plot, { ...plotted, marks: dot(), children: marked }));
+  const scatter = mount(
+    h(ScatterChart<Row[]>, { data: rows(() => 0.5), width: 200, height: 100, ...look, children: marked }),
+  );
+  for (const { el } of [plotNode, scatter]) {
+    near(spot(el, 'b'), [100, 50]);
+    point(el, 103, 52);
+    near(spot(el, 'i'), [100, 50]);
+    expect(el.querySelector('u')!.textContent).toBe('[103,52,true]');
+    leave(el);
+    expect([spot(el, 'i'), spot(el, 'u')]).toEqual([null, null]);
+  }
+  const line = mount(
+    h(LineChart<Row[]>, { data: rows(() => 0.5), width: 200, height: 100, ...look, children: marked }),
+  );
+  point(line.el, 103, 52);
+  expect(line.el.querySelector('u')!.textContent).toBe('[103,52,false]');
+});
+
+test('with children the app still gets its own onLayout and onHover, the latest ones', () => {
+  const [first, second] = [0, 1].map(() => ({ onLayout: vi.fn(), onHover: vi.fn() }));
+  const marks = dot();
+  const node = (own: object) => h(Plot, { ...plotted, marks, ...own, children: marked });
+  const r = mount(node(first!));
+  expect(first!.onLayout).toHaveBeenCalledOnce();
+  point(r.el, 103, 52);
+  expect(first!.onHover).toHaveBeenCalledOnce();
+  r.rerender(node(second!));
+  leave(r.el);
+  expect(first!.onHover).toHaveBeenCalledOnce();
+  expect(second!.onHover.mock.calls).toEqual([[null]]);
+  expect(second!.onLayout).not.toHaveBeenCalled();
+});
+
+test('the host is the same with and without children, and children that come and go recreate nothing', () => {
+  let made = 0;
+  const counted: Feature = () => (made++, { destroy() {} });
+  const props = { ...plotted, marks: dot(), use: [counted], className: 'c' };
+  const shell = (el: Element) => (el.cloneNode(false) as Element).outerHTML;
+  for (const own of [{}, { onLayout: () => {}, onHover: () => {} }]) {
+    made = 0;
+    const r = mount(h(Plot, { ...props, ...own }));
+    const { el } = r;
+    const [canvas, html] = [canvasOf(el), shell(el)];
+    expect(spot(el, 'b')).toBeNull();
+    point(el, 103, 52);
+    r.rerender(h(Plot, { ...props, ...own, children: marked }));
+    near(spot(el, 'b'), [100, 50]);
+    near(spot(el, 'i'), [100, 50]);
+    expect(shell(el)).toBe(html);
+    r.rerender(h(Plot, { ...props, ...own }));
+    expect(spot(el, 'b')).toBeNull();
+    leave(el);
+    r.rerender(h(Plot, { ...props, ...own, children: marked }));
+    near(spot(el, 'b'), [100, 50]);
+    expect(spot(el, 'i')).toBeNull();
+    expect([r.container.children.length, r.el, canvasOf(el), made]).toEqual([1, el, canvas, 1]);
+  }
+});
+
+test('children that come back after a resize are first called with the layout as it is now', async () => {
+  const marks = dot();
+  const seen: number[] = [];
+  const children = (layout: Layout) => (seen.push(layout.width), null);
+  const node = (width: number, with_: boolean) =>
+    h(Plot, { ...plotted, width, marks, ...(with_ && { children }) });
+  const r = mount(node(200, true));
+  r.rerender(node(200, false));
+  r.rerender(node(400, false));
+  await settle();
+  r.rerender(node(400, true));
+  expect([...new Set(seen)]).toEqual([200, 400]);
+});
+
+test('overlay nodes survive a feature change that makes the chart again, and the tooltip of the old chart goes', () => {
+  const data = rows(() => 0.5);
+  const node = (withZoom: boolean) =>
+    h(ScatterChart<Row[]>, {
+      data,
+      width: 200,
+      height: 100,
+      ...look,
+      zoom: withZoom,
+      tooltip: false,
+      children: marked,
+    });
+  const r = mount(node(false));
+  const [canvas, marker] = [canvasOf(r.el), r.el.querySelector('b')!];
+  point(r.el, 103, 52);
+  expect(spot(r.el, 'i')).not.toBeNull();
+  r.rerender(node(true));
+  expect(canvasOf(r.el)).not.toBe(canvas);
+  expect(r.el.querySelector('b')).toBe(marker);
+  expect(marker.isConnected).toBe(true);
+  expect(spot(r.el, 'i')).toBeNull();
+});
+
+const naming = (data: Row[]) => (layout: Layout, hover: Hover | null) =>
+  h('i', null, `${layout.width} ${hover?.hit ? data[hover.hit.row!]!.x : 'none'}`);
+
+test('children that index the app rows by the hovered row never meet rows or a frame the chart has not taken', () => {
+  const few = [{ x: 0, a: 0.5 }];
+  const many = rows(() => 0.5);
+  const scatter = (data: Row[]) =>
+    h(ScatterChart<Row[]>, { data, width: 200, height: 100, ...look, children: naming(data) });
+  const plain = (data: Row[]) =>
+    h(Plot, {
+      ...plotted,
+      marks: [dots({ x: data.map(d => d.x), y: data.map(d => d.a), r: data.map(() => 4), color: '#ff0000' })],
+      children: naming(data),
+    });
+  const pressed = (data: Row[]) =>
+    h(ScatterChart<Row[]>, {
+      data,
+      width: 200,
+      height: 100,
+      ...look,
+      children: (l, hover) =>
+        h('b', { style: { position: 'absolute', pointerEvents: 'auto' } }, naming(data)(l, hover)),
+    });
+  for (const node of [scatter, plain, pressed]) {
+    const r = mount(node(many));
+    point(r.el, 198, 50);
+    expect(r.el.querySelector('i')!.textContent).toBe('200 10');
+    const press = (type: string) =>
+      act(
+        () =>
+          void r.el.querySelector('b')!.dispatchEvent(new PointerEvent(type, { bubbles: true, buttons: 1 })),
+      );
+    if (node === pressed) press('pointerdown');
+    r.rerender(node(few));
+    expect(r.el.querySelector('i')!.textContent).toBe('200 none');
+    if (node === pressed) continue;
+    r.rerender(node(many));
+    expect(r.el.querySelector('i')!.textContent).toBe('200 10');
+  }
+
+  const pie = mount(
+    h(Plot, {
+      width: 200,
+      height: 100,
+      marks: [arcs({ values: [1, 2], colors: ['#ff0000', '#0000ff'] })],
+      frame: 'polar',
+      children: (l: Layout) => h('i', null, String('xPx' in l)),
+    }),
+  );
+  pie.rerender(h(Plot, { ...plotted, marks: dot(), children: marked }));
+  near(spot(pie.el, 'b'), [100, 50]);
+});
+
+test('while an update fails the overlay stays with the chart still drawn', () => {
+  const onError = vi.fn();
+  const node = (data: Row[]) =>
+    h(ScatterChart<Row[]>, { data, width: 200, height: 100, ...look, onError, children: naming(data) });
+  const r = mount(node(rows(() => 0.5)));
+  point(r.el, 198, 50);
+  for (let n = 0; n < 2; n++) {
+    r.rerender(node(unguessable()));
+    expect(onError).toHaveBeenCalledOnce();
+    expect(r.el.querySelector('i')!.textContent).toBe('200 10');
+  }
+  r.rerender(node([{ x: 0, a: 0.5 }]));
+  expect(r.el.querySelector('i')!.textContent).toBe('200 none');
+});
+
+test('a new children function is called once for each render of the app, and a hover calls it once', () => {
+  const children = vi.fn(() => null);
+  const props = { ...plotted, marks: dot() };
+  const r = mount(h(Plot, { ...props, children }));
+  children.mockClear();
+  point(r.el, 103, 52);
+  expect(children).toHaveBeenCalledOnce();
+  const next = vi.fn(() => null);
+  r.rerender(h(Plot, { ...props, children: next }));
+  expect([children.mock.calls.length, next.mock.calls.length]).toEqual([1, 1]);
+});
+
+test('the server renders the host alone with children, it hydrates, and StrictMode shows one overlay', () => {
+  const node = h(Plot, { ...plotted, marks: dot(), children: marked });
+  const html = '<div style="width:200px;height:100px"></div>';
+  expect(renderToString(node)).toBe(html);
+  const errors = vi.spyOn(console, 'error');
+  const container = host();
+  container.innerHTML = html;
+  let root!: Root;
+  act(() => void (root = hydrateRoot(container, node)));
+  mounted.push(() => act(() => root.unmount()));
+  near(spot(container, 'b'), [100, 50]);
+
+  const strict = mount(h(StrictMode, null, node));
+  expect(strict.el.querySelectorAll('b')).toHaveLength(1);
+  near(spot(strict.el, 'b'), [100, 50]);
+  point(strict.el, 103, 52);
+  near(spot(strict.el, 'i'), [100, 50]);
+  strict.unmount();
+  expect(errors).not.toHaveBeenCalled();
+  errors.mockRestore();
+});
+
+test('children given while the chart has no room or failed to mount show once it draws', async () => {
+  const hidden = host();
+  hidden.style.display = 'none';
+  const r = mount(h(Plot, { marks: dot(), ...axes, margin: ZERO, children: marked }), hidden);
+  expect(spot(r.el, 'b')).toBeNull();
+  hidden.style.display = '';
+  await settle();
+  expect(spot(r.el, 'b')![1]).toBeGreaterThan(0);
+
+  const props = { width: 200, height: 100, ...look, onError: () => {}, children: marked };
+  const failed = mount(h(LineChart<Row[]>, { ...props, data: unguessable() }));
+  expect(spot(failed.el, 'b')).toBeNull();
+  failed.rerender(h(LineChart<Row[]>, { ...props, data: rows(() => 0.5) }));
+  near(spot(failed.el, 'b'), [100, 50]);
+});
+
+test('children for another frame, given as the chart loses its room, wait for the layout of that frame', async () => {
+  const round = {
+    marks: [arcs({ values: [1, 2], colors: ['#ff0000', '#0000ff'] })],
+    frame: 'polar' as const,
+    children: (l: Layout) => h('i', null, l.frame),
+  };
+  // Failing on a layout it was not written for, at any call.
+  const strict = (l: Layout) => {
+    expect(l.frame).toBe('axes');
+    return marked(l, null);
+  };
+  const flat = { frame: 'axes' as const, marks: dot(), ...axes, margin: ZERO, children: strict };
+  const size = { width: 200, height: 100 };
+  const gone = { ...size, style: { display: 'none' } };
+  const r = mount(h(Plot, { ...size, ...round }));
+  expect(r.el.querySelector('i')!.textContent).toBe('polar');
+  r.rerender(h(Plot, { ...gone, ...flat }));
+  expect(r.el.querySelector('b')).toBeNull();
+  await settle();
+  expect(r.el.querySelector('b')).toBeNull();
+  r.rerender(h(Plot, { ...gone, ...flat, children: l => (strict(l), h('s', null, l.width)) }));
+  expect(r.el.querySelector('s')).toBeNull();
+  // Shown by a resize alone, with no render to bring the children.
+  r.el.style.display = '';
+  await settle();
+  expect(r.el.querySelector('s')!.textContent).toBe('200');
+  expect(r.el.querySelector('i')).toBeNull();
+
+  const again = mount(h(Plot, { ...size, ...round }));
+  again.rerender(h(Plot, { ...gone, ...flat }));
+  await settle();
+  again.rerender(h(Plot, { ...size, ...flat }));
+  await settle();
+  near(spot(again.el, 'b'), [100, 50]);
+});
+
+test('children taken away while the chart has no room stay away when it draws', async () => {
+  const marks = dot();
+  const own = { ...plotted, marks, onLayout: () => {} };
+  const gone = { style: { display: 'none' } };
+  const r = mount(h(Plot, { ...own, children: marked }));
+  r.rerender(h(Plot, { ...own, ...gone, children: marked }));
+  await settle();
+  r.rerender(h(Plot, { ...own, ...gone }));
+  r.rerender(h(Plot, own));
+  await settle();
+  expect(spot(r.el, 'b')).toBeNull();
+});
+
+test('no loop: inline children, listeners that set state, data and axis conversions rebuilt in every render', () => {
+  let [renders, draws] = [0, 0];
+  function App() {
+    const [, setLayout] = useState<Layout>();
+    const [, setHover] = useState<Hover | null>(null);
+    renders++;
+    return h(Plot, {
+      ...plotted,
+      marks: dot(),
+      onLayout: l => setLayout(l),
+      onHover: v => setHover(v),
+      children: (layout, at) => (draws++, marked(layout, at)),
+    });
+  }
+  const r = mount(h(App));
+  const settled = renders;
+  point(r.el, 103, 52);
+  near(spot(r.el, 'i'), [100, 50]);
+  expect(renders - settled).toBeLessThanOrEqual(2);
+  expect(draws).toBeLessThan(12);
+
+  draws = 0;
+  const inline = () =>
+    h(Plot, {
+      ...plotted,
+      marks: dot(),
+      x: { ...span(10), to: v => v, from: v => v },
+      children: (layout, at) => (draws++, marked(layout, at)),
+    });
+  const own = mount(inline());
+  const before = draws;
+  own.rerender(inline());
+  near(spot(own.el, 'b'), [100, 50]);
+  expect(draws - before).toBeLessThanOrEqual(2);
 });

@@ -195,6 +195,35 @@ export type Axis = {
 export type Margin = { top: number; right: number; bottom: number; left: number };
 export type Span = [number, number];
 
+/** The geometry of a chart, for an app drawing its own nodes over it; each change gives a new one, never mutated. Pixels are CSS pixels relative to the chart. */
+export type Layout = {
+  readonly width: number;
+  readonly height: number;
+  /** The plot rectangle is inside it. */
+  readonly margin: Readonly<Margin>;
+  readonly frame: NonNullable<Options['frame']>;
+  /** What is shown on an axis, in real values, as the app passes them; the axes and the conversions are there only with frame 'axes'. */
+  readonly x?: LayoutAxis;
+  readonly y?: LayoutAxis;
+  /** Only when there is a second axis. */
+  readonly y2?: LayoutAxis;
+  /** A real value as a pixel, also outside what is shown. */
+  readonly xPx?: (x: number) => number;
+  /** On `y` unless the second axis is named. */
+  readonly yPx?: (y: number, axis?: 'y' | 'y2') => number;
+  /** A pixel as a real value. */
+  readonly xValue?: (px: number) => number;
+  readonly yValue?: (px: number, axis?: 'y' | 'y2') => number;
+};
+export type LayoutAxis = { readonly domain: Readonly<Span>; readonly ticks: readonly Readonly<Tick>[] };
+
+/**
+ * The user's pointer, and the nearest thing within 20 px of it or null. px and py are the pointer in CSS
+ * pixels relative to the chart; the hit is the one onClick gets, in real values, and its own px and py
+ * are where it is anchored, such as a dot's centre. onClick's second argument differs: it is values, not pixels.
+ */
+export type Hover = { px: number; py: number; hit: (Hit & { mark: Mark; px: number; py: number }) | null };
+
 export type Options = {
   /** The width in CSS pixels; when omitted the chart follows its container. */
   width?: number;
@@ -229,7 +258,7 @@ export type Options = {
   description?: string;
   /** Opacity multiplier for every other group while one is focused. @default 1 */
   dim?: number;
-  /** `light` when left out. Replacing it with another object repaints the chart and restyles its text. */
+  /** `light` when left out. Replaced by another object, CSS variables are read again, and the chart is restyled if a colour changed. */
   theme?: Theme;
   /**
    * The part of each axis shown, in its values; a side left out shows the whole domain. It is shown
@@ -268,11 +297,25 @@ export type Options = {
   pointer?: { x: number; y?: number; y2?: number } | null;
   /** Called as the user's pointer moves over the plot, and with null once as it leaves or a drag starts; never for update(). */
   onPointerChange?(pointer: { x: number; y: number; y2?: number } | null): void;
+  /**
+   * Called with the chart's geometry after the first paint, inside plot(), and whenever the size, the
+   * margin, what an axis shows, its ticks or its title change; also when it is set where there was
+   * none, but not for another function in its place. Nothing is called while the chart has no room.
+   */
+  onLayout?(layout: Layout): void;
+  /**
+   * Called as the user's pointer moves over the plot, and when what is under it at rest changes, such as
+   * after a zoom or new data; with null once as it leaves the plot or a drag starts. A mark that answers no
+   * pointer, such as a line, gives a null hit. Nothing is called twice for the same pointer and hit.
+   */
+  onHover?(hover: Hover | null): void;
 };
 
 export type Chart = {
   update(options: Partial<Omit<Options, 'use'>>): void;
   destroy(): void;
+  /** An element over the whole chart, under its tooltip, for the app's own DOM. Made when first read; it takes no pointer. */
+  readonly overlay: HTMLElement;
 };
 
 /**
@@ -290,6 +333,8 @@ export type Internals = {
   root: HTMLElement;
   /** The 2D canvas holding the grid and every mark that is not on WebGL. */
   canvas: HTMLCanvasElement;
+  /** What Chart.overlay gave, once it was read. Set to carry over that of a chart this one replaces. */
+  overlay: HTMLElement | undefined;
   /** One painter per chart; the last one set wins. */
   onPaint(painter: Painter | undefined): void;
   /**
@@ -324,6 +369,8 @@ export type Internals = {
   size(): { width: number; height: number };
   margin(): Margin;
   theme(): Theme;
+  /** A CSS colour with its variables resolved, as the canvas draws it. */
+  color(css: string): string;
   xPx(x: number): number;
   /** On `y` unless the second axis is named; a mark's own is yAxis(mark). */
   yPx(y: number, axis?: 'y' | 'y2'): number;
@@ -353,9 +400,10 @@ export type Internals = {
    * gets none, and 'shift' when a drag with shift held pans and a brush keeps the plain ones; with no
    * brush a plain drag then pans too, unless zoom() was given `drag: 'shift'`. `active` is set while
    * a drag or a gesture is under way, and until the click after its release has gone by.
+   * `child` is set while a press that began on a child of the overlay is held.
    */
-  drag: { brush: boolean; pan: 'plain' | 'shift' | false; active: boolean };
-  /** Runs every feature's update(), for a change under a resting pointer that the chart cannot see, such as the end of a drag. */
+  drag: { brush: boolean; pan: 'plain' | 'shift' | false; active: boolean; readonly child: boolean };
+  /** Runs every feature's update() and then reports the hover to the app, for a change under a resting pointer that the chart cannot see, such as the end of a drag. */
   sync(): void;
   hit(px: number, py: number, max: number): (Hit & { mark: Mark }) | null;
   /** The app's `pointer`, or null when there is none or its x is outside the plot; a y outside the plot is dropped. */
@@ -369,8 +417,9 @@ export type Internals = {
 
 /**
  * update() runs whenever what is under a resting pointer may have changed: after the first paint, for
- * new options or a new size, a series hidden or shown, a new window, and at the end of a drag.
- * letGo() runs before the repaint for each of these but the first paint, the end of a drag and an
+ * new options or a new size, a series hidden or shown, a new window, at the end of a drag, and at the
+ * start and the end of a press on a child of the overlay. A theme that changes no colour is no new option.
+ * letGo() runs before the repaint for each of these but the first paint, the end of a drag, a press and an
  * update of only `pointer` or callbacks, so a focus dropped there does not cut a data animation short.
  */
 export type Feature = (chart: Internals) => { update?(): void; letGo?(): void; destroy(): void };

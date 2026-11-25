@@ -36,11 +36,13 @@ import {
 } from 'swiftplot/charts';
 import type { AllowedComponentProps, VNode, VNodeProps } from 'vue';
 
-import { bind, type Mount } from './bind.js';
+import { bind, type Mount, type OverlaySlot } from './bind.js';
 
-/** The chart's change callbacks arrive as Vue listeners: `@click`, `@error` and `v-model:view`, `:hidden`, `:pointer`. */
+/** The chart's change callbacks arrive as Vue listeners: `@click`, `@layout`, `@hover`, `@error` and `v-model:view`, `:hidden`, `:pointer`. */
 export type Listeners = {
   onClick?: Options['onClick'];
+  onLayout?: Options['onLayout'];
+  onHover?: Options['onHover'];
   onError?: (error: unknown) => void;
   'onUpdate:view'?: Options['onViewChange'];
   'onUpdate:hidden'?: Options['onHiddenChange'];
@@ -70,6 +72,7 @@ export type SunburstChartProps = SunburstProps & StillListeners;
 export type PlotProps = Options & Listeners;
 
 type Host = AllowedComponentProps & VNodeProps & { id?: string };
+type Context = { slots: { default?: OverlaySlot } };
 
 const flag = { type: [Boolean, Object], default: undefined };
 const bool = { type: Boolean, default: undefined };
@@ -100,18 +103,18 @@ export const LineChart = bind(lineChart as Mount<LineProps<unknown>>, {
   fill: flag,
   errorBars: null,
   join: bool,
-}) as unknown as <D = undefined>(props: LineChartProps<D> & Host) => VNode;
+}) as unknown as <D = undefined>(props: LineChartProps<D> & Host, ctx?: Context) => VNode;
 export const AreaChart = bind(areaChart as Mount<AreaProps<unknown>>, {
   ...xy,
   curve: null,
   join: bool,
   stack: bool,
-}) as unknown as <D = undefined>(props: AreaChartProps<D> & Host) => VNode;
+}) as unknown as <D = undefined>(props: AreaChartProps<D> & Host, ctx?: Context) => VNode;
 export const BarChart = bind(barChart as Mount<BarProps<unknown>>, {
   ...xy,
   stack: bool,
   errorBars: null,
-}) as unknown as <D = undefined>(props: BarChartProps<D> & Host) => VNode;
+}) as unknown as <D = undefined>(props: BarChartProps<D> & Host, ctx?: Context) => VNode;
 export const ScatterChart = bind(scatterChart as Mount<ScatterProps<unknown>>, {
   ...xy,
   r: null,
@@ -119,7 +122,7 @@ export const ScatterChart = bind(scatterChart as Mount<ScatterProps<unknown>>, {
   ring: null,
   shape: null,
   errorBars: null,
-}) as unknown as <D = undefined>(props: ScatterChartProps<D> & Host) => VNode;
+}) as unknown as <D = undefined>(props: ScatterChartProps<D> & Host, ctx?: Context) => VNode;
 export const PieChart = bind(pieChart as Mount<PieProps<unknown>>, {
   ...base,
   label: null,
@@ -127,14 +130,14 @@ export const PieChart = bind(pieChart as Mount<PieProps<unknown>>, {
   inner: null,
   text: bool,
   sweep: null,
-}) as unknown as <D = undefined>(props: PieChartProps<D> & Host) => VNode;
+}) as unknown as <D = undefined>(props: PieChartProps<D> & Host, ctx?: Context) => VNode;
 export const FunnelChart = bind(funnelChart as Mount<FunnelProps<unknown>>, {
   ...base,
   label: null,
   value: null,
   text: bool,
   fill: null,
-}) as unknown as <D = undefined>(props: FunnelChartProps<D> & Host) => VNode;
+}) as unknown as <D = undefined>(props: FunnelChartProps<D> & Host, ctx?: Context) => VNode;
 export const RadialBarChart = bind(radialBarChart as Mount<RadialBarProps<unknown>>, {
   ...base,
   label: null,
@@ -142,14 +145,14 @@ export const RadialBarChart = bind(radialBarChart as Mount<RadialBarProps<unknow
   max: null,
   sweep: null,
   inner: null,
-}) as unknown as <D = undefined>(props: RadialBarChartProps<D> & Host) => VNode;
+}) as unknown as <D = undefined>(props: RadialBarChartProps<D> & Host, ctx?: Context) => VNode;
 export const RadarChart = bind(radarChart as Mount<RadarProps<unknown>>, {
   ...base,
   x: null,
   y: null,
   max: null,
   fill: null,
-}) as unknown as <D = undefined>(props: RadarChartProps<D> & Host) => VNode;
+}) as unknown as <D = undefined>(props: RadarChartProps<D> & Host, ctx?: Context) => VNode;
 export const HeatmapChart = bind(heatmapChart as Mount<HeatmapProps<unknown>>, {
   ...base,
   x: null,
@@ -158,13 +161,13 @@ export const HeatmapChart = bind(heatmapChart as Mount<HeatmapProps<unknown>>, {
   color: null,
   xAxis: null,
   yAxis: null,
-}) as unknown as <D = undefined>(props: HeatmapChartProps<D> & Host) => VNode;
+}) as unknown as <D = undefined>(props: HeatmapChartProps<D> & Host, ctx?: Context) => VNode;
 export const HistogramChart = bind(histogramChart as Mount<HistogramProps<unknown>>, {
   ...base,
   ...axes,
   x: null,
   bins: null,
-}) as unknown as <D = undefined>(props: HistogramChartProps<D> & Host) => VNode;
+}) as unknown as <D = undefined>(props: HistogramChartProps<D> & Host, ctx?: Context) => VNode;
 export const BoxPlotChart = bind(boxPlotChart as Mount<BoxPlotProps<unknown>>, {
   ...base,
   x: null,
@@ -172,7 +175,7 @@ export const BoxPlotChart = bind(boxPlotChart as Mount<BoxPlotProps<unknown>>, {
   fill: null,
   xAxis: null,
   yAxis: null,
-}) as unknown as <D = undefined>(props: BoxPlotChartProps<D> & Host) => VNode;
+}) as unknown as <D = undefined>(props: BoxPlotChartProps<D> & Host, ctx?: Context) => VNode;
 export const CandlestickChart = bind(candlestickChart as Mount<CandlestickProps<unknown>>, {
   ...base,
   ...axes,
@@ -183,7 +186,7 @@ export const CandlestickChart = bind(candlestickChart as Mount<CandlestickProps<
   close: null,
   up: null,
   down: null,
-}) as unknown as <D = undefined>(props: CandlestickChartProps<D> & Host) => VNode;
+}) as unknown as <D = undefined>(props: CandlestickChartProps<D> & Host, ctx?: Context) => VNode;
 export const ComboChart = bind(comboChart as Mount<ComboProps<unknown>>, {
   ...base,
   ...axes,
@@ -195,7 +198,7 @@ export const ComboChart = bind(comboChart as Mount<ComboProps<unknown>>, {
   y2Lines: null,
   y2Bars: null,
   stack: bool,
-}) as unknown as <D = undefined>(props: ComboChartProps<D> & Host) => VNode;
+}) as unknown as <D = undefined>(props: ComboChartProps<D> & Host, ctx?: Context) => VNode;
 export const SankeyChart = bind(sankeyChart as Mount<SankeyProps<unknown>>, {
   ...base,
   source: null,
@@ -203,17 +206,17 @@ export const SankeyChart = bind(sankeyChart as Mount<SankeyProps<unknown>>, {
   value: null,
   blend: bool,
   text: bool,
-}) as unknown as <D = undefined>(props: SankeyChartProps<D> & Host) => VNode;
+}) as unknown as <D = undefined>(props: SankeyChartProps<D> & Host, ctx?: Context) => VNode;
 export const TreemapChart = bind(treemapChart as Mount<TreemapProps>, {
   ...base,
   text: bool,
   shade: null,
-}) as unknown as (props: TreemapChartProps & Host) => VNode;
+}) as unknown as (props: TreemapChartProps & Host, ctx?: Context) => VNode;
 export const SunburstChart = bind(sunburstChart as Mount<SunburstProps>, {
   ...base,
   text: bool,
   shade: null,
-}) as unknown as (props: SunburstChartProps & Host) => VNode;
+}) as unknown as (props: SunburstChartProps & Host, ctx?: Context) => VNode;
 export const Plot = bind(mount, {
   width: null,
   height: null,
@@ -231,4 +234,4 @@ export const Plot = bind(mount, {
   hidden: null,
   selected: null,
   pointer: null,
-}) as unknown as (props: PlotProps & Host) => VNode;
+}) as unknown as (props: PlotProps & Host, ctx?: Context) => VNode;
