@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.5.0 - 2026-11-25
+
 - `onLayout(layout)` reports a chart's geometry, with conversions between values and pixels, and `onHover(hover)` the pointer in CSS pixels and what is under it, on `plot()` and every easy chart; `@layout` and `@hover` in Vue.
 - `chart.overlay`, an element over the chart for the app's own DOM. The React components render a function given as children into it and the Vue components their default slot, with the layout and the hover. `@swiftplot/react` has `react-dom` as a peer dependency.
 - A colour may be a CSS variable, `var(--name)`, in marks, gradients, themes and `colors`. One with no value draws in the theme's `muted` and warns; replacing `theme`, also by an equal object on the easy charts, reads changed variables again.
