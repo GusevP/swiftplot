@@ -1,6 +1,6 @@
 {
   "name": "swiftplot",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Small, fast charts on Canvas 2D and WebGL2",
   "license": "MIT",
   "repository": {

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.3.0 - 2026-11-25
+
 - Label widths are measured where they were taken as 7 px a character: category ticks, the margins beside a text axis, legend entries and the labels on slices, stages, nodes, spokes and rules, so long, capital or CJK names no longer overlap or clip. Plain numbers and the time axis's own labels keep the estimate, as the first measurement on a page costs about 3 ms.
 - `scatterChart` draws error bars lying down: `errorBars: { low, high, axis: 'x' }` reads `low` and `high` as values on a number x, and a text `y` implies it.
 
