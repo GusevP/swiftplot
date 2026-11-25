@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.4.0 - 2026-11-25
+
 - Hovering a dot of a scatter with one series fades its other dots, as a bar does, on the canvas and on WebGL; and with an x tooltip a bar under the pointer is focused, so hovering the bars of a combo chart fades its other series.
 
 - Pointing inside several overlapping areas focuses the lowest one there, where it always took the one drawn last: each of unstacked areas can now be picked out.
