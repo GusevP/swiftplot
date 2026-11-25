@@ -1,9 +1,7 @@
 import types from '../../../packages/core/src/charts/types.ts?raw';
 import { chartNames, referencePath, type ChartName } from '../examples/define';
 import { featureNames, markNames } from '../examples/tree';
-import { extract, extractApi, type Entry } from './extract';
-
-export const reference = extract(types);
+import { extract, extractApi, type Entry, type Line } from './extract';
 
 export const intros: Record<ChartName, string> = {
   lineChart:
@@ -52,6 +50,39 @@ export const api = extractApi(coreFiles, [
   ...scaleNames,
   ...helperNames,
 ]);
+
+const owners: Readonly<Record<string, string>> = {
+  Options: 'plot',
+  Axis: 'Axis',
+  LineOptions: 'line',
+  TimeOptions: 'time',
+  BrushOptions: 'brush',
+};
+const scalePage: readonly string[] = scaleNames;
+
+/** A type an easy chart takes from core by index, `Options['view']`, as core's own page writes it, with the link there. */
+function resolved(line: Line): Line {
+  const [, owner, key] = /^(\w+)\['(\w+)'\]$/.exec(line.type) ?? [];
+  if (!owner || !key) return line;
+  const page = owners[owner] ?? fail(`${line.type} is of a type with no reference page`);
+  const found =
+    api[page]!.entries.find(e => e.name === key) ?? fail(`${line.type} is not on the page of ${page}`);
+  return {
+    ...line,
+    type: [...new Set(found.lines.map(l => l.type))].join(' | '),
+    href: scalePage.includes(page) ? `/reference/scales#${page}.${key}` : `${referencePath(page)}#${key}`,
+  };
+}
+function fail(message: string): never {
+  throw new Error(`reference: ${message}`);
+}
+
+export const reference = Object.fromEntries(
+  Object.entries(extract(types)).map(([chart, entries]) => [
+    chart,
+    entries.map(e => ({ ...e, lines: e.lines.map(resolved) })),
+  ]),
+) as Record<ChartName, Entry[]>;
 
 export const scalesIntro =
   'The axes plot() takes as x, y and y2, the colour scale a heatmap takes, and the helpers that turn data into the columns a mark takes.';

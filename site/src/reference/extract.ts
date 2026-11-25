@@ -28,7 +28,7 @@ const charts: Record<ChartName, string> = {
   comboChart: 'ComboProps',
 };
 
-export type Line = { shape?: Shape; mode?: string; type: string; description: string };
+export type Line = { shape?: Shape; mode?: string; type: string; description: string; href?: string };
 export type Entry = { name: string; default?: string; lines: Line[] };
 
 type Params = ReadonlyMap<string, string[]>;
@@ -280,6 +280,15 @@ export function extractApi(
     return !!decl && !decl.typeParameters && objectLike(decl.type);
   };
 
+  /** A named union of literals, such as Curve, as its values. */
+  const spelled = (node: ts.TypeNode | undefined) => {
+    if (!node || !ts.isTypeReferenceNode(node) || node.typeArguments) return node?.getText();
+    const decl = aliasOf(node);
+    return decl && ts.isUnionTypeNode(decl.type) && decl.type.types.every(ts.isLiteralTypeNode)
+      ? decl.type.getText()
+      : node.getText();
+  };
+
   type Field = ts.PropertySignature | ts.MethodSignature;
   const field = (d: ts.Declaration): d is Field =>
     (ts.isPropertySignature(d) || ts.isMethodSignature(d)) &&
@@ -322,7 +331,7 @@ export function extractApi(
         fallback ??= tag && flat(ts.getTextOfJSDocComment(tag.comment) ?? '');
         const type = ts.isMethodSignature(d)
           ? `(${d.parameters.map(p => p.getText()).join(', ')}) => ${d.type?.getText() ?? 'void'}`
-          : (d.type?.getText() ?? fail(`${where} has no type`));
+          : (spelled(d.type) ?? fail(`${where} has no type`));
         const line = { type: flat(type), description, ...(mode && { mode }) };
         let kept = lines.find(
           l => l.type === line.type && l.description === line.description && l.mode === line.mode,
@@ -335,6 +344,7 @@ export function extractApi(
     });
   };
 
+  const PRIMITIVE = ts.TypeFlags.StringLike | ts.TypeFlags.NumberLike | ts.TypeFlags.BooleanLike;
   const accepts =
     (roots: readonly ts.Type[]) =>
     (path: readonly string[]): boolean =>
@@ -343,6 +353,7 @@ export function extractApi(
           types
             .flatMap(t => (t.isUnion() ? t.types : [t]))
             .flatMap(t => {
+              if (t.flags & PRIMITIVE) return [];
               const p = checker.getPropertyOfType(t, key);
               return p ? [checker.getNonNullableType(checker.getTypeOfSymbol(p))] : [];
             }),

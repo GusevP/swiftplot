@@ -29,7 +29,11 @@ test('/reference/line-chart has a row, with its anchor and default, for every pr
     const row = page.locator(`[id="${e.name}"]`);
     await expect(row.locator('td').first()).toHaveText(e.name);
     await expect(row.locator('td').nth(2)).toHaveText(e.default ?? '—');
-    for (const line of e.lines) await expect(row.locator('td').nth(1)).toContainText(line.type);
+    const cell = row.locator('td').nth(1);
+    for (const line of e.lines)
+      if (/^\w+\['\w+'\]$/.test(line.type))
+        await expect(cell.locator('a[href^="/reference/"]')).not.toHaveCount(0);
+      else await expect(cell).toContainText(line.type);
   }
   expect(errors).toEqual([]);
 });
@@ -157,7 +161,7 @@ test('the framework select swaps the signature, what the chart returns and what 
     [
       'vue',
       '@swiftplot/vue',
-      '<BarChart :data="rows" v-bind="props" />',
+      '<BarChart :data="rows" />',
       '@click and @error',
       'leaves the previous chart',
       3,
@@ -229,16 +233,20 @@ test('type and error message cells wrap only between whole words, and no table i
         const measured = await page.locator(cells).evaluateAll(codes => {
           const words = codes.flatMap(code => {
             const texts = document.createTreeWalker(code, NodeFilter.SHOW_TEXT);
-            const found: { word: string; lines: number }[] = [];
+            const nodes: { node: Node; from: number; to: number }[] = [];
+            let length = 0;
             for (let t = texts.nextNode(); t; t = texts.nextNode())
-              for (const m of t.textContent!.matchAll(/[^ ]+/g)) {
-                const range = document.createRange();
-                range.setStart(t, m.index);
-                range.setEnd(t, m.index + m[0].length);
-                const tops = new Set([...range.getClientRects()].map(r => Math.round(r.top)));
-                found.push({ word: m[0], lines: tops.size });
-              }
-            return found;
+              nodes.push({ node: t, from: length, to: (length += t.textContent!.length) });
+            return [...code.textContent!.matchAll(/[^ ]+/g)].map(m => {
+              const end = m.index + m[0].length;
+              const first = nodes.find(n => m.index < n.to)!;
+              const last = nodes.find(n => end <= n.to)!;
+              const range = document.createRange();
+              range.setStart(first.node, m.index - first.from);
+              range.setEnd(last.node, end - last.from);
+              const tops = new Set([...range.getClientRects()].map(r => Math.round(r.top)));
+              return { word: m[0], lines: tops.size };
+            });
           });
           return { count: words.length, split: words.filter(w => w.lines > 1).map(w => w.word) };
         });

@@ -1,3 +1,4 @@
+import { widest } from '../text.js';
 import type { Axis, Resolved, Room } from '../types.js';
 
 export type BandAxis = Axis & {
@@ -15,7 +16,10 @@ function resolve({ categories, domain }: BandAxis, _extent: unknown, room?: Room
   // Every category is labelled when they fit; otherwise every second, third and so on.
   let every = Math.ceil(shown.length / 20) || 1;
   if (room) {
-    const each = room.horizontal ? shown.reduce((w, c) => Math.max(w, c.length), 0) * 7 + 16 : 22;
+    // ponytail: only the 64 longest names by character count are measured, so a shorter name of
+    // wider glyphs among more than that is missed; measure them all if that ever shows.
+    const longest = shown.length > 64 ? shown.toSorted((a, b) => b.length - a.length).slice(0, 64) : shown;
+    const each = room.horizontal ? widest(longest) + 16 : 22;
     every = Math.ceil(shown.length / Math.max(1, Math.floor(room.length / each))) || 1;
   }
   const ticks = [];

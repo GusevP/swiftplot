@@ -104,8 +104,14 @@ Render with new props. Build `data` outside render or with `useMemo`, so it is n
 The component destroys the chart when it unmounts.
 
 ```tsx
-const rows = useMemo(() => toRows(response), [response]);
-return <LineChart data={rows} />;
+import { useMemo } from 'react';
+import { LineChart } from '@swiftplot/react';
+import requests from './requests.json';
+
+export function Chart({ from }: { from: number }) {
+  const rows = useMemo(() => requests.slice(from), [from]);
+  return <LineChart data={rows} />;
+}
 ```
 
 </div>
@@ -114,9 +120,22 @@ return <LineChart data={rows} />;
 Keep the data in a `shallowRef` and replace the array. Pushing into it is not noticed unless `dataVersion` changes.
 The component destroys the chart when it unmounts.
 
-```ts
-const rows = shallowRef(firstRows);
-rows.value = nextRows;
+```vue
+<script setup lang="ts">
+import { shallowRef } from 'vue';
+import { LineChart } from '@swiftplot/vue';
+import requests from './requests.json';
+
+const rows = shallowRef(requests);
+const dropFirst = () => {
+  rows.value = rows.value.slice(1);
+};
+</script>
+
+<template>
+  <button @click="dropFirst">Drop the first row</button>
+  <LineChart :data="rows" />
+</template>
 ```
 
 </div>

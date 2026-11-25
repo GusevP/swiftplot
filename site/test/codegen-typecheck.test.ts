@@ -1,11 +1,18 @@
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { expect, test } from 'vitest';
-import { code, defaults } from '../src/codegen/index';
+import { code, defaults, signature } from '../src/codegen/index';
 import { text } from '../src/codegen/tokens';
-import { checkedStates, example, type EasyExample, type Example, type State } from '../src/examples/define';
+import {
+  chartNames,
+  checkedStates,
+  example,
+  type EasyExample,
+  type Example,
+  type State,
+} from '../src/examples/define';
 import { examples, unlisted } from '../src/examples/index';
 import { contents } from '../src/examples/tree';
 import { reference } from '../src/reference/index';
@@ -13,6 +20,7 @@ import type { Framework } from '../src/scripts/preferences';
 import { definitions } from './plot-definitions';
 
 const root = fileURLToPath(new URL('../.codegen-check/', import.meta.url));
+const guide = readFileSync(new URL('../src/content/guides/getting-started.mdx', import.meta.url), 'utf8');
 const bin = createRequire(import.meta.url);
 const extensions: Record<Framework, string> = { js: '.js', react: '.react.tsx', vue: '.vue' };
 
@@ -51,7 +59,7 @@ function check(script: string, project: string) {
     signal: null,
     status: 2,
   });
-  const errors = [...output.matchAll(/^(?:(\S+)\((\d+,\d+)\): )?error TS.*$/gm)];
+  const errors = [...output.matchAll(/^(?:(.+?)\((\d+,\d+)\): )?.*\berror TS\d+.*$/gm)];
   return { output, at: errors.map(([line, file, at]) => (file ? `${file}:${at}` : line)) };
 }
 
@@ -63,6 +71,12 @@ test(
     mkdirSync(root);
     for (const e of [...examples.values(), ...unlisted, ...definitions])
       checkedStates(e.switches).forEach((state, i) => write(e, `${e.id}--${i}`, state));
+    for (const chart of [...chartNames, 'plot'] as const)
+      put(`signature--${chart}.vue`, text(signature('vue', chart)));
+    put('rows.json', JSON.stringify([{ name: 'a', day: '2026-11-01', value: 1 }]));
+    const fences = [...guide.matchAll(/^```(js|tsx|vue)\n([\s\S]*?)^```$/gm)];
+    expect(fences.map(([, lang]) => lang)).toEqual(['js', 'tsx', 'vue']);
+    for (const [, lang, source] of fences) put(`guide--getting-started.${lang}`, source!);
     const lineZoom = examples.get('line-zoom')!;
     const control = write(
       example({ ...(lineZoom as EasyExample), id: 'control', props: { curve: 'wavy' }, switches: [] }),

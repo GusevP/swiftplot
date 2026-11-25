@@ -149,7 +149,7 @@ export type Base = {
   hidden?: string[];
   /** Called with the hidden series once the legend has changed them; never for update(). */
   onHiddenChange?: Options['onHiddenChange'];
-  /** Rows the app has picked out: bars and dots outline them, while a line or an area is drawn as before. */
+  /** Rows the app has picked out: bars and dots outline them, while a line or an area redraws its series. */
   selected?: Options['selected'];
   /** Called for a click on the plot with what is within 20 px of it, or null, and the values there. */
   onClick?: Options['onClick'];
@@ -252,6 +252,10 @@ export type ErrorBars<F> = {
   /** The width of the lines in CSS pixels. @default 1 */
   width?: number;
 };
+export type ErrorBarsOn<F> = ErrorBars<F> & {
+  /** The axis low and high are values on, the bars running along it. @default 'x' with a text y, else 'y' */
+  axis?: 'x' | 'y';
+};
 export type LineProps<D> = Props<D> &
   ScaledAxes &
   Overlays &
@@ -295,8 +299,8 @@ export type ScatterProps<D> = {
     alpha?: number;
     /** Draws each dot as a ring of its colour this many CSS pixels wide; filled when left out. */
     ring?: number;
-    /** An upright bar from low to high at each x, under the dots and in their colour; takes one y, with series or without. */
-    errorBars?: ErrorBars<NonNullable<Exclude<Props<D>['y'], readonly unknown[]>>>;
+    /** A bar from low to high at each dot, under the dots and in their colour: upright, or lying down with `axis: 'x'` or a text y, where low and high are values on the x axis and x is numbers; takes one y, with series or without. */
+    errorBars?: ErrorBarsOn<NonNullable<Exclude<Props<D>['y'], readonly unknown[]>>>;
   };
 
 export type PartRowProps<R> = Base & {

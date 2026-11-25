@@ -1,3 +1,4 @@
+import { textWidth } from '../text.js';
 import type { Col, Label, Mark, Prepared } from '../types.js';
 
 /** A line across the whole plot at each x or each y value, over the data and never a series. */
@@ -41,7 +42,7 @@ export function rule(o: RuleOptions): Mark {
       const at = 'x' in o ? o.x : o.y;
       const rules: NonNullable<Prepared['rules']> = [];
       const inPlot = ({ x, y, text, align }: Label) => {
-        const len = text.length * 7 * dpr;
+        const len = textWidth(text) * dpr;
         const l = align === 'start' ? x : align === 'end' ? x - len : x - len / 2;
         return l >= left && l + len <= left + w && y - 8 * dpr >= top && y + 8 * dpr <= top + h;
       };

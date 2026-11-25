@@ -129,7 +129,11 @@ const faults: Record<string, (chart: ChartName) => Given> = {
     errorBars: spread,
   }),
   "scale 'log' does not apply, as": () => ({ yAxis: { scale: 'log' } }),
-  'errorBars do not apply to a text y': () => ({ y: 't', errorBars: spread }),
+  'errorBars along y do not apply to a text y': () => ({ y: 't', errorBars: { ...spread, axis: 'y' } }),
+  'errorBars along x need an x of numbers': () => ({ x: 't', errorBars: { ...spread, axis: 'x' } }),
+  'errorBars.axis applies to scatterChart only': () => ({
+    errorBars: { ...spread, axis: 'y' },
+  }),
   "yAxis.scale 'log' does not apply to a text y": () => ({ y: 't', yAxis: { scale: 'log' } }),
   "does not apply to shape 'tick'": () => ({ shape: 'tick', ring: 1 }),
   'takes x or y': () => ({ rules: [{}] }),

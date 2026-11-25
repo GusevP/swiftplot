@@ -1,4 +1,5 @@
 import { rgba } from '../gl.js';
+import { textWidth } from '../text.js';
 import type { Col, Mark } from '../types.js';
 import { inRing, TURN, turnAt } from './common.js';
 
@@ -109,7 +110,7 @@ export function arcs(o: ArcsOptions): Mark {
             // A slice narrower at the rim than one character has no room, so it is not asked.
             const text = share * TURN * outer >= 7 * dpr ? said(i, share) : '';
             const [x, y] = anchor(i);
-            if (!text || !within(i, x, y, text.length * 7 * dpr, 16 * dpr)) return undefined;
+            if (!text || !within(i, x, y, textWidth(text) * dpr, 16 * dpr)) return undefined;
             return { x, y, text, color: '#fff', priority: share };
           }).filter(l => l !== undefined);
       return {

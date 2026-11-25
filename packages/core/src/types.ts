@@ -33,7 +33,7 @@ export type Hit = {
 /**
  * Text a mark asks to have drawn at a point of the canvas, in device pixels like the rest of what
  * a mark computes. The chart draws it as DOM, leaves out what would run off the chart or onto a
- * label of higher priority (judged at 7 px a character), and shows it as a reveal uncovers it.
+ * label of higher priority, and shows it as a reveal uncovers it.
  */
 export type Label = {
   x: number;

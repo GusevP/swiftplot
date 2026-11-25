@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Label widths are measured where they were taken as 7 px a character: category ticks, the margins beside a text axis, legend entries and the labels on slices, stages, nodes, spokes and rules, so long, capital or CJK names no longer overlap or clip. Plain numbers and the time axis's own labels keep the estimate, as the first measurement on a page costs about 3 ms.
+- `scatterChart` draws error bars lying down: `errorBars: { low, high, axis: 'x' }` reads `low` and `high` as values on a number x, and a text `y` implies it.
+
 ## 0.2.0 - 2026-11-25
 
 - A second y axis: `y2` in the options draws an axis on the right, and a mark with `yAxis: 'y2'` is drawn against it, so bars and a line in two units share a chart. Each axis fits its own marks; a zoom or a pan on y moves both; `view`, `onViewChange`, `onClick`, `pointer`, `onPointerChange` and the brush's range carry `y2`; a tooltip's `value` is told the axis.

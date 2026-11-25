@@ -2541,9 +2541,41 @@ test('a text y is never guessed, and is scatterChart alone', () => {
   const bad = (props: object) => () =>
     scatterChart.spec({ data: DELIVERIES, x: 'minutes', y: 'courier', ...props } as never);
   expect(bad({ yAxis: LOG })).toThrow(/^scatterChart: yAxis.scale 'log' does not apply to a text y/);
-  expect(bad({ errorBars: { low: 'late', high: 'late' } })).toThrow(
-    /^scatterChart: errorBars do not apply to a text y/,
+  expect(bad({ errorBars: { low: 'late', high: 'late', axis: 'y' } })).toThrow(
+    /^scatterChart: errorBars along y do not apply to a text y/,
   );
+});
+
+test('scatterChart errorBars lie down along x with a text y or axis x, and only there', () => {
+  const lying = (o: Options) =>
+    o.marks
+      .filter(m => m.type === 'errorBars')
+      .map(m => {
+        const { y, x1, x2 } = m.options as { y: Col; x1: Col; x2: Col };
+        return [numbers(y), numbers(x1), numbers(x2)];
+      });
+  const flat = [
+    [0, 1, 2],
+    [4, 5, 2],
+    [6, 8, 3.5],
+  ];
+  expect(lying(scatterChart.spec({ data: spans, x: 'mean', y: 'dose', errorBars: SPREAD }))).toEqual([flat]);
+  const numeric = {
+    data: spans,
+    x: 'mean',
+    y: 'high',
+    errorBars: { low: 'low', high: 'high', axis: 'x' },
+  } as const;
+  expect(lying(scatterChart.spec(numeric))).toEqual([[[6, 8, 3.5], flat[1], flat[2]]]);
+  expect(lying(scatterChart.spec({ ...numeric, yAxis: { scale: 'log' } }))[0]!.slice(1)).toEqual(
+    flat.slice(1),
+  );
+  expect(() => scatterChart.spec({ ...numeric, x: 'dose' })).toThrow(
+    /^scatterChart: errorBars along x need an x of numbers/,
+  );
+  expect(() =>
+    lineChart.spec({ data: spans, y: 'mean', errorBars: { ...SPREAD, axis: 'y' } } as never),
+  ).toThrow(/^lineChart: errorBars.axis applies to scatterChart only/);
 });
 
 test("scatterChart shape 'tick' draws ticks r long that answer no tooltip, and an update switches the shape", () => {

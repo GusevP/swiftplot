@@ -2684,27 +2684,52 @@ test('a series behind "+N more" is still hidden and shown with hidden', () => {
   expect(pixel(el, 150, chart.yPx(0.8))).toEqual([255, 0, 0, 255]);
 });
 
-test('y tick labels of twelve characters get a left margin of 14 plus 7 a character', () => {
+test('the left margin holds the y tick labels: 7 px a character for plain numbers, as measured for text', () => {
+  for (const [labels, plain] of [
+    [['100000000000', '100000000001'], true],
+    [['WWWWWWWWWWW0', 'WWWWWWWWWWW1'], false],
+  ] as const) {
+    const el = host();
+    let chart!: Internals;
+    plot(el, {
+      ...frame,
+      width: 400,
+      height: 300,
+      margin: undefined,
+      marks: [],
+      y: {
+        domain: [0, 1],
+        label: '',
+        scale: () => ({ lo: 0, hi: 1, ticks: labels.map((label, value) => ({ value, label })) }),
+      },
+      use: [c => ((chart = c), { destroy() {} })],
+    });
+    if (plain) expect(chart.margin().left).toBe(14 + 12 * 7);
+    else expect(chart.margin().left).toBeGreaterThan(14 + 12 * 7);
+    const root = el.firstElementChild!.getBoundingClientRect();
+    for (const label of labels)
+      expect(textOf(el, label).getBoundingClientRect().left).toBeGreaterThanOrEqual(root.left);
+  }
+});
+
+test('band tick labels of wide names thin until they clear each other', () => {
   const el = host();
-  let chart!: Internals;
-  const labels = ['xxxxxxxxxxx0', 'xxxxxxxxxxx1'];
+  const categories = Array.from({ length: 6 }, (_, i) => `WWWWWWWWW${i}`);
   plot(el, {
     ...frame,
-    width: 400,
+    width: 600,
     height: 300,
     margin: undefined,
     marks: [],
-    y: {
-      domain: [0, 1],
-      label: '',
-      scale: () => ({ lo: 0, hi: 1, ticks: labels.map((label, value) => ({ value, label })) }),
-    },
-    use: [c => ((chart = c), { destroy() {} })],
+    x: band({ label: '', categories }),
   });
-  expect(chart.margin().left).toBe(14 + 12 * 7);
-  const root = el.firstElementChild!.getBoundingClientRect();
-  for (const label of labels)
-    expect(textOf(el, label).getBoundingClientRect().left).toBeGreaterThanOrEqual(root.left);
+  const boxes = categories.flatMap(c => {
+    const e = [...el.querySelectorAll('div')].find(d => d.textContent === c && !d.children.length);
+    return e ? [e.getBoundingClientRect()] : [];
+  });
+  expect(boxes.length).toBeGreaterThan(1);
+  expect(boxes.length).toBeLessThan(6);
+  boxes.forEach((b, i) => i && expect(b.left).toBeGreaterThanOrEqual(boxes[i - 1]!.right));
 });
 
 test('the last x tick label ends inside the right edge on a linear, a time and a band axis', () => {
@@ -3128,8 +3153,8 @@ test('a legend entry keeps the keyboard focus when hiding its series moves the o
     height: 300,
     x: { domain: [0, 10], label: '' },
     marks: [
-      line({ x: [0, 10], y: [0, 1], color: RED, label: 'A'.repeat(13) }),
-      line({ x: [0, 10], y: [0, 1e6], color: RED, label: 'B'.repeat(14) }),
+      line({ x: [0, 10], y: [0, 1], color: RED, label: '1'.repeat(13) }),
+      line({ x: [0, 10], y: [0, 1e6], color: RED, label: '2'.repeat(14) }),
     ],
     use: [legend()],
   });

@@ -1,4 +1,5 @@
 import { scale } from '../scale.js';
+import { textWidth } from '../text.js';
 import type { Col, Label, Mark, View } from '../types.js';
 import { TURN } from './common.js';
 
@@ -49,7 +50,7 @@ export function radar(o: RadarOptions): Mark[] {
     let r = Math.min(width, height) / 2;
     for (let i = 0; i < n; i++) {
       const [c, s] = [Math.abs(toward(i)[0]), Math.abs(toward(i)[1])];
-      if (c >= 0.01) r = Math.min(r, (width / 2 - (axes[i]!.length * 7 + 4) * dpr) / c - 8 * dpr);
+      if (c >= 0.01) r = Math.min(r, (width / 2 - (textWidth(axes[i]!) + 4) * dpr) / c - 8 * dpr);
       if (s >= 0.01) r = Math.min(r, (height / 2 - 10 * dpr) / s - 12 * dpr);
     }
     r = Math.max(r, Math.min(width, height) / 4, 0);

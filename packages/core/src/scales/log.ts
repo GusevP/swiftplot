@@ -1,4 +1,5 @@
 import { fits, scale as linear, spaced } from '../scale.js';
+import { widest as widestOf } from '../text.js';
 import type { Axis, Col, Resolved, Room, Span, Tick } from '../types.js';
 
 export type LogAxis = Axis & {
@@ -70,7 +71,7 @@ function resolve(axis: Axis, extent: () => Span, room?: Room): Resolved {
       if (times === 1) powers.push(t);
     }
   }
-  const widest = (ts: Tick[]) => ts.reduce((w, t) => Math.max(w, t.label.length), 0);
+  const widest = (ts: Tick[]) => widestOf(ts.map(t => t.label));
   const ordered = (ticks: Tick[]) => ({
     lo,
     hi,
@@ -93,7 +94,7 @@ function resolve(axis: Axis, extent: () => Span, room?: Room): Resolved {
     ...real.ticks.flatMap(v => (v > 0 ? [{ value: lg(v, base), label: format(v) }] : [])),
   ];
   const gap = room
-    ? ((room.horizontal ? widest(offered) * 7 + 16 : 22) / Math.max(room.length, 1)) * (b - a)
+    ? ((room.horizontal ? widest(offered) + 16 : 22) / Math.max(room.length, 1)) * (b - a)
     : 1e-9;
   const kept: Tick[] = [];
   for (const t of offered) if (kept.every(k => Math.abs(k.value - t.value) >= gap)) kept.push(t);

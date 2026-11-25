@@ -102,6 +102,13 @@ describe('example()', () => {
     expect(() => put({ sets: { none: [], faded: [] } })).toThrow(/switch "fill" has both a prop and sets/);
   });
 
+  test.each(['target', 'prop'])('an explicit %s: undefined beside sets is the sets form', one => {
+    const [sets] = easyCombo.switches;
+    expect(() =>
+      example({ ...easyCombo, switches: [{ ...sets, [one]: undefined } as Switch] }),
+    ).not.toThrow();
+  });
+
   test('an easy put into a value that is not an object fails, naming the state', () => {
     expect(() =>
       example({
@@ -213,7 +220,7 @@ describe('registry()', () => {
   });
 });
 
-test('checkedStates() gives every combination of up to four switches, else each flipped alone and all flipped', () => {
+test('checkedStates() gives every combination of up to four switches, else each other value alone and all flipped', () => {
   expect(checkedStates(base.switches)).toEqual([
     { zoom: true, curve: 'linear' },
     { zoom: true, curve: 'smooth' },
@@ -231,6 +238,17 @@ test('checkedStates() gives every combination of up to four switches, else each 
     { d: true },
     { e: true },
     { a: true, b: true, c: true, d: true, e: true },
+  ]);
+  const choice = { prop: 'a', label: 'a', kind: 'choice', values: ['x', 'y', 'z'], value: 'y' } as const;
+  expect(checkedStates([choice, ...five.slice(1)])).toEqual([
+    {},
+    { a: 'x' },
+    { a: 'z' },
+    { b: true },
+    { c: true },
+    { d: true },
+    { e: true },
+    { a: 'x', b: true, c: true, d: true, e: true },
   ]);
 });
 

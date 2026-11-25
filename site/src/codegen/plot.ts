@@ -25,7 +25,8 @@ type Line = Token[];
 const words = (list: string) => new Set(list.split(/\s+/));
 const TAKEN = words(`rows data el step options chart timer mount Chart Plot PlotProps
   useEffect useState setData computed onMounted onUnmounted shallowRef
-  Float64Array Number String Date NaN Infinity undefined setInterval clearInterval document`);
+  Float64Array Number String Date NaN Infinity undefined setInterval clearInterval document
+  Math JSON Intl Array Object Boolean Symbol BigInt RegExp Error Map Set isNaN isFinite parseInt parseFloat`);
 const RESERVED =
   words(`await break case catch class const continue debugger default delete do else enum export
   extends false finally for function if implements import in instanceof interface let new null package private
@@ -202,17 +203,19 @@ const objectLines = (list: readonly Entry[], indent: string) =>
 const block = (code: readonly Line[], indent: string) =>
   code.flatMap(line => [plain(indent), ...indented(line, indent), plain('\n')]);
 
-/** For a switch that changes `use`, which the wrappers read only on mount: a key that differs per state. */
+/** For a switch that changes `use`, which the wrappers read only on mount: a key that differs per `use`. */
 function key(definition: PlotExample, state: State): string | undefined {
   const use = (s: State) => useOf(resolve(definition, s));
   const states = checkedStates(definition.switches);
+  const current = use(state);
+  const shown = states.find(s => use(s) === current) ?? state;
   const parts = definition.switches
     .filter(s => {
       const values: readonly unknown[] = s.kind === 'boolean' ? [true, false] : s.values;
       return states.some(base => new Set(values.map(v => use({ ...base, [s.id]: v }))).size > 1);
     })
     .map(s => {
-      const v = Object.hasOwn(state, s.id) ? state[s.id] : s.value;
+      const v = Object.hasOwn(shown, s.id) ? shown[s.id] : s.value;
       return `${s.id}-${typeof v === 'boolean' ? (v ? 'on' : 'off') : String(v)}`;
     });
   return parts.length ? parts.join(' ') : undefined;

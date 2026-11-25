@@ -20,7 +20,8 @@
     border-radius: 0;
     padding: 0.45rem 0.6rem;
   }
-  ul {
+  ul,
+  .note {
     position: absolute;
     top: calc(100% + 6px);
     right: 0;
@@ -32,6 +33,12 @@
     list-style: none;
     background: var(--surface);
     border: 1px solid var(--tone);
+  }
+  .note {
+    left: 0;
+    width: auto;
+    padding: 0.6rem 0.75rem;
+    color: var(--muted);
   }
   ul :global(a) {
     display: block;
@@ -75,6 +82,7 @@
   const close = () => {
     generation++;
     list.hidden = true;
+    status.className = 'sr';
   };
 
   const show = (found: { data: Data; sub: Sub }[]) => {
@@ -94,6 +102,7 @@
       }),
     );
     list.hidden = found.length === 0;
+    status.className = found.length ? 'sr' : 'note';
     status.textContent = found.length === 1 ? '1 result' : found.length ? `${found.length} results` : 'No results';
   };
 
@@ -103,6 +112,7 @@
     list.hidden = true;
     list.replaceChildren();
     status.textContent = '';
+    status.className = 'sr';
     if (!query) return;
     try {
       pagefind ??= import(/* @vite-ignore */ bundle);
@@ -116,6 +126,7 @@
       if (current !== generation) return;
       close();
       status.textContent = 'Search is unavailable';
+      status.className = 'note';
     }
   });
 

@@ -64,7 +64,10 @@ async function shot(page: Page, chart: Locator, scroll: boolean) {
   const box = (await chart.boundingBox())!;
   const view = page.viewportSize()!;
   const x = Math.max(box.x, 0);
-  const y = Math.max(box.y, 0);
+  const header = await page.evaluate(
+    () => document.querySelector('header.bar')?.getBoundingClientRect().bottom ?? 0,
+  );
+  const y = Math.max(box.y, header);
   const width = Math.min(box.x + box.width, view.width) - x;
   const height = Math.min(box.y + box.height, view.height) - y;
   return page.screenshot({ ...mask, clip: { x, y, width, height } });

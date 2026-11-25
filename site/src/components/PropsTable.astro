@@ -28,7 +28,7 @@ const headers = ['Prop', 'Type', 'Default', 'What it does'] as const;
               {e.lines.map(l => (
                 <div>
                   {(l.shape ?? l.mode) && <span class="shape">{l.shape ?? l.mode}</span>}
-                  <Unbroken text={l.type} />
+                  {l.href ? <a href={l.href}><Unbroken text={l.type} /></a> : <Unbroken text={l.type} />}
                 </div>
               ))}
             </td>

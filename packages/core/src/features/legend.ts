@@ -1,3 +1,4 @@
+import { textWidth } from '../text.js';
 import type { Feature } from '../types.js';
 
 const ROW = 20;
@@ -31,9 +32,7 @@ export type LegendOptions = {
 /**
  * One entry per group of labelled marks, in rows above the plot; pointing at one focuses its group,
  * and with `toggle` (the default) a click or Enter or Space hides or shows it.
- * ponytail: entry widths are estimated at 7 px a character, because measuring text (DOM or canvas)
- * costs about 16 ms at 4x CPU slowdown before the first paint. A row that turns out wider is cut off,
- * and a label wider than the plot ends in an ellipsis, titled once layout shows it cut.
+ * A label wider than the plot ends in an ellipsis, titled once layout shows it cut.
  */
 export function legend({ toggle = true, rows: cap }: LegendOptions = {}): Feature {
   return chart => {
@@ -78,7 +77,7 @@ export function legend({ toggle = true, rows: cap }: LegendOptions = {}): Featur
           : ramps.length;
       const rows: Entry[][] = [[]];
       const most = Math.max(1, Math.floor(cap ?? budget - kept) || 1);
-      const wide = (e: Entry) => SWATCH + e.label.length * 7;
+      const wide = (e: Entry) => SWATCH + textWidth(e.label);
       const more = (n: number) => `+${n} more`;
       let used = 0;
       let rest: Entry[] = [];
@@ -108,7 +107,7 @@ export function legend({ toggle = true, rows: cap }: LegendOptions = {}): Featur
         ...strips.splice(kept).map(s => s.label ?? s.ends.join('–')),
       ];
       const last = rows.at(-1)!;
-      while (unlisted.length && last.length > 1 && used + GAP + more(unlisted.length).length * 7 > width) {
+      while (unlisted.length && last.length > 1 && used + GAP + textWidth(more(unlisted.length)) > width) {
         const out = last.pop()!;
         unlisted.unshift(out.label);
         used -= GAP + wide(out);

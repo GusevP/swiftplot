@@ -229,7 +229,7 @@
   height: clamp(110px, 11vw, 160px);
 }
 
-.wall span {
+.wall a > span {
   padding-top: 10px;
 }
 

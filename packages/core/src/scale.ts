@@ -1,3 +1,4 @@
+import { textWidth, widest as widestOf } from './text.js';
 import type { Axis, Col, Room } from './types.js';
 
 /** The 1, 2 or 5 times a power of ten that cuts the span into at most `max` steps. */
@@ -20,9 +21,9 @@ export function extent(cols: Col[]): [number, number] {
   return lo > hi ? [0, 1] : [lo, hi];
 }
 
-/** Whether labels of this many characters fit side by side (x) or stacked (y) along the axis. */
+/** Whether this many labels, the widest so many CSS pixels wide, fit side by side (x) or stacked (y) along the axis. */
 export const fits = (count: number, widest: number, room: Room) =>
-  count * (room.horizontal ? widest * 7 + 16 : 22) <= Math.max(room.length, 1);
+  count * (room.horizontal ? widest + 16 : 22) <= Math.max(room.length, 1);
 
 /** At most the ticks whose labels fit: when even two collide, only the first is kept. */
 export const thin = <T>(ticks: T[], widest: number, room?: Room) =>
@@ -90,7 +91,7 @@ export function scale(
     }
     return ticks;
   };
-  const widest = () => Math.max(...ticks.map(v => format(v).length));
+  const widest = () => widestOf(ticks.map(format), room?.horizontal ? textWidth : () => 0);
   let ticks = at(step);
   if (fixed)
     return {

@@ -1,4 +1,5 @@
 import { rgba } from '../gl.js';
+import { textWidth } from '../text.js';
 import type { Label, Mark } from '../types.js';
 import { inRing, TURN, turnAt } from './common.js';
 import { first, grow, type TreeColumns } from './tree.js';
@@ -139,7 +140,7 @@ export function sunburst(o: SunburstOptions): Mark {
       for (const i of o.text === false || !outer ? [] : largest) {
         const text = o.text ? o.text(i) : named(i);
         const [x, y] = anchor(i);
-        if (!text || !inRing([cx, cy, ...reach(i), from[i]!, to[i]!], x, y, text.length * 7 * dpr, 16 * dpr))
+        if (!text || !inRing([cx, cy, ...reach(i), from[i]!, to[i]!], x, y, textWidth(text) * dpr, 16 * dpr))
           continue;
         labels.push({ x, y, text, color: '#fff', priority: size[i]! / 2 ** depth[i]! });
       }

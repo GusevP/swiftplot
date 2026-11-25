@@ -151,19 +151,23 @@ export const targetsOf = (s: Switch | PlotSwitch): string[] =>
 const settings = (s: Switch | PlotSwitch): unknown[] =>
   s.kind === 'boolean' ? [s.value, !s.value] : [s.value, ...s.values.filter(v => v !== s.value)];
 
-/** The switch states the site checks: every combination of up to four switches, else each flipped alone and all flipped. */
+/** The switch states the site checks: every combination of up to four switches, else each other value alone and all flipped. */
 export function checkedStates(switches: readonly (Switch | PlotSwitch)[]): State[] {
   if (switches.length <= 4)
     return switches.reduce<State[]>(
       (states, s) => states.flatMap(state => settings(s).map(v => ({ ...state, [switchKey(s)]: v }))),
       [{}],
     );
-  const flipped = switches.flatMap(s =>
+  const others = switches.map(s =>
     settings(s)
-      .slice(1, 2)
+      .slice(1)
       .map(v => [switchKey(s), v] as const),
   );
-  return [{}, ...flipped.map(([k, v]) => ({ [k]: v })), Object.fromEntries(flipped)];
+  return [
+    {},
+    ...others.flat().map(([k, v]) => ({ [k]: v })),
+    Object.fromEntries(others.flatMap(o => o.slice(0, 1))),
+  ];
 }
 
 const isJson = (v: unknown): boolean =>
@@ -194,10 +198,11 @@ export function example(input: Example): Example {
     if (seen.has(key)) fail(`duplicate switch "${key}"`);
     seen.add(key);
     for (const one of ['target', 'prop'])
-      if (one in s && 'sets' in s) fail(`switch "${key}" has both a ${one} and sets`);
+      if (s[one as keyof typeof s] !== undefined && s.sets)
+        fail(`switch "${key}" has both a ${one} and sets`);
     if (s.kind === 'choice' && !s.values.includes(s.value))
       fail(`switch "${key}" starts at "${s.value}", which is not among ${JSON.stringify(s.values)}`);
-    const byValue = s.kind !== 'choice' ? undefined : 'sets' in s ? s.sets : 'puts' in s ? s.puts : undefined;
+    const byValue = s.kind !== 'choice' ? undefined : s.sets ? s.sets : s.puts;
     if (s.kind === 'choice' && byValue) {
       for (const v of Object.keys(byValue))
         if (!s.values.includes(v))

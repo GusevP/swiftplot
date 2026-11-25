@@ -1,6 +1,7 @@
 import { locate, position } from './features/pointer.js';
 import { upTo } from './marks/common.js';
 import { extent, scale } from './scale.js';
+import { FONT, textWidth } from './text.js';
 import { light } from './theme.js';
 import type {
   Axis,
@@ -79,18 +80,7 @@ export function plot(el: HTMLElement, options: Options): Chart {
   let o = options;
   let dpr = devicePixelRatio;
   const root = document.createElement('div');
-  const font = '12px system-ui,sans-serif';
-  root.style.cssText = `position:relative;font:${font};pointer-events:auto`;
-  const widths = new Map<string, number>();
-  let pen: CanvasRenderingContext2D | undefined;
-  const textWidth = (s: string) => {
-    let w = widths.get(s);
-    if (w === undefined) {
-      pen ??= Object.assign(document.createElement('canvas').getContext('2d')!, { font });
-      widths.set(s, (w = pen.measureText(s).width));
-    }
-    return w;
-  };
+  root.style.cssText = `position:relative;font:${FONT};pointer-events:auto`;
   const layer = <K extends keyof HTMLElementTagNameMap>(tag: K, css = '') => {
     const e = document.createElement(tag);
     e.style.cssText = `position:absolute;pointer-events:none;${css}`;
@@ -313,7 +303,7 @@ export function plot(el: HTMLElement, options: Options): Chart {
     const wanted = [...new Set(visible)].flatMap(k => cache.get(k)?.p.labels ?? []);
     const kept: Box[] = [];
     for (const label of wanted.sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0))) {
-      const [x, y, w] = [label.x / dpr, label.y / dpr, label.text.length * 7];
+      const [x, y, w] = [label.x / dpr, label.y / dpr, textWidth(label.text)];
       const l = label.align === 'start' ? x : label.align === 'end' ? x - w : x - w / 2;
       const box = { l, t: y - 8, r: l + w, b: y + 8, text: label.text, color: label.color };
       if (box.l < 0 || box.t < 0 || box.r > W || box.b > H) continue;
@@ -570,24 +560,22 @@ export function plot(el: HTMLElement, options: Options): Chart {
   };
 
   const layout = () => {
-    // ponytail: tick labels are taken as 7 px a character, not measured, because measuring text
-    // forces a layout before the first paint. Set the margin when labels are wider than that.
     const [xLabel, yLabel] = [axisOf(o, 'x').label, axisOf(o, 'y').label];
     const y2Label = ys2 ? axisOf(o, 'y2').label : '';
     const given = o.margin ?? {};
     let widest = 0;
     if (given.left === undefined)
-      for (const t of [...ys.ticks, ...wholes.y.ticks]) widest = Math.max(widest, t.label.length);
+      for (const t of [...ys.ticks, ...wholes.y.ticks]) widest = Math.max(widest, textWidth(t.label));
     let widest2 = 0;
     if (ys2 && given.right === undefined)
-      for (const t of [...ys2.ticks, ...wholes.y2!.ticks]) widest2 = Math.max(widest2, t.label.length);
+      for (const t of [...ys2.ticks, ...wholes.y2!.ticks]) widest2 = Math.max(widest2, textWidth(t.label));
     m = bare(o)
       ? { top: given.top ?? 8, right: given.right ?? 8, bottom: given.bottom ?? 8, left: given.left ?? 8 }
       : {
           top: given.top ?? 12,
-          right: given.right ?? (ys2 ? 14 + widest2 * 7 + (y2Label ? 20 : 0) : 16),
+          right: given.right ?? (ys2 ? 14 + Math.ceil(widest2) + (y2Label ? 20 : 0) : 16),
           bottom: given.bottom ?? (xLabel ? 44 : 26),
-          left: given.left ?? 14 + widest * 7 + (yLabel ? 20 : 0),
+          left: given.left ?? 14 + Math.ceil(widest) + (yLabel ? 20 : 0),
         };
     // x tick labels are centred on their ticks, so the first and the last may reach past the chart.
     // A tick at fraction u of the axis sits at (1 - u) * left + u * (W - right). Each side is first

@@ -106,7 +106,7 @@ import rows from './rows.json';
 </script>
 
 <template>
-  <AreaChart :data="rows" v-bind="props" />
+  <AreaChart :data="rows" />
 </template>
 `);
 });

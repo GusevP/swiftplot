@@ -1,3 +1,4 @@
+import { textWidth } from '../text.js';
 import type { Label, Mark } from '../types.js';
 import { gradient, painter } from '../paint.js';
 import { first, grow, type TreeColumns } from './tree.js';
@@ -130,7 +131,7 @@ export function treemap(o: TreemapOptions): Mark {
       for (const i of o.text === false ? [] : largest) {
         const text = o.text ? o.text(i) : named(i);
         const [x, y, w, h] = box(i);
-        if (!text || (text.length * 7 + 8) * dpr > w || 20 * dpr > h) continue;
+        if (!text || (textWidth(text) + 8) * dpr > w || 20 * dpr > h) continue;
         labels.push({
           x: x + 4 * dpr,
           y: y + 10 * dpr,

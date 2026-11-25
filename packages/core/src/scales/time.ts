@@ -1,4 +1,5 @@
 import { niceStep, spaced, thin } from '../scale.js';
+import { estimated, textWidth, widest as widestOf } from '../text.js';
 import type { Axis, Resolved, Room } from '../types.js';
 
 const UNITS = ['year', 'month', 'day', 'hour', 'minute', 'second'] as const;
@@ -107,7 +108,10 @@ function resolve(axis: TimeAxis, extent: () => [number, number], room?: Room): R
     typeof axis.domain === 'string' ? extent() : axis.domain,
     room,
   );
-  const widest = ticks.reduce((w, t) => Math.max(w, t.label.length), 0);
+  const widest = widestOf(
+    ticks.map(t => t.label),
+    axis.format ? textWidth : estimated,
+  );
   return {
     lo,
     hi,

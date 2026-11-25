@@ -20,10 +20,10 @@ import { source } from './source.js';
 import type {
   Axes,
   Base,
-  ErrorBars,
   LineProps,
   Overlays,
   ScaledAxes,
+  ErrorBarsOn,
   ScatterProps,
   SecondAxis,
   XValue,
@@ -40,7 +40,7 @@ type XyProps = Axes &
     join?: boolean;
     fill?: LineProps<undefined>['fill'];
     stack?: boolean;
-    errorBars?: ErrorBars<Field<never>>;
+    errorBars?: ErrorBarsOn<Field<never>>;
     alpha?: number;
     ring?: number;
     shape?: ScatterProps<undefined>['shape'];
@@ -250,7 +250,7 @@ export function xy(
     const spread = kind === 'area' ? undefined : p.errorBars;
     const assigned = memo(
       'fields',
-      [s, p.x, ...list(p.y), p.series, rField, utc, spread?.low, spread?.high, ...list(p.y2)],
+      [s, p.x, ...list(p.y), p.series, rField, utc, spread?.low, spread?.high, spread?.axis, ...list(p.y2)],
       () =>
         assign(
           s,
@@ -319,7 +319,8 @@ export function xy(
     const ys = memo('ys', [placed, !!y.col, !!y2?.col], () =>
       placed.map(r => {
         const a = r.yAxis ? y2! : y;
-        return a.col ? { ...r, ...columns(r, c => a.col!(c)) } : r;
+        if (!a.col) return r;
+        return assigned.lying ? { ...r, y: a.col(r.y) } : { ...r, ...columns(r, c => a.col!(c)) };
       }),
     );
     const xAt = (v: XValue): number => {
@@ -410,16 +411,15 @@ export function xy(
       });
       const errors = ys.flatMap((r, i) => {
         if (!r.low || !r.high) return [];
-        const o = defined({
+        const common = defined({
           key: `errorBars:${r.name}`,
           group: r.name,
-          x: r.x,
-          y1: r.low,
-          y2: r.high,
           color: bars ? theme.text : colors[i]!,
           cap,
           width,
         });
+        if (assigned.lying) return [errorBars({ ...common, y: r.y, x1: r.low, x2: r.high })];
+        const o = { ...common, x: r.x, y1: r.low, y2: r.high };
         return [bars && ys.length > 1 ? dodged(o) : errorBars(o)];
       });
       if (combo) drawn.sort((a, b) => +(b.type === 'bar') - +(a.type === 'bar'));

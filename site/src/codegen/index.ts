@@ -42,8 +42,12 @@ function plotSignature(framework: Framework): Token[] {
   if (framework === 'vue')
     return [
       ...setup,
-      ...importOf('{ Plot }', packages.vue),
-      plain('</script>\n\n<template>\n  <Plot v-bind="options" />\n</template>\n'),
+      ...importOf('{ Plot, type PlotProps }', packages.vue),
+      plain('\n'),
+      keyword('const'),
+      plain(
+        ' options: PlotProps = { marks: [] };\n</script>\n\n<template>\n  <Plot v-bind="options" />\n</template>\n',
+      ),
     ];
   if (framework === 'react')
     return [...importOf('{ Plot }', packages.react), plain('\n<Plot {...options} />\n')];
@@ -58,7 +62,7 @@ function plotSignature(framework: Framework): Token[] {
 export function signature(framework: Framework, chart: ChartName | 'plot'): Token[] {
   if (chart === 'plot') return plotSignature(framework);
   const name = framework === 'js' ? chart : componentOf(chart);
-  if (framework === 'vue') return vue(name, { file: 'rows.json' }, [['v-bind', 'props', []]]);
+  if (framework === 'vue') return vue(name, { file: 'rows.json' }, []);
   const head = [...importOf(`{ ${name} }`, packages[framework]), plain('\n')];
   if (framework === 'react') return [...head, plain(`<${name} data={rows} {...props} />\n`)];
   return [

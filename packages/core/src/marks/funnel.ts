@@ -1,4 +1,5 @@
 import { painter, type Gradient } from '../paint.js';
+import { textWidth } from '../text.js';
 import type { Col, Label, Mark } from '../types.js';
 
 /**
@@ -117,7 +118,7 @@ export function funnel(o: FunnelOptions): Mark {
         // The stage's half-width at the top and at the bottom of the text. Inside where even the
         // narrower leaves room; otherwise to the right of the wider, clear of the slanted side.
         const [above, below] = [reach(i, y - 8 * dpr), reach(i, y + 8 * dpr)];
-        if (text.length * 7 * dpr <= 2 * Math.min(above, below) * 0.9) {
+        if (textWidth(text) * dpr <= 2 * Math.min(above, below) * 0.9) {
           labels.push({ x: cx, y, text, color: '#fff', priority: n - i });
         } else {
           labels.push({ x: cx + Math.max(above, below) + 8 * dpr, y, text, align: 'start', priority: n - i });

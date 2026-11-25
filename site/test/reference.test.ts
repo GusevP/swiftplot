@@ -4,7 +4,7 @@ import { examples, unlisted } from '../src/examples/index';
 import { call, col, feature, fn, mark, type Tree } from '../src/examples/tree';
 import source from '../../packages/core/src/charts/types.ts?raw';
 import { extract, extractApi, type Entry } from '../src/reference/extract';
-import { api, coreFiles, intros, pages } from '../src/reference/index';
+import { api, coreFiles, intros, pages, reference as shown } from '../src/reference/index';
 import { join } from '../src/reference/join';
 import { definitions } from './plot-definitions';
 
@@ -280,6 +280,17 @@ const sample = (over: Partial<EasyExample>): Example =>
     ...over,
   });
 
+test('a type taken from core by index is shown as core writes it, linked to its row there', () => {
+  const line = (name: string) => shown.lineChart.find(e => e.name === name)!.lines[0]!;
+  expect(line('curve')).toMatchObject({
+    type: "'linear' | 'step' | 'smooth'",
+    href: '/reference/line#curve',
+  });
+  expect(line('xAxis.domain').href).toBe('/reference/scales#Axis.domain');
+  const types = Object.values(shown).flatMap(entries => entries.flatMap(e => e.lines.map(l => l.type)));
+  expect(types.filter(t => /^\w+\['\w+'\]$/.test(t))).toEqual([]);
+});
+
 describe('join()', () => {
   const one = sample({
     id: 'one',
@@ -368,7 +379,7 @@ describe('join()', () => {
       ['sankey', 'sankeyChart', ['blend']],
       ['treemap', 'treemapChart', ['shade', 'colors']],
       ['sunburst', 'sunburstChart', ['shade', 'colors']],
-      ['error-bars', 'scatterChart', ['x', 'errorBars', 'xAxis.label', 'yAxis.label', 'colors']],
+      ['error-bars', 'scatterChart', ['x', 'errorBars', 'xAxis.label', 'yAxis.label', 'colors', 'y']],
       ['bubbles', 'scatterChart', ['r', 'alpha', 'xAxis.label', 'yAxis.label', 'colors', 'ring']],
       [
         'two-y-axes',
@@ -490,6 +501,12 @@ describe('join() of a plot definition', () => {
   test("a switch into a field of an argument's type links to the argument", () => {
     const options = join([targeting('v.stroke.toward')], pages, api);
     expect(options.get('deep')!.map(u => `${u.page}.${u.entry.name}`)).toContain('line.stroke');
+  });
+
+  test('a switch into a built-in member of a primitive option fails', () => {
+    expect(() => join([targeting('v.width.toFixed')], pages, api)).toThrow(
+      '"line.width.toFixed" is not an option of line',
+    );
   });
 
   test('a switch into a field no member of the type has fails, naming the example and the full path', () => {

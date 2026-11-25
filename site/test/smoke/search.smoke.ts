@@ -204,22 +204,57 @@ test('no indexed word comes only from a framework-specific region, on any indexe
 });
 
 test('dismissing the search before the first results arrive keeps the list closed', async ({ page }) => {
+  await page.route('**/pagefind/pagefind.js', route =>
+    route.fulfill({
+      contentType: 'text/javascript',
+      body: `export const debouncedSearch = async () => ({
+        results: [{ data: () => new Promise(resolve => {
+          window.deliver = () => resolve({
+            meta: { title: 'Zoom' },
+            sub_results: [{ title: 'Zoom', url: '/examples/line-zoom.html', plain_excerpt: '' }],
+          });
+        }) }],
+      });`,
+    }),
+  );
   const list = page.locator('#search-results');
-  for (const dismiss of [() => page.keyboard.press('Shift+Tab'), () => page.mouse.click(5, 400)]) {
+  const search = async (dismiss?: () => Promise<void>) => {
     await page.goto('/');
-    let release!: () => void;
-    const held = new Promise<void>(resolve => (release = resolve));
-    await page.route('**/pagefind/**', async route => {
-      await held;
-      await route.continue();
-    });
     await field(page).fill('zoom');
-    await dismiss();
-    const fragment = page.waitForResponse('**/pagefind/fragment/**');
-    release();
-    await fragment;
-    await page.evaluate(() => new Promise(resolve => setTimeout(resolve, 200)));
-    await expect(list).toBeHidden();
-    await page.unrouteAll();
+    await page.waitForFunction(() => 'deliver' in window);
+    await dismiss?.();
+    // A timer runs after every promise callback of the search handler.
+    await page.evaluate(() => {
+      (window as unknown as { deliver(): void }).deliver();
+      return new Promise(resolve => setTimeout(resolve));
+    });
+  };
+  await search();
+  await expect(list).toBeVisible();
+  for (const dismiss of [() => page.keyboard.press('Shift+Tab'), () => page.mouse.click(5, 400)]) {
+    await search(dismiss);
+    expect(await list.isHidden()).toBe(true);
+  }
+});
+
+test('no results and an unavailable index are shown beside the field until the search closes', async ({
+  page,
+}) => {
+  await page.route('**/pagefind/pagefind.js', route =>
+    route.fulfill({
+      contentType: 'text/javascript',
+      body: 'export const debouncedSearch = async () => ({ results: [] });',
+    }),
+  );
+  const status = page.getByRole('status');
+  await page.goto('/');
+  for (const text of ['No results', 'Search is unavailable']) {
+    await field(page).fill('zoom');
+    await expect(status).toHaveText(text);
+    expect((await status.boundingBox())!.height).toBeGreaterThan(20);
+    await page.keyboard.press('Escape');
+    expect((await status.boundingBox())!.height).toBeLessThan(2);
+    await page.route('**/pagefind/pagefind.js', route => route.abort());
+    await page.reload();
   }
 });

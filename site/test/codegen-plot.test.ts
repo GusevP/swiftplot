@@ -368,7 +368,9 @@ chart.destroy();
 <Plot {...options} />
 `);
   expect(text(signature('vue', 'plot'))).toBe(`<script setup lang="ts">
-import { Plot } from '@swiftplot/vue';
+import { Plot, type PlotProps } from '@swiftplot/vue';
+
+const options: PlotProps = { marks: [] };
 </script>
 
 <template>
@@ -399,6 +401,28 @@ test('a params switch whose param sits in a feature changes the key', () => {
     expect(show(fw, zoomed)).toContain('key="axes-x"');
     expect(show(fw, zoomed, { axes: 'xy' })).toContain('key="axes-xy"');
   }
+  const toggled: PlotExample = {
+    ...zoomed,
+    switches: [
+      ...zoomed.switches,
+      { id: 'zoom', label: 'Zoom', target: 'z.on', kind: 'boolean', value: true },
+    ],
+  };
+  for (const fw of ['react', 'vue'] as const) {
+    expect(show(fw, toggled, { axes: 'xy' })).toContain('key="axes-xy zoom-on"');
+    expect(show(fw, toggled, { axes: 'xy', zoom: false })).toBe(show(fw, toggled, { zoom: false }));
+  }
+});
+
+test('a column named after a global a function may read does not shadow it', () => {
+  const shadowing = example({
+    ...mixed,
+    id: 'shadowing',
+    tree: { marks: [mark('v', 'line', { x: col('Math'), y: col('Math'), color: '#0891b2' })] },
+    data: { kind: 'rows', file: 'shadowing.json', rows: [{ Math: 1 }] },
+    switches: [],
+  });
+  expect(show('js', shadowing)).toContain('const Math2 = ');
 });
 
 test('an array of objects puts one object to a line, indented under its mark', () => {

@@ -18,7 +18,7 @@ Packages: `swiftplot` (the core, with the entry `swiftplot/charts`), `@swiftplot
 | A radar, heatmap, histogram, box plot or candlesticks | `radarChart`, `heatmapChart`, `histogramChart`, `boxPlotChart`, `candlestickChart` |
 | A sankey, treemap or sunburst | `sankeyChart`, `treemapChart`, `sunburstChart` |
 | A second y axis, reference lines, zones, a brush, a log y axis, error bars | props of the easy charts: `y2`, `rules`, `zones`, `brush`, `yAxis.scale`, `errorBars` |
-| Marks mixed in a way no easy chart does, bars or error bars lying down, a log x axis, your own mark | the explicit API: `plot()` from `swiftplot`, or `<Plot>` from a wrapper |
+| Marks mixed in a way no easy chart does, bars lying down, a log x axis, your own mark | the explicit API: `plot()` from `swiftplot`, or `<Plot>` from a wrapper |
 | A million points already in typed arrays | the explicit API |
 
 The functions in the table other than `plot()` are the easy charts, all from `swiftplot/charts`. Start with one
@@ -115,7 +115,7 @@ Every chart takes:
 | `join` | `boolean` | line and area only: draw across missing values |
 | `fill` | `boolean \| gradient(...)` | line only: shade the area under each line |
 | `stack` | `boolean` | area and bar only; on bars not with `y2` |
-| `errorBars` | `{ low, high, cap?, width? }` | line, bar and scatter: an upright bar between two fields. `low` and `high` are values on the y axis, not distances from y. With one `y`; not on stacked series or a text y |
+| `errorBars` | `{ low, high, cap?, width? }`, on a scatter also `axis?` | line, bar and scatter: an upright bar between two fields. `low` and `high` are values on the y axis, not distances from y. With one `y`; not on stacked series. On a scatter `axis: 'x'` lays the bars down, `low` and `high` then being values on a number x; a text y implies it |
 | `r` | `number` or a field | scatter only: radius in px (default 4) |
 | `alpha` | `number` | scatter only: opacity, 0 to 1 |
 | `ring` | `number` | scatter only: draw rings this many px wide |
@@ -248,7 +248,9 @@ error about which field to use also lists the fields with their kinds and says w
 | area, bar | `scale 'log' does not apply, as` | a log scale where marks start at zero | draw lines or dots |
 | line, scatter, combo | `step does not apply to a log scale` | `step` with `scale: 'log'` | leave out `step` |
 | line, scatter, combo | `domain must be above zero and finite on a log scale` | a `domain` that reaches zero or below, or is not finite | pass two finite numbers above zero |
-| scatter | `errorBars do not apply to a text y`, `yAxis.scale 'log' does not apply to a text y` | a text `y` | leave the prop out |
+| scatter | `errorBars along y do not apply to a text y`, `yAxis.scale 'log' does not apply to a text y` | a text `y` | leave the prop out |
+| scatter | `errorBars along x need an x of numbers` | error bars lying down, by `axis: 'x'` or a text `y`, with an x of text or dates | name a number field as `x` |
+| line, bar | `errorBars.axis applies to scatterChart only` | `errorBars.axis` given | leave out `axis` |
 | scatter | `does not apply to shape 'tick'` | `ring` or a field of `r` with ticks | leave the prop out |
 | line, area, bar, scatter, combo | `takes x or y` | a rule or a zone with neither | give it `x` or `y` |
 | pie, funnel, radial bars, heatmap, sankey | `there is no field of numbers for value` | no number field; often numbers held as text | convert the values with `Number()`, or name `value` |

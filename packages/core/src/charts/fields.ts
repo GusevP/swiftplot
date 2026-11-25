@@ -8,7 +8,7 @@ export type FieldProps<R> = {
   y2?: Field<R> | readonly Field<R>[];
   series?: Field<R>;
   r?: number | Field<R>;
-  errorBars?: { low: Field<R>; high: Field<R> };
+  errorBars?: { low: Field<R>; high: Field<R>; axis?: 'x' | 'y' };
   xAxis?: { utc?: boolean };
   /** The prop each field of y and then of y2 came from, where it is not those; nothing is then guessed for y. */
   roles?: readonly string[];
@@ -20,6 +20,8 @@ export type Assigned = {
   y: { label: string; categories?: string[] };
   y2?: { label: string };
   ys: Series[];
+  /** The error bars run along x: low and high are values on the x axis. */
+  lying?: true;
   /** Without series, where some row has no place on x: the rows of the data that the rows of ys are. */
   rows?: number[];
   /** With series and firstSeen: the distinct x across all series in order of first appearance. */
@@ -194,6 +196,8 @@ export function assign<R>(
     if (p.series !== undefined) fail('series and y2 do not go together', 'series or y2, not both');
     if (p.errorBars) fail('errorBars and y2 do not go together', 'errorBars or y2, not both');
   }
+  if (p.errorBars?.axis !== undefined && family !== 'scatter')
+    fail('errorBars.axis applies to scatterChart only', 'errorBars without axis');
   if (p.series !== undefined && ys.length > 1) fail('with series there is one y', 'y as one field');
   if (p.errorBars && ys.length > 1) fail('with errorBars there is one y', 'y as one field');
 
@@ -220,8 +224,9 @@ export function assign<R>(
         : numeric(f, 'y2'),
   );
   const yCategories = yColumns[0]!.categories;
-  if (yCategories && p.errorBars)
-    fail('errorBars do not apply to a text y', 'y as a field of numbers, or leave out errorBars');
+  const along = p.errorBars && (p.errorBars.axis ?? (yCategories ? 'x' : 'y'));
+  if (yCategories && along === 'y')
+    fail('errorBars along y do not apply to a text y', "errorBars.axis as 'x', or y as a field of numbers");
   const rColumn = r === undefined ? undefined : numeric(r, 'r', '1').values;
   const bounds = p.errorBars && {
     low: numeric(p.errorBars.low, 'errorBars.low').values,
@@ -229,6 +234,8 @@ export function assign<R>(
   };
   const xColumn =
     x === undefined ? undefined : read(xField!, 'the accessor x', 'x', { utc: p.xAxis?.utc ?? true });
+  if (along === 'x' && xColumn?.kind !== 'number')
+    fail('errorBars along x need an x of numbers', 'x as a field of numbers, or leave out errorBars');
   const xs = xColumn?.values ?? Float64Array.from({ length: s.length }, (_, i) => i);
 
   const kept: number[] = [];
@@ -275,5 +282,6 @@ export function assign<R>(
     ys: out,
     ...(p.series === undefined && kept.length < s.length && { rows: kept }),
     ...(order && { order: [...order] }),
+    ...(along === 'x' && { lying: true as const }),
   };
 }
