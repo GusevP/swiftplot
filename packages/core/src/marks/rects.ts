@@ -89,10 +89,18 @@ export function gpuRows(
       let held = holds.get(gl);
       if (!held) {
         holds.set(gl, (held = { vao: gl.createVertexArray(), buffer: gl.createBuffer() }));
-        const data = new Float32Array(n * kept.length);
-        for (let i = 0, j = 0; i < n; i++) {
-          const whole = kept.every(at => Number.isFinite(columns[at]![i]));
-          for (const at of kept) data[j++] = whole ? columns[at]![i]! - zero(at) : NaN;
+        const w = kept.length;
+        const data = new Float32Array(n * w);
+        // Filled a column at a time: a closure and an iterator per row took 9 ms for 100,000 bars.
+        kept.forEach((at, k) => {
+          const c = columns[at]!;
+          const z = zero(at);
+          for (let i = 0, j = k; i < n; i++, j += w) data[j] = c[i]! - z;
+        });
+        for (let j = 0; j < data.length; j += w) {
+          let sum = 0;
+          for (let k = 0; k < w; k++) sum += Math.abs(data[j + k]!);
+          if (!(sum < Infinity)) data.fill(NaN, j, j + w);
         }
         gl.bindBuffer(gl.ARRAY_BUFFER, held.buffer);
         gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW);
