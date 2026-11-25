@@ -774,9 +774,7 @@ export function plot(el: HTMLElement, options: Options): Chart {
   // One row is picked out where there is no other series to set the hovered one against, or where
   // the row is a named part of its mark, such as a slice, which is then the thing pointed at.
   const drawnRow = () =>
-    (o.dim ?? 1) !== 1 && focusedRow && !focusedRow.mark.rowsAlike && (!several || focusedRow.mark.entries)
-      ? focusedRow
-      : undefined;
+    (o.dim ?? 1) !== 1 && focusedRow && (!several || focusedRow.mark.entries) ? focusedRow : undefined;
   const chosen = () => {
     if (!o.selected?.length) return undefined;
     const rows = new Map<Mark, number[]>();

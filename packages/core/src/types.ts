@@ -146,8 +146,6 @@ export type Mark = {
    * these in place of the mark's own label, and pointing at one focuses that row.
    */
   entries?: { label: string; color: string }[];
-  /** paint() draws every row alike, so a focused row focuses the mark's group instead; select() still picks rows out. */
-  rowsAlike?: true;
   /** paint() draws the mark as one shape and ignores a row, so selecting any of its rows draws it whole. */
   oneShape?: true;
   /**

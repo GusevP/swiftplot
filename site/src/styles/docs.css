@@ -29,16 +29,21 @@
 }
 .side a {
   display: block;
-  padding: 0.28rem 0;
+  padding: 0.28rem 0 0.28rem 0.85rem;
+  border-left: 1px solid var(--tone);
   color: var(--muted);
 }
 .side a:hover,
 .side a[aria-current] {
   color: var(--ink);
 }
+.side a:hover {
+  border-left-color: var(--muted);
+}
 .side a[aria-current] {
   font-weight: 600;
-  box-shadow: -14px 0 0 -11px var(--c1);
+  padding-left: calc(0.85rem - 1px);
+  border-left: 2px solid var(--c1);
 }
 .toc {
   font-size: var(--step-small);
@@ -134,9 +139,9 @@
 .knobrow select {
   font: inherit;
   color: var(--ink);
-  background: var(--ground);
+  background-color: var(--ground);
   border: 1px solid var(--tone);
-  padding: 0.3rem 0.5rem;
+  padding: 0.3rem 1.9rem 0.3rem 0.5rem;
 }
 
 .doc table {

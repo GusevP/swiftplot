@@ -96,7 +96,7 @@ test('the framework select swaps the file name, the code and the install line; C
   ] as const) {
     await select.selectOption(fw);
     await expect(visible.locator('header span')).toHaveText(['Install', file]);
-    await expect(visible.first().locator('code')).toHaveText(install);
+    await expect(visible.first().locator('code')).toHaveText(install, { useInnerText: true });
     const shown = visible.nth(1).locator('code');
     await expect(shown).toContainText(marker);
     await visible.nth(1).getByRole('button', { name: 'Copy' }).click();
@@ -205,6 +205,7 @@ test.describe('without JavaScript', () => {
     await page.goto('/examples/line-zoom');
     const visible = page.locator('.snip:visible');
     await expect(visible.locator('header span')).toHaveText(['Install', 'chart.js']);
+    await expect(visible.first().locator('code')).toHaveText('npm i swiftplot', { useInnerText: true });
     await expect(visible.nth(1).locator('code')).toContainText('zoom: true');
   });
 });

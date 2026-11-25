@@ -1,0 +1,26 @@
+---
+import { managers } from '../scripts/preferences';
+---
+
+<div class="pm" role="group" aria-label="Package manager">
+  {
+    managers.map(m => (
+      <button type="button" data-pm-pick={m.id} aria-pressed="false">
+        {m.id}
+      </button>
+    ))
+  }
+</div>
+
+<script>
+  import { setManager, type Manager } from '../scripts/preferences';
+
+  const root = document.documentElement;
+  const picks = [...document.querySelectorAll<HTMLButtonElement>('[data-pm-pick]')];
+  const follow = () => {
+    for (const pick of picks) pick.setAttribute('aria-pressed', String(pick.dataset.pmPick === root.dataset.pm));
+  };
+  for (const pick of picks) pick.addEventListener('click', () => setManager(pick.dataset.pmPick as Manager));
+  follow();
+  new MutationObserver(follow).observe(root, { attributes: true, attributeFilter: ['data-pm'] });
+</script>

@@ -1,6 +1,8 @@
 ---
 import DataDownload from '../components/DataDownload.astro';
 import ExampleCode from '../components/ExampleCode.astro';
+import InstallLine from '../components/InstallLine.astro';
+import ManagerPick from '../components/ManagerPick.astro';
 import Switches from '../components/Switches.astro';
 import Base from '../layouts/Base.astro';
 import { defaults, frameworks as install } from '../codegen/index';
@@ -60,16 +62,19 @@ const fromRows = examples.get('line-from-rows')!;
         </p>
         <div class="row">
           <a class="go" href="/guides/getting-started">Get started</a>
-          {
-            frameworks.map(f => (
-              <div class="cp" data-for={f.id} data-copy-scope>
-                <code>{install[f.id].install}</code>
-                <button type="button" data-copy>
-                  Copy
-                </button>
-              </div>
-            ))
-          }
+          <div class="install">
+            <ManagerPick />
+            {
+              frameworks.map(f => (
+                <div class="cp" data-for={f.id} data-copy-scope>
+                  <InstallLine packages={install[f.id].packages} />
+                  <button type="button" data-copy>
+                    Copy
+                  </button>
+                </div>
+              ))
+            }
+          </div>
         </div>
       </div>
       <p class="live"><b>200,000</b>points, drawn live by swiftplot</p>
@@ -200,12 +205,13 @@ const fromRows = examples.get('line-from-rows')!;
     </section>
     <section class="part" id="start">
       <h2>Start with one line.</h2>
+      <ManagerPick />
       <div class="starts">
         {
           frameworks.map(f => (
             <div>
               <b>{f.id === 'js' ? 'Plain JavaScript' : f.label}</b>
-              <code>{install[f.id].install}</code>
+              <InstallLine packages={install[f.id].packages} />
             </div>
           ))
         }

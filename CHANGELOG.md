@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Hovering a dot of a scatter with one series fades its other dots, as a bar does, on the canvas and on WebGL; and with an x tooltip a bar under the pointer is focused, so hovering the bars of a combo chart fades its other series.
+
+- Pointing inside several overlapping areas focuses the lowest one there, where it always took the one drawn last: each of unstacked areas can now be picked out.
+
 - The easy charts animate by default and take `dim`: marks are revealed on the first paint and move or cross-fade on new data, and everything else fades to 0.3 while one series or part is pointed at. `animate: false` and `dim: false` turn them off.
 - Bars, error bars, box plots and candlesticks drawn by WebGL fill their buffer several times faster: 100,000 stacked bars mount in about 10 ms where they took 17.
 

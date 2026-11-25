@@ -45,6 +45,19 @@ test('every hand-written example is listed, shows its three files and one at a t
   }
 });
 
+test('/examples/bar-new-data redraws its bars for each button', async ({ page }) => {
+  const errors = watch(page);
+  const canvas = await open(page, 'bar-new-data');
+  const drawn = () => canvas.evaluate((c: HTMLCanvasElement) => c.toDataURL());
+  for (const name of ['New scores', 'Sort']) {
+    const before = await drawn();
+    await demo(page).getByRole('button', { name }).click();
+    await expect.poll(drawn).not.toBe(before);
+    await page.waitForTimeout(500);
+  }
+  expect(errors).toEqual([]);
+});
+
 test('/examples/click-pin pins the dot clicked and lets it go on a second click', async ({ page }) => {
   const errors = watch(page);
   const canvas = await open(page, 'click-pin');

@@ -4,6 +4,20 @@ const page = { kind: 'scripted', group: 'Interaction', tags: ['click'] } as cons
 
 export const scripted: readonly ScriptedExample[] = [
   {
+    kind: 'scripted',
+    group: 'Bar',
+    tags: ['compare'],
+    id: 'bar-new-data',
+    title: 'Bars that move to new data',
+    summary:
+      'Eight made-up teams and their points: give them new scores or sort them, and the bars move to their places.',
+    notes: [
+      'A chart animates unless told not to: given new data, bars move to their new heights, row for row.',
+      'Pass a new array each time. The chart compares what it is given with what it drew, not the rows inside.',
+      'animate takes a duration in milliseconds, and false draws each change at once.',
+    ],
+  },
+  {
     ...page,
     id: 'click-pin',
     title: 'Click to pin',

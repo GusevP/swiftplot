@@ -14,10 +14,10 @@ export type Defaults = Readonly<Record<string, string>>;
 export const defaults = (entries: readonly Entry[]): Defaults =>
   Object.fromEntries(entries.flatMap(e => (e.default === undefined ? [] : [[e.name, e.default]])));
 
-export const frameworks: Record<Framework, { file: string; install: string }> = {
-  js: { file: 'chart.js', install: 'npm i swiftplot' },
-  react: { file: 'Chart.tsx', install: 'npm i swiftplot @swiftplot/react' },
-  vue: { file: 'Chart.vue', install: 'npm i swiftplot @swiftplot/vue' },
+export const frameworks: Record<Framework, { file: string; packages: string }> = {
+  js: { file: 'chart.js', packages: 'swiftplot' },
+  react: { file: 'Chart.tsx', packages: 'swiftplot @swiftplot/react' },
+  vue: { file: 'Chart.vue', packages: 'swiftplot @swiftplot/vue' },
 };
 
 const isDefault = (defaults: Defaults, name: string, value: unknown) =>

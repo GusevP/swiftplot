@@ -2,7 +2,7 @@ for (const button of document.querySelectorAll<HTMLButtonElement>('[data-copy]')
   button.addEventListener('click', async () => {
     const code = button.closest('[data-copy-scope]')?.querySelector('code');
     try {
-      await navigator.clipboard.writeText(code?.textContent ?? '');
+      await navigator.clipboard.writeText(code?.innerText ?? '');
       button.textContent = 'Copied';
     } catch {
       if (code) getSelection()?.selectAllChildren(code);

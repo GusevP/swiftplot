@@ -1,5 +1,7 @@
 import mdx from '@astrojs/mdx';
 import sitemap from '@astrojs/sitemap';
+import { createReadStream, existsSync } from 'node:fs';
+import { join, normalize } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'astro/config';
 import type { AstroIntegration } from 'astro';
@@ -24,11 +26,28 @@ const fixtures: AstroIntegration = {
   },
 };
 
+/** In dev there is no search index, as Pagefind makes it from a build: the one of the last build is served instead. */
+const devSearch: AstroIntegration = {
+  name: 'dev-search',
+  hooks: {
+    'astro:server:setup': ({ server }) => {
+      const index = fileURLToPath(new URL('dist/pagefind', import.meta.url));
+      server.middlewares.use('/pagefind', (request, response, next) => {
+        const file = normalize(join(index, (request.url ?? '').split('?')[0]!));
+        if (!file.startsWith(index) || !existsSync(file) || file === index) return next();
+        if (file.endsWith('.js')) response.setHeader('Content-Type', 'text/javascript');
+        if (file.endsWith('.json')) response.setHeader('Content-Type', 'application/json');
+        createReadStream(file).pipe(response);
+      });
+    },
+  },
+};
+
 export default defineConfig({
   site: 'https://swiftplot.dev',
   trailingSlash: 'never',
   build: { format: 'file' },
-  integrations: [mdx(), sitemap(), fixtures],
+  integrations: [mdx(), sitemap(), fixtures, devSearch],
   markdown: {
     shikiConfig: {
       theme: {

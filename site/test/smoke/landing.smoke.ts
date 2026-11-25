@@ -87,7 +87,7 @@ test('the install line follows the framework and Copy copies it', async ({ page,
   ] as const) {
     await select.selectOption(fw);
     const shown = page.locator('.cp:visible');
-    await expect(shown.locator('code')).toHaveText([line]);
+    await expect(shown.locator('code')).toHaveText([line], { useInnerText: true });
     await shown.getByRole('button', { name: 'Copy' }).click();
     expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(line);
   }
@@ -383,9 +383,30 @@ test('the framework buttons and the top-bar select change both code blocks, and 
 
 test('"Start with one line" shows the install line of each framework', async ({ page }) => {
   await page.goto('/');
-  await expect(page.locator('#start code')).toHaveText([
-    'npm i swiftplot',
-    'npm i swiftplot @swiftplot/react',
-    'npm i swiftplot @swiftplot/vue',
-  ]);
+  const lines = page.locator('#start code');
+  await expect(lines).toHaveText(
+    ['npm i swiftplot', 'npm i swiftplot @swiftplot/react', 'npm i swiftplot @swiftplot/vue'],
+    { useInnerText: true },
+  );
+});
+
+test('the package manager picked rewrites every install line, is what Copy copies, and is kept', async ({
+  page,
+  context,
+}) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+  await page.goto('/');
+  const hero = page.locator('.cp:visible');
+  await page.locator('.lead').getByRole('button', { name: 'pnpm' }).click();
+  await expect(hero.locator('code')).toHaveText('pnpm add swiftplot', { useInnerText: true });
+  await expect(page.locator('#start code').first()).toHaveText('pnpm add swiftplot', { useInnerText: true });
+  await hero.getByRole('button', { name: 'Copy' }).click();
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('pnpm add swiftplot');
+
+  await page.goto('/examples/line-zoom');
+  const install = page.locator('.snip:visible').first();
+  await expect(install.locator('code')).toHaveText('pnpm add swiftplot', { useInnerText: true });
+  await expect(install.getByRole('button', { name: 'pnpm' })).toHaveAttribute('aria-pressed', 'true');
+  await install.getByRole('button', { name: 'bun' }).click();
+  await expect(install.locator('code')).toHaveText('bun add swiftplot', { useInnerText: true });
 });

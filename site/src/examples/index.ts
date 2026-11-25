@@ -1,4 +1,16 @@
 import areaStacked from './area-stacked';
+import areaCurves from './area-curves';
+import areaLongData from './area-long-data';
+import barErrorBars from './bar-error-bars';
+import barFromRows from './bar-from-rows';
+import barNegative from './bar-negative';
+import barTimeTarget from './bar-time-target';
+import candlesticksZoom from './candlesticks-zoom';
+import comboStacked from './combo-stacked';
+import heatmapColours from './heatmap-colours';
+import lineBand from './line-band';
+import pieSweep from './pie-sweep';
+import scatterGroups from './scatter-groups';
 import axisTicks from './axis-ticks';
 import barGrouped from './bar-grouped';
 import boxPlot from './box-plot';
@@ -49,10 +61,20 @@ export const examples = registry([
   lineLive,
   twoYAxes,
   areaStacked,
+  areaLongData,
+  areaCurves,
+  lineBand,
+  barFromRows,
   barGrouped,
+  barTimeTarget,
+  barNegative,
+  barErrorBars,
+  comboStacked,
   scatterLarge,
   bubbles,
+  scatterGroups,
   pieDonut,
+  pieSweep,
   radar,
   radialBars,
   funnel,
@@ -64,7 +86,9 @@ export const examples = registry([
   stripPlot,
   errorBars,
   heatmap,
+  heatmapColours,
   candlesticks,
+  candlesticksZoom,
 ]);
 
 export { scripted };

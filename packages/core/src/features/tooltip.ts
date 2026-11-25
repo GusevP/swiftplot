@@ -109,11 +109,12 @@ export function tooltip(t: TooltipOptions): Feature {
       const under = chart.xValue(px);
       const v = t.snap?.(under) ?? under;
       const rows: Row[] = [{ text: t.title(chart.real('x', v)) }];
-      // A line within reach of the pointer is focused before the filled mark the pointer is in,
-      // and of several filled marks the one drawn last.
+      // A line within reach of the pointer is focused before the filled mark the pointer is in, and of
+      // several filled marks the thinnest there, so each of overlapping areas has a part that picks it.
       let near = FOCUS_PX;
       let line: string | undefined;
       let fill: string | undefined;
+      let thin = Infinity;
       for (const k of chart.marks()) {
         if (!k.sampleAtX) continue;
         const s = k.sampleAtX(v);
@@ -135,10 +136,13 @@ export function tooltip(t: TooltipOptions): Feature {
         } else {
           const a = chart.yPx(s.y1, on);
           const b = chart.yPx(s.y2, on);
-          if (a !== b && py >= Math.min(a, b) && py <= Math.max(a, b)) fill = k.group;
+          const span = Math.abs(a - b);
+          if (span && py >= Math.min(a, b) && py <= Math.max(a, b) && span <= thin)
+            [thin, fill] = [span, k.group];
         }
       }
-      const group = line ?? fill ?? null;
+      // A mark that answers the pointer where it is, such as a bar, is focused where neither applies.
+      const group = line ?? fill ?? (py === undefined ? undefined : chart.hit(px, py, 0)?.mark.group) ?? null;
       cross.style.display = '';
       cross.style.left = `${px}px`;
       cross.style.top = `${m.top}px`;

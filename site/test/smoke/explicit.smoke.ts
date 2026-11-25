@@ -7,8 +7,11 @@ const chart = '[data-example] .chart';
 const code = '[data-scope] code[data-live]:visible';
 // The brushed axes show only once a drag is made, which the brush tests in plot.smoke.ts do.
 // A live chart never settles; its own test in plot.smoke.ts checks that it moves.
-// A tooltip shows only on hover.
-const still = (id: string, key: string) => key === 'tooltip' || (id === 'line-brush' && key === 'axes');
+// A tooltip shows only on hover, and zoom on bars changes nothing until a gesture is made.
+const still = (id: string, key: string) =>
+  key === 'tooltip' ||
+  (id === 'line-brush' && key === 'axes') ||
+  (id === 'bar-time-target' && key === 'zoom');
 
 for (const e of examples.values()) {
   const live = e.kind === 'plot' ? e.tree.live : e.live;

@@ -20,6 +20,19 @@
     border-radius: 0;
     padding: 0.45rem 0.6rem;
   }
+  input::-webkit-search-cancel-button {
+    appearance: none;
+    width: 0.7rem;
+    height: 0.7rem;
+    margin-left: 0.5rem;
+    background: var(--muted);
+    cursor: pointer;
+    mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'%3E%3Cpath d='M1 1l8 8M9 1l-8 8' stroke='%23000' stroke-width='1.6' stroke-linecap='round'/%3E%3C/svg%3E")
+      center / contain no-repeat;
+  }
+  input::-webkit-search-cancel-button:hover {
+    background: var(--ink);
+  }
   ul,
   .note {
     position: absolute;
@@ -37,6 +50,7 @@
   .note {
     left: 0;
     width: auto;
+    margin: 0;
     padding: 0.6rem 0.75rem;
     color: var(--muted);
   }
@@ -125,7 +139,7 @@
       pagefind = undefined;
       if (current !== generation) return;
       close();
-      status.textContent = 'Search is unavailable';
+      status.textContent = import.meta.env.DEV ? 'Search needs a build: run pnpm build once' : 'Search is unavailable';
       status.className = 'note';
     }
   });

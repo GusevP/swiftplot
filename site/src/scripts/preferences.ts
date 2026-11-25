@@ -7,8 +7,17 @@ export const frameworks: readonly { id: Framework; label: string }[] = [
   { id: 'vue', label: 'Vue' },
 ];
 
+/** The package managers an install line can be shown for, each with its way of adding a package. */
+export const managers = [
+  { id: 'npm', add: 'npm i' },
+  { id: 'pnpm', add: 'pnpm add' },
+  { id: 'yarn', add: 'yarn add' },
+  { id: 'bun', add: 'bun add' },
+] as const;
+export type Manager = (typeof managers)[number]['id'];
+
 // Serialized into an inline <script> in <head>, so it may use nothing from this module's scope.
-function applyPreferences(ids: readonly string[]): void {
+function applyPreferences(ids: readonly string[], pms: readonly string[]): void {
   const read = (key: string) => {
     try {
       return localStorage.getItem(key);
@@ -28,9 +37,11 @@ function applyPreferences(ids: readonly string[]): void {
     [new URLSearchParams(location.search).get('fw'), read('fw')].find(
       id => id !== null && ids.includes(id),
     ) ?? ids[0];
+  const pm = read('pm');
+  root.dataset.pm = pm !== null && pms.includes(pm) ? pm : pms[0];
 }
 
-export const headScript = `(${applyPreferences.toString()})(${JSON.stringify(frameworks.map(f => f.id))})`;
+export const headScript = `(${applyPreferences.toString()})(${JSON.stringify(frameworks.map(f => f.id))},${JSON.stringify(managers.map(m => m.id))})`;
 
 function save(key: string, value: string) {
   try {
@@ -41,6 +52,11 @@ function save(key: string, value: string) {
 export function setTheme(theme: Theme): void {
   document.documentElement.dataset.theme = theme;
   save('theme', theme);
+}
+
+export function setManager(manager: Manager): void {
+  document.documentElement.dataset.pm = manager;
+  save('pm', manager);
 }
 
 export function setFramework(framework: Framework): void {

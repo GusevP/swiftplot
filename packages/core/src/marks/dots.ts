@@ -64,7 +64,8 @@ export function dots(o: DotsOptions): Mark {
       return at < 0 ? null : { x: x[at]!, y: y[at]!, distance: Math.sqrt(best), row: at };
     };
 
-  const prepareGl = (view: View, { gl }: GlLayer): Prepared => {
+  const prepareGl = (view: View, layer: GlLayer): Prepared => {
+    const { gl } = layer;
     const u = programs.get(gl) ?? pointProgram(gl);
     programs.set(gl, u);
     // The offsets are subtracted in float64: a float32 attribute cannot hold e.g. millisecond timestamps.
@@ -106,10 +107,15 @@ export function dots(o: DotsOptions): Mark {
     };
     return {
       // The alpha argument is unused: dense points saturate, so the layer's fade() dims a group instead.
-      paint() {
+      paint(_, row, rest = 1) {
         ready();
         own();
         gl.drawArrays(gl.POINTS, 0, n);
+        if (row === undefined || rest === 1) return;
+        layer.fade(rest);
+        ready();
+        own();
+        gl.drawArrays(gl.POINTS, row, 1);
       },
       select(rows, outline) {
         ready();
@@ -127,7 +133,6 @@ export function dots(o: DotsOptions): Mark {
   return {
     ...base('dots', o, [x], [y]),
     overhang,
-    rowsAlike: true,
     prepare(view) {
       const { ctx, dpr, ox, kx, oy, ky, theme, left, top, width, height } = view;
       // A point further out than twice the overhang cannot reach the area its mark is cut to.
@@ -152,7 +157,13 @@ export function dots(o: DotsOptions): Mark {
         ctx.stroke(shape);
       };
       return {
-        paint: a => fill(path, a),
+        paint(a, row, rest = 1) {
+          if (row === undefined) return fill(path, a);
+          fill(path, a * rest);
+          const one = new Path2D();
+          circle(one, row);
+          fill(one, a);
+        },
         select(rows, outline) {
           const some = new Path2D();
           const edge = new Path2D();

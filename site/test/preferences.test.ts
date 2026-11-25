@@ -81,7 +81,21 @@ describe('the head script', () => {
     expect(root.dataset.fw).toBe('js');
   });
 
-  test('blocked storage still sets both attributes', () => {
+  test('the package manager is the saved one, and npm when none or an unknown one is', () => {
+    for (const [was, now] of [
+      ['pnpm', 'pnpm'],
+      [undefined, 'npm'],
+      ['cargo', 'npm'],
+    ] as const) {
+      saved.clear();
+      if (was) saved.set('pm', was);
+      stubPage();
+      runHead();
+      expect(root.dataset.pm).toBe(now);
+    }
+  });
+
+  test('blocked storage still sets every attribute', () => {
     vi.stubGlobal('localStorage', {
       getItem: () => {
         throw new DOMException('blocked', 'SecurityError');
@@ -89,7 +103,7 @@ describe('the head script', () => {
     });
     stubPage({ search: '?fw=vue', systemDark: true });
     runHead();
-    expect(root.dataset).toEqual({ theme: 'dark', fw: 'vue' });
+    expect(root.dataset).toEqual({ theme: 'dark', fw: 'vue', pm: 'npm' });
   });
 });
 

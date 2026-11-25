@@ -539,7 +539,7 @@ test('focus dims the other groups and does not outlive its group or a dim of 1',
   expect(pixel(el, 80, 45)).toEqual([255, 0, 0, 255]);
 });
 
-test('hovering the dot of the only group dims the ungrouped marks', () => {
+test('hovering a dot of the only group dims its other dots, and leaves the ungrouped marks', () => {
   const el = host();
   plot(el, {
     ...frame,
@@ -553,8 +553,24 @@ test('hovering the dot of the only group dims the ungrouped marks', () => {
   const before = pixel(el, 80, 80)[3]!;
   hover(el, 20, 45);
   expect(pixel(el, 20, 45)).toEqual([255, 0, 0, 255]);
-  expect(pixel(el, 60, 45)).toEqual([255, 0, 0, 255]);
-  expect(pixel(el, 80, 80)[3]).toBeLessThan(before / 2);
+  expect(pixel(el, 60, 45)[3]).toBe(77);
+  expect(pixel(el, 80, 80)[3]).toBe(before);
+});
+
+test('with an x tooltip a bar under the pointer is focused, as a line near it is', () => {
+  const el = host();
+  plot(el, {
+    ...frame,
+    dim: 0.3,
+    marks: [
+      bar({ x1: [1], x2: [4], y: [0.8], color: BLUE, label: 'Bars' }),
+      line({ x: [0, 10], y: [0.9, 0.9], color: RED, label: 'Line' }),
+    ],
+    use: [tooltip({ mode: 'x', title: () => 'at', value: String })],
+  });
+  hover(el, 25, 60);
+  expect(pixel(el, 25, 60)).toEqual([0, 0, 255, 255]);
+  expect(pixel(el, 80, 10)[3]).toBeLessThan(100);
 });
 
 test('the x tooltip lists the sample of each line at the pointer', () => {
@@ -2219,6 +2235,24 @@ test('the x tooltip gives each stacked area its own value and focuses the one un
   hover(el, 50, 85);
   expect(pixel(el, 50, 85)).toEqual([255, 0, 0, 255]);
   expect(pixel(el, 50, 45)[3]).toBeLessThan(100);
+});
+
+test('of two areas that overlap, the pointer focuses the lower one where it is inside both', () => {
+  const el = host();
+  const x = [0, 10];
+  plot(el, {
+    ...frame,
+    dim: 0.3,
+    marks: [
+      area({ x, y: [0.3, 0.3], color: BLUE, label: 'Low' }),
+      area({ x, y: [0.8, 0.8], color: RED, label: 'Tall' }),
+    ],
+    use: [tooltip({ mode: 'x', title: () => 'at', value: String })],
+  });
+  hover(el, 50, 85);
+  expect(pixel(el, 50, 40)[3]).toBeLessThan(100);
+  hover(el, 50, 40);
+  expect(pixel(el, 50, 40)).toEqual([255, 0, 0, 255]);
 });
 
 test('a line within reach of the pointer is focused before the area it lies on', () => {

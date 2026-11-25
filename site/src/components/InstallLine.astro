@@ -1,0 +1,11 @@
+---
+import { managers } from '../scripts/preferences';
+
+interface Props {
+  packages: string;
+}
+
+const { packages } = Astro.props;
+---
+
+<code>{managers.map(m => <span data-pm={m.id}>{m.add}</span>)}{` ${packages}`}</code>

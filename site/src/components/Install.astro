@@ -1,12 +1,25 @@
 ---
 import { frameworks } from '../codegen/index';
-import { plain } from '../codegen/tokens';
 import type { Framework } from '../scripts/preferences';
-import Code from './Code.astro';
+import InstallLine from './InstallLine.astro';
+import ManagerPick from './ManagerPick.astro';
 ---
 
 {
   (Object.keys(frameworks) as Framework[]).map(fw => (
-    <Code label="Install" tokens={[plain(frameworks[fw].install)]} for={fw} />
+    <div class="snip" data-for={fw} data-copy-scope>
+      <header>
+        <span>Install</span>
+        <ManagerPick />
+        <button type="button" data-copy>
+          Copy
+        </button>
+      </header>
+      <pre><InstallLine packages={frameworks[fw].packages} /></pre>
+    </div>
   ))
 }
+
+<script>
+  import '../scripts/copy';
+</script>

@@ -9,6 +9,7 @@ test.beforeEach(({ page }) => countWebgl(page));
 test('/examples marks Examples in the top bar, and every card draws its chart in a data colour', async ({
   page,
 }) => {
+  test.slow();
   const errors = watch(page);
 
   await page.goto('/examples');
@@ -58,7 +59,11 @@ test('a filter hides the cards without its tag and the groups left empty', async
   await expect(page.locator('.side a[href^="#"]:visible')).toHaveText(['Scatter']);
 
   await page.getByRole('button', { name: 'Stacked', exact: true }).click();
-  await expect(page.locator(`${cards}:visible b`)).toHaveText(['Stacked areas', 'Grouped and stacked bars']);
+  await expect(page.locator(`${cards}:visible b`)).toHaveText([
+    'Stacked areas',
+    'Grouped and stacked bars',
+    'Stacked bars with a line',
+  ]);
   await expect(page.locator('.group:visible h2')).toHaveText(['Area', 'Bar']);
 
   await page.getByRole('button', { name: 'All', exact: true }).click();
