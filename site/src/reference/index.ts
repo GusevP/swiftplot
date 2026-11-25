@@ -11,6 +11,20 @@ export const intros: Record<ChartName, string> = {
   areaChart: 'Draws a filled area for each series from data, overlapping or stacked with stack.',
   barChart: 'Draws bars from data, side by side for each x or stacked with stack.',
   scatterChart: 'Draws a dot for each row from data, with a fixed radius or one read from a field.',
+  pieChart: 'Draws a pie, or a donut with inner, from rows of a label and a value, a slice each.',
+  funnelChart: 'Draws a funnel from rows of a label and a value, a stage each from the top down.',
+  radialBarChart: 'Draws bars round a circle, one ring for each row of a label and a value.',
+  radarChart: 'Draws a shape for each field of numbers, across a spoke for each row.',
+  heatmapChart:
+    'Draws a grid of cells coloured by a value, from rows that name the column and the row of each.',
+  histogramChart: 'Counts a field of numbers into bins and draws a bar for each.',
+  boxPlotChart: 'Draws a box for each group of values: its median, quartiles and extremes.',
+  candlestickChart: 'Draws a candle for each row of open, high, low and close prices.',
+  sankeyChart: 'Draws flows between nodes, from rows of a source, a target and a value.',
+  treemapChart: 'Draws a tree of { name, value, children } as rectangles inside rectangles, sized by value.',
+  sunburstChart:
+    'Draws a tree of { name, value, children } as rings, each node inside the angle of its parent.',
+  comboChart: 'Draws bars and lines together over one x, on one or two y axes.',
 };
 
 const core = import.meta.glob<string>(

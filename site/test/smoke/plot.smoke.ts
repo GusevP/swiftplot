@@ -1,5 +1,20 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
-import { chartOf, codeOf, drawing, expectChartDrawn, seriesPixels, settled, watch } from './charts';
+import {
+  chartOf,
+  codeOf,
+  countIntervals,
+  days,
+  drawing,
+  expectChartDrawn,
+  seriesPixels,
+  settled,
+  span,
+  timers,
+  tooltipOf,
+  watch,
+  xTicks,
+  yTicks,
+} from './charts';
 
 const legendOf = (scope: Locator) => chartOf(scope).locator('[aria-pressed]');
 
@@ -16,6 +31,23 @@ const stamp = (chart: Locator) =>
     .first()
     .evaluate(c => (c.dataset.stamp = 'kept'));
 const stamped = (chart: Locator) => chart.locator('canvas[data-stamp]').count();
+
+async function expectTick(chart: Locator) {
+  // Past the entrance animation two frames match, so a later change can only come from a tick.
+  let before = await chart.screenshot();
+  await expect
+    .poll(
+      async () => {
+        const now = await chart.screenshot();
+        const same = now.equals(before);
+        before = now;
+        return same;
+      },
+      { intervals: [150], timeout: 5000 },
+    )
+    .toBe(true);
+  await expect.poll(async () => (await chart.screenshot()).equals(before), { timeout: 5000 }).toBe(false);
+}
 
 test('the fixture draws in the data colour in both themes', async ({ page }) => {
   const errors = watch(page);
@@ -151,20 +183,7 @@ test('a generated live snippet ticks, leaves no timer when unmounted, and runs o
   for (const selector of Object.values(frameworks)) {
     const chart = page.locator(selector);
     await expect(chart.locator('canvas').first()).toBeAttached();
-    // Past the entrance animation two frames match, so a later change can only come from a tick.
-    let before = await chart.screenshot();
-    await expect
-      .poll(
-        async () => {
-          const now = await chart.screenshot();
-          const same = now.equals(before);
-          before = now;
-          return same;
-        },
-        { intervals: [150], timeout: 5000 },
-      )
-      .toBe(true);
-    await expect.poll(async () => (await chart.screenshot()).equals(before), { timeout: 5000 }).toBe(false);
+    await expectTick(chart);
   }
   expect(await timers()).toBe(3);
 
@@ -178,5 +197,120 @@ test('a generated live snippet ticks, leaves no timer when unmounted, and runs o
     await run('unmount', fw);
     await expect.poll(timers).toBe(0);
   }
+  expect(errors).toEqual([]);
+});
+
+test('the candlesticks tooltip shows the text its function gives', async ({ page }) => {
+  const errors = watch(page);
+  const plot = chartOf(page.locator('[data-scope]'));
+  await page.goto('/examples/test-candlesticks');
+  await expect(plot.locator('canvas').first()).toBeAttached({ timeout: 30_000 });
+  await expectChartDrawn(page, plot);
+  const tip = tooltipOf(plot);
+  const box = (await plot.boundingBox())!;
+  search: for (let x = box.x + box.width * 0.4; x < box.x + box.width * 0.6; x += 4)
+    for (let y = box.y + box.height * 0.1; y < box.y + box.height * 0.9; y += 8) {
+      await page.mouse.move(x, y);
+      if (await tip.isVisible()) break search;
+    }
+  await expect(tip).toHaveText(/^2026-10-\d\d: closed at \d+\.\d\d$/);
+  expect(errors).toEqual([]);
+});
+
+async function drag(page: Page, plot: Locator, from: [number, number], to: [number, number]) {
+  const box = (await plot.boundingBox())!;
+  await page.mouse.move(box.x + box.width * from[0], box.y + box.height * from[1]);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width * to[0], box.y + box.height * to[1], { steps: 8 });
+  await page.mouse.up();
+}
+
+for (const id of ['test-brush', 'line-brush'])
+  test(`a drag across /examples/${id} zooms the axes it brushes and leaves the others, and a double-click shows them whole`, async ({
+    page,
+  }) => {
+    const errors = watch(page);
+    const plot = chartOf(page.locator('[data-scope]'));
+    const open = async (url: string) => {
+      await page.goto(url);
+      await expect(plot.locator('canvas').first()).toBeAttached({ timeout: 30_000 });
+      await expectChartDrawn(page, plot);
+      await expect.poll(() => xTicks(plot).then(t => t.length)).toBeGreaterThan(1);
+      await expect.poll(() => yTicks(plot).then(t => t.length)).toBeGreaterThan(1);
+      return { x: await xTicks(plot), y: await yTicks(plot) };
+    };
+
+    const narrower = async (ticks: () => Promise<(string | null)[]>, extent: typeof span, whole: number) => {
+      await expect
+        .poll(async () => {
+          const t = await ticks();
+          return new Set(t).size > 1 && extent(t) > 0 ? extent(t) : NaN;
+        })
+        .toBeLessThan(whole / 2);
+    };
+    const reset = async (before: { x: (string | null)[]; y: (string | null)[] }) => {
+      const box = (await plot.boundingBox())!;
+      await page.mouse.dblclick(box.x + box.width / 2, box.y + box.height / 2);
+      await expect.poll(() => xTicks(plot)).toEqual(before.x);
+      await expect.poll(() => yTicks(plot)).toEqual(before.y);
+    };
+
+    let before = await open(`/examples/${id}`);
+    await drag(page, plot, [0.4, 0.5], [0.6, 0.5]);
+    await narrower(() => xTicks(plot), days, days(before.x));
+    expect(await yTicks(plot)).toEqual(before.y);
+    await reset(before);
+
+    before = await open(`/examples/${id}?axes=y`);
+    await drag(page, plot, [0.5, 0.3], [0.5, 0.6]);
+    await narrower(() => yTicks(plot), span, span(before.y));
+    expect(await xTicks(plot)).toEqual(before.x);
+    await reset(before);
+
+    before = await open(`/examples/${id}?axes=xy`);
+    await drag(page, plot, [0.4, 0.3], [0.6, 0.6]);
+    await narrower(() => xTicks(plot), days, days(before.x));
+    await narrower(() => yTicks(plot), span, span(before.y));
+    await reset(before);
+    expect(errors).toEqual([]);
+  });
+
+test('/examples/test-animated-live changes after a tick, and keeps one timer through a remount', async ({
+  page,
+}) => {
+  const errors = watch(page);
+  await countIntervals(page);
+  await page.goto('/examples/test-animated-live');
+  const plot = chartOf(page.locator('[data-scope]'));
+  await expect(plot.locator('canvas').first()).toBeAttached({ timeout: 30_000 });
+  await expectChartDrawn(page, plot);
+  const [first] = await timers(page);
+  expect(await timers(page)).toEqual([first]);
+  const before = await plot.screenshot();
+  await expect.poll(async () => (await plot.screenshot()).equals(before), { timeout: 5000 }).toBe(false);
+
+  await page.locator('[data-scope] form [name="animate"]').setChecked(false);
+  await expect.poll(() => codeOf(page.locator('[data-scope]'))).not.toContain('animate()');
+  await expectChartDrawn(page, plot);
+  const now = await timers(page);
+  expect(now).toHaveLength(1);
+  expect(now).not.toContain(first);
+  const after = await plot.screenshot();
+  await expect.poll(async () => (await plot.screenshot()).equals(after), { timeout: 5000 }).toBe(false);
+  expect(errors).toEqual([]);
+});
+
+test('/examples/line-live changes after a tick, with animate on and off', async ({ page }) => {
+  const errors = watch(page);
+  await page.goto('/examples/line-live');
+  const scope = page.locator('[data-scope]');
+  await expect(chartOf(scope).locator('canvas').first()).toBeAttached({ timeout: 30_000 });
+  await expectChartDrawn(page, chartOf(scope));
+  const code = await codeOf(scope);
+  await expectTick(chartOf(scope));
+  await scope.locator('form [name="animate"]').setChecked(false);
+  await expect.poll(() => codeOf(scope)).not.toEqual(code);
+  await expectChartDrawn(page, chartOf(scope));
+  await expectTick(chartOf(scope));
   expect(errors).toEqual([]);
 });

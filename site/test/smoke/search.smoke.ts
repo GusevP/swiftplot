@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { expect, test, type Page } from '@playwright/test';
-import { referencePath } from '../../src/examples/define';
+import { chartNames, referencePath } from '../../src/examples/define';
 import { watch } from './charts';
 
 const entry = JSON.parse(
@@ -8,6 +8,9 @@ const entry = JSON.parse(
 ) as {
   languages: Record<string, { page_count: number }>;
 };
+
+const charts = chartNames.map(referencePath);
+const onAnyChart = (anchor: string) => charts.map(path => `${path}#${anchor}`);
 
 const field = (page: Page) => page.getByRole('searchbox', { name: 'Search' });
 const results = (page: Page) => page.locator('#search-results a');
@@ -68,16 +71,23 @@ test("a second query clears the first one's results at once, so the keyboard can
   await expect(field(page)).toBeFocused();
   release();
   const hrefs = await found(page);
-  expect(hrefs).toContain(`${referencePath('lineChart')}#dataVersion`);
+  expect(onAnyChart('dataVersion')).toContain(hrefs[0]);
   expect(hrefs).not.toContain('/examples/line-zoom');
 });
 
-test('searching a prop name returns its row in the reference', async ({ page }) => {
+test('a prop name finds its row in the reference, and the chart name before it finds the row of that chart', async ({
+  page,
+}) => {
   const errors = watch(page);
   await page.goto('/examples');
   for (const prop of ['curve', 'dataVersion']) {
     const href = `${referencePath('lineChart')}#${prop}`;
-    expect(await search(page, prop)).toContain(href);
+    const bare = await search(page, prop);
+    expect(
+      onAnyChart(prop).some(row => bare.includes(row)),
+      prop,
+    ).toBe(true);
+    expect(await search(page, `lineChart ${prop}`)).toContain(href);
     await page.locator(`#search-results a[href="${href}"]`).click();
     await expect(page.locator(`[id="${prop}"]`)).toBeInViewport();
   }
@@ -88,15 +98,26 @@ test('terms documented only per framework are found through the neutral line bes
   page,
 }) => {
   await page.goto('/');
-  for (const term of ['destroy', 'onError', 'useMemo', 'shallowRef', 'error boundary']) {
+  for (const term of ['useMemo', 'shallowRef']) {
     const hrefs = await search(page, term);
-    const want =
-      term === 'useMemo' || term === 'shallowRef' ? '/guides/getting-started' : referencePath('lineChart');
     expect(
-      hrefs.some(h => h.split('#')[0] === want),
+      hrefs.map(h => h.split('#')[0]),
+      term,
+    ).toContain('/guides/getting-started');
+  }
+  for (const [term, section] of [
+    ['destroy', 'returns'],
+    ['onError', 'errors'],
+    ['error boundary', 'errors'],
+  ] as const) {
+    const bare = await search(page, term);
+    expect(
+      onAnyChart(section).some(h => bare.includes(h)),
       term,
     ).toBe(true);
   }
+  expect(await search(page, 'lineChart destroy')).toContain(`${referencePath('lineChart')}#returns`);
+  expect(await search(page, 'lineChart onError')).toContain(`${referencePath('lineChart')}#errors`);
 });
 
 test('the results close when focus leaves the search box', async ({ page }) => {

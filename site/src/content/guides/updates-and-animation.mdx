@@ -109,9 +109,9 @@ update.
 
 ## Live data
 
-A timer that gives the chart new data is an update like any other. Here a reading arrives every second and the oldest
-one drops off. The code starts the timer when the chart mounts and stops it when the chart goes away. Turn Animate off
-and each update shows at once.
+A timer that gives the chart new data is an update like any other. Here a `lineChart` gets a reading every second and
+the oldest one drops off; its `animate` prop adds the feature. The code starts the timer when the chart mounts and
+stops it when the chart goes away. Turn Animate off and each update shows at once.
 
 <GuideExample id="line-live" />
 

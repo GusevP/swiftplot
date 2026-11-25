@@ -1,12 +1,7 @@
 import { siteColors } from '../codegen/index';
 import { disk } from './data/disk';
 import { example } from './define';
-import { call, dataset, mark, omit, ref, spread, type Tree } from './tree';
-
-const tree = {
-  frame: { frame: 'polar' },
-  marks: [mark('rings', 'sunburst', spread(call('fromTree', [dataset()])), { colors: ref('palette') })],
-} satisfies Tree;
+import { omit } from './tree';
 
 export default example({
   id: 'sunburst',
@@ -14,27 +9,26 @@ export default example({
   summary: 'The same laptop disk as the treemap, as rings: folders at the centre, the files in them outside.',
   group: 'Hierarchy',
   tags: ['share'],
-  kind: 'plot',
-  tree,
+  chart: 'sunburstChart',
+  palette: true,
   data: { kind: 'json', file: 'disk.json', value: disk },
+  props: {},
   switches: [
     {
-      id: 'shade',
+      prop: 'shade',
       label: 'Shade',
-      target: 'rings.shade',
       kind: 'choice',
       values: ['none', '0.3'],
       value: 'none',
       puts: { none: omit, '0.3': 0.3 },
     },
     {
-      id: 'colors',
+      prop: 'colors',
       label: 'Colours',
-      target: 'rings.colors',
       kind: 'choice',
       values: ['palette', 'site'],
       value: 'palette',
-      puts: { palette: ref('palette'), site: [...siteColors, '#d97706'] },
+      puts: { palette: omit, site: [...siteColors, '#d97706'] },
     },
   ],
   notes: [

@@ -42,12 +42,14 @@ export type BarOptions = Common & {
               /** Where each bar ends along y; it starts at zero. */
               y: Col;
             }
-        ) & { stack?: never; dodge?: never })
+        ) & { stack?: never; dodge?: never; width?: never })
     | ({
         /** The place of each bar's category on a band axis. */
         x: Col;
         /** Each bar's value. */
         y: Col;
+        /** How much of x the bars of one place take together, in data units. @default 0.8 */
+        width?: number;
       } & (
         | {
             /** Bars with the same id are stacked over one another, in the order listed, among those shown. */
@@ -62,13 +64,13 @@ export type BarOptions = Common & {
       ))
   );
 
-type Arranged = Common & { x: Col; y: Col; stack?: string; dodge?: string };
+type Arranged = Common & { x: Col; y: Col; stack?: string; dodge?: string; width?: number };
 
 const arranged = (members: readonly Arranged[]) => {
   const stacked = members[0]?.stack !== undefined && stack(members.map(m => m.y));
   return members.map((m, i) => {
-    const { x, y, stack: _, dodge: __, ...rest } = m;
-    const [x1, x2] = bands(x, stacked ? {} : { slot: i, of: members.length });
+    const { x, y, stack: _, dodge: __, width, ...rest } = m;
+    const [x1, x2] = bands(x, stacked ? { width } : { slot: i, of: members.length, width });
     return stacked ? make({ ...rest, x1, x2, ...stacked[i]! }, y) : make({ ...rest, x1, x2, y });
   });
 };

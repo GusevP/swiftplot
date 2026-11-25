@@ -12,6 +12,8 @@ export type TooltipOptions =
       title: (x: number) => string;
       /** A mark's value as text, after its label, for its y on the axis it is drawn against. */
       value: (y: number, axis: 'y' | 'y2') => string;
+      /** The x to read the title and the marks at, such as the nearest row's, from the one at the pointer, both in the marks' space. */
+      snap?: (x: number) => number;
     }
   /** x and y are where the mark says it was hit, y being the row's own value where it has one; row is its row there. */
   | {
@@ -104,7 +106,8 @@ export function tooltip(t: TooltipOptions): Feature {
       const m = chart.margin();
       const off = py !== undefined && (py < m.top || py > height - m.bottom);
       if (px < m.left || px > width - m.right || off) return hide();
-      const v = chart.xValue(px);
+      const under = chart.xValue(px);
+      const v = t.snap?.(under) ?? under;
       const rows: Row[] = [{ text: t.title(chart.real('x', v)) }];
       // A line within reach of the pointer is focused before the filled mark the pointer is in,
       // and of several filled marks the one drawn last.

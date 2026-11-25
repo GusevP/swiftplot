@@ -3,10 +3,22 @@ import { plain as isObject } from 'swiftplot/charts';
 import { checkedStates, resolve, type PlotExample, type State } from '../examples/define';
 import { isNode, useOf, type AxisNode, type Data, type FeatureNode, type MarkNode } from '../examples/tree';
 import type { Framework } from '../scripts/preferences';
-import { IDENTIFIER, importOf, literal, packages, quote } from './js';
-import { UNSAFE } from './react';
-import { keyword, plain, string, text, type Token } from './tokens';
-import { escape, setup } from './vue';
+import {
+  binding,
+  dataImport,
+  element,
+  fromSwiftplot,
+  IDENTIFIER,
+  importOf,
+  literal,
+  liveModule,
+  packages,
+  quote,
+  step,
+} from './js';
+import { hooks, timer as reactTimer, UNSAFE } from './react';
+import { BREAK, indented, keyword, plain, string, text, type Token } from './tokens';
+import { escape, setup, timer as vueTimer } from './vue';
 
 type Line = Token[];
 
@@ -22,9 +34,6 @@ const RESERVED =
 const join = (items: readonly Token[][], by = ', ') =>
   items.flatMap((item, i) => (i ? [plain(by), ...item] : item));
 
-const BREAK = plain('\n');
-const indented = (tokens: readonly Token[], by: string) =>
-  tokens.flatMap(t => (t === BREAK ? [t, plain(by)] : [t]));
 const broken = (open: string, items: readonly Token[][], close: string): Token[] => [
   plain(open),
   ...items.flatMap(item => [BREAK, plain('  '), ...indented(item, '  '), plain(',')]),
@@ -43,7 +52,7 @@ function scaledAxes(v: unknown, found = new Set<string>()): Set<string> {
 }
 
 /** Prints the resolved tree's values, collecting the imports and the column and axis lines they need. */
-function printer(data: Data, rows: string, hoisted: ReadonlySet<string>) {
+export function printer(data: Data, rows: string = binding(data), hoisted: ReadonlySet<string> = new Set()) {
   const imports = new Set<string>();
   const columns = new Map<string, { name: string; line: Line }>();
   const taken = new Set(TAKEN);
@@ -193,17 +202,6 @@ const objectLines = (list: readonly Entry[], indent: string) =>
 const block = (code: readonly Line[], indent: string) =>
   code.flatMap(line => [plain(indent), ...indented(line, indent), plain('\n')]);
 
-const fromSwiftplot = (names: Iterable<string>) =>
-  importOf(`{ ${[...names].sort().join(', ')} }`, 'swiftplot');
-const binding = (definition: PlotExample) => (definition.data.kind === 'json' ? 'data' : 'rows');
-const dataImport = (definition: PlotExample) => importOf(binding(definition), `./${definition.data.file}`);
-const STEP = '(data: typeof rows) => typeof rows';
-const step = (definition: PlotExample, typed: boolean): Token[] => [
-  ...(typed ? [] : [plain(`/** @type {${STEP}} */\n`)]),
-  keyword('const'),
-  plain(` step${typed ? `: ${STEP}` : ''} = ${definition.tree.live!.step.source};\n\n`),
-];
-
 /** For a switch that changes `use`, which the wrappers read only on mount: a key that differs per state. */
 function key(definition: PlotExample, state: State): string | undefined {
   const use = (s: State) => useOf(resolve(definition, s));
@@ -222,15 +220,9 @@ function key(definition: PlotExample, state: State): string | undefined {
 
 function js(definition: PlotExample, state: State): Token[] {
   const live = definition.tree.live;
-  const { print, list } = entries(definition, state, live ? 'data' : binding(definition));
+  const { print, list } = entries(definition, state, live ? 'data' : binding(definition.data));
   const imports = fromSwiftplot([...print.imports, 'plot']);
-  const head = [...imports, ...dataImport(definition), plain('\n')];
-  const element = [
-    keyword('const'),
-    plain(' el = document.getElementById('),
-    ...literal('chart'),
-    plain(');\n'),
-  ];
+  const head = [...imports, ...dataImport(definition.data), plain('\n')];
   if (!live) {
     const columns = print.columns();
     return [
@@ -246,7 +238,7 @@ function js(definition: PlotExample, state: State): Token[] {
   }
   return [
     ...head,
-    ...step(definition, false),
+    ...step(live, false),
     plain("/**\n * @param {typeof rows} data\n * @returns {import('swiftplot').Options}\n */\n"),
     keyword('function'),
     plain(' options(data) {\n'),
@@ -255,30 +247,14 @@ function js(definition: PlotExample, state: State): Token[] {
     keyword('return'),
     plain(' {\n'),
     ...objectLines(list, '    '),
-    plain('  };\n}\n\n/** @param {HTMLElement} el */\n'),
-    keyword('function'),
-    plain(' mount(el) {\n  '),
-    keyword('let'),
-    plain(' data = rows;\n  '),
-    keyword('const'),
-    plain(' chart = plot(el, options(data));\n  '),
-    keyword('const'),
-    plain(' timer = setInterval(() => {\n    data = step(data);\n    chart.update(options(data));\n  }, '),
-    ...literal(live.every),
-    plain(');\n  '),
-    keyword('return'),
-    plain(' {\n    destroy() {\n      clearInterval(timer);\n      chart.destroy();\n    },\n  };\n}\n\n'),
-    ...element,
-    keyword('export'),
-    plain(' '),
-    keyword('const'),
-    plain(' chart = el ? mount(el) : undefined;\n'),
+    plain('  };\n}\n\n'),
+    ...liveModule(live, [plain('plot(el, options(data))')], 'options(data)'),
   ];
 }
 
 function react(definition: PlotExample, state: State): Token[] {
   const live = definition.tree.live;
-  const { print, list } = entries(definition, state, live ? 'data' : binding(definition));
+  const { print, list } = entries(definition, state, live ? 'data' : binding(definition.data));
   const k = key(definition, state);
   const props = [
     ...lines(
@@ -292,10 +268,10 @@ function react(definition: PlotExample, state: State): Token[] {
   ];
   const columns = print.columns();
   const head = [
-    ...(live ? importOf('{ useEffect, useState }', 'react') : []),
+    ...(live ? hooks : []),
     ...importOf('{ Plot }', packages.react),
     ...fromSwiftplot(print.imports),
-    ...dataImport(definition),
+    ...dataImport(definition.data),
     plain('\n'),
   ];
   const view = [
@@ -308,27 +284,12 @@ function react(definition: PlotExample, state: State): Token[] {
   const component = [keyword('export'), plain(' '), keyword('function'), plain(' Chart() {\n')];
   if (!live)
     return [...head, ...block(columns, ''), ...(columns.length ? [plain('\n')] : []), ...component, ...view];
-  return [
-    ...head,
-    ...step(definition, true),
-    ...component,
-    plain('  '),
-    keyword('const'),
-    plain(' [data, setData] = useState(rows);\n  useEffect(() => {\n    '),
-    keyword('const'),
-    plain(' timer = setInterval(() => setData(step), '),
-    ...literal(live.every),
-    plain(');\n    '),
-    keyword('return'),
-    plain(' () => clearInterval(timer);\n  }, []);\n'),
-    ...block(columns, '  '),
-    ...view,
-  ];
+  return [...head, ...step(live, true), ...component, ...reactTimer(live), ...block(columns, '  '), ...view];
 }
 
 function vue(definition: PlotExample, state: State): Token[] {
   const live = definition.tree.live;
-  const { print, list } = entries(definition, state, live ? 'data.value' : binding(definition));
+  const { print, list } = entries(definition, state, live ? 'data.value' : binding(definition.data));
   const k = key(definition, state);
   const columns = print.columns();
   const head = [
@@ -336,7 +297,7 @@ function vue(definition: PlotExample, state: State): Token[] {
     ...importOf('{ Plot, type PlotProps }', packages.vue),
     ...fromSwiftplot(print.imports),
     ...(live ? importOf('{ computed, onMounted, onUnmounted, shallowRef }', 'vue') : []),
-    ...dataImport(definition),
+    ...dataImport(definition.data),
     plain('\n'),
   ];
   const template = plain(
@@ -355,17 +316,9 @@ function vue(definition: PlotExample, state: State): Token[] {
     ];
   return [
     ...head,
-    ...step(definition, true),
-    keyword('const'),
-    plain(' data = shallowRef(rows);\n'),
-    keyword('let'),
-    plain(' timer: ReturnType<'),
-    keyword('typeof'),
-    plain(
-      ' setInterval> | undefined;\nonMounted(() => {\n  timer = setInterval(() => {\n    data.value = step(data.value);\n  }, ',
-    ),
-    ...literal(live.every),
-    plain(');\n});\nonUnmounted(() => clearInterval(timer));\n\n'),
+    ...step(live, true),
+    ...vueTimer(live),
+    plain('\n'),
     keyword('const'),
     plain(' options = computed((): PlotProps => {\n'),
     ...block(columns, '  '),

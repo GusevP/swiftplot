@@ -169,7 +169,13 @@ export function radar(o: RadarOptions): Mark[] {
             }
             if (row < 0) return null;
             const [x, y] = at(row);
-            return { x: (x - left) / width, y: 1 - (y - top) / height, distance: near, row };
+            return {
+              x: (x - left) / width,
+              y: 1 - (y - top) / height,
+              distance: near,
+              row,
+              value: s.values[row] ?? NaN,
+            };
           },
         };
       },

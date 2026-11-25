@@ -1,6 +1,7 @@
 import { afterEach, expect, expectTypeOf, test, vi } from 'vitest';
 
-import { create, type Build, type EasyChart } from '../src/charts/controller.js';
+import { easyChart } from '../src/charts/build.js';
+import { create, type Build, type ControllerProps, type EasyChart } from '../src/charts/controller.js';
 import {
   areaChart,
   barChart,
@@ -14,19 +15,51 @@ import {
   type LineChartProps,
   type ScatterChartProps,
 } from '../src/charts/index.js';
+import { sankeyChart, sunburstChart, treemapChart } from '../src/charts/flow.js';
+import { funnelChart, pieChart, radialBarChart } from '../src/charts/parts.js';
+import { candlestickChart } from '../src/charts/candlestick.js';
+import { boxPlotChart, histogramChart } from '../src/charts/distribution.js';
+import { fits, heatmapChart } from '../src/charts/heatmap.js';
+import { comboChart } from '../src/charts/combo.js';
+import { radarChart } from '../src/charts/radar.js';
 import { xy } from '../src/charts/xy.js';
 import { bandTitle, colorsFor, formatNumber, themeOf, timeTitle } from '../src/charts/defaults.js';
 import { assign, type Assigned, type Family, type FieldProps } from '../src/charts/fields.js';
 import { source, type Data } from '../src/charts/source.js';
-import type { AreaProps, Base, Input, ScatterProps } from '../src/charts/types.js';
-import { dots, legend, line, plot, time, tooltip, zoom } from '../src/index.js';
+import type {
+  AreaProps,
+  Axes,
+  ComboProps,
+  Base,
+  HeatmapProps,
+  Input,
+  PieProps,
+  RadarProps,
+  ScatterProps,
+} from '../src/charts/types.js';
+import {
+  bin,
+  dots,
+  fiveNumbers,
+  gradient,
+  legend,
+  line,
+  plot,
+  sequential,
+  time,
+  tooltip,
+  type Nested,
+  zoom,
+} from '../src/index.js';
 import type { BandAxis } from '../src/scales/band.js';
+import type { ColorScale } from '../src/scales/color.js';
 import type { Col, Feature, Internals, Mark, Options } from '../src/types.js';
 import { palette, paletteDark } from '../src/paint.js';
 import { dark, light, type Theme } from '../src/theme.js';
 import {
   click,
   doubleClick,
+  drag,
   entriesOf,
   host,
   hover,
@@ -750,8 +783,26 @@ test('types: the public functions check fields as the props types do, spec gives
   scatterChart.spec({ data: rows, y: ['api', 'lag'] });
   // @ts-expect-error not a field of the rows
   scatterChart.spec({ data: rows, x: 'nope', y: 'api' });
-  // @ts-expect-error a text field is not a y
   scatterChart.spec({ data: rows, x: 'date', y: 'note' });
+  const mixed = [] as { n: number; text: string | null; gap?: number | null; flag: boolean; at: Date }[];
+  scatterChart.spec({ data: mixed, x: 'n', y: 'text' });
+  scatterChart.spec({ data: mixed, x: 'n', y: 'gap' });
+  scatterChart.spec({ data: mixed, x: 'n', y: d => d.text });
+  // @ts-expect-error a boolean field is not a y
+  scatterChart.spec({ data: mixed, x: 'n', y: 'flag' });
+  // @ts-expect-error a date field is not a y
+  scatterChart.spec({ data: mixed, x: 'n', y: 'at' });
+  const mixedColumns = { n: [] as number[], text: [] as (string | null)[], flag: [] as boolean[] };
+  scatterChart.spec({ data: mixedColumns, x: 'n', y: 'text' });
+  // @ts-expect-error a boolean column is not a y
+  scatterChart.spec({ data: mixedColumns, x: 'n', y: 'flag' });
+  // @ts-expect-error not a field of the rows
+  scatterChart.spec({ data: rows, x: 'date', y: 'nope' });
+  scatterChart.spec({ data: rows, x: 'date', y: d => d.note, shape: 'tick', r: 10 });
+  // @ts-expect-error not a shape
+  scatterChart.spec({ data: rows, shape: 'cross' });
+  // @ts-expect-error a line has no shape
+  lineChart.spec({ data: rows, shape: 'tick' });
   scatterChart.spec({
     data: rows,
     x: d => {
@@ -814,6 +865,16 @@ test('the time title is a date when every x is at midnight in the zone, else a d
   expect(timeTitle([[lmtDay]], false)(lmtDay)).toBe('1850-01-01');
   const farDay = new Date(10000, 0, 1).getTime();
   expect(timeTitle([[farDay]], false)(farDay)).toBe('10000-01-01');
+  const fold = [Date.UTC(2026, 10, 1, 5, 30), Date.UTC(2026, 10, 1, 6, 30)];
+  const titles = (ts: number[], utc: boolean) => ts.map(timeTitle([ts], utc, true));
+  expect(titles(fold, false)).toEqual(['2026-11-01 01:30 UTC-04:00', '2026-11-01 01:30 UTC-05:00']);
+  expect(titles(fold, true)).toEqual(['2026-11-01 05:30', '2026-11-01 06:30']);
+  expect(titles([fold[0]!, fold[1]! + 6e4], false)).toEqual(['2026-11-01 01:30', '2026-11-01 01:31']);
+  expect(titles([fold[0]!, fold[0]! + 1e3, fold[1]!], false)).toEqual([
+    '2026-11-01 01:30:00 UTC-04:00',
+    '2026-11-01 01:30:01 UTC-04:00',
+    '2026-11-01 01:30:00 UTC-05:00',
+  ]);
 });
 
 test('the band title rounds to the nearest category and clamps to the ends', () => {
@@ -922,7 +983,8 @@ test('the palette is the dark one exactly on the dark theme, colors override it,
   expect(colorsFor(light, undefined, 9)[8]).toBe(palette[0]);
 });
 
-type TestProps = Base & { data?: unknown } & Pick<FieldProps<Record<string, number>>, 'x' | 'y' | 'series'>;
+type TestProps = Axes &
+  Base & { data?: unknown } & Pick<FieldProps<Record<string, number>>, 'x' | 'y' | 'series'>;
 
 const RED = '#ff0000';
 const BLUE = '#0000ff';
@@ -989,6 +1051,83 @@ const hideFirst = (el: HTMLElement) => {
   entry.dispatchEvent(new MouseEvent('click', middleOf(entry)));
 };
 const narrower = (s: number[], than: number[]) => expect(s[1]! - s[0]!).toBeLessThan(than[1]! - than[0]!);
+
+test('a builder passed through easyChart mounts, updates, and gives its options from spec()', () => {
+  const toyChart = easyChart<'line'>((p: TestProps, context) => {
+    const b = testBuild(p, context);
+    return { ...b, options: { ...b.options, description: context.theme.text } };
+  });
+  const el = host();
+  const props = { data: ramp(2, () => 0.5), colors: [RED], yAxis: { domain: [0, 1] as [number, number] } };
+  const c = toyChart(el, props);
+  expect(pixel(el, 50, 50)).toEqual([255, 0, 0, 255]);
+  c.update({ colors: [BLUE] });
+  expect(pixel(el, 50, 50)).toEqual([0, 0, 255, 255]);
+  for (const theme of [undefined, 'auto'] as const) {
+    const plain = toyChart.spec({ ...props, theme });
+    expect(plain.description).toBe(light.text);
+    expect(plain).not.toHaveProperty('theme');
+  }
+  const darkChart = easyChart<'line'>((p: TestProps, context) => {
+    const b = testBuild(p, context);
+    return { ...b, options: { ...b.options, theme: dark } };
+  });
+  for (const theme of [undefined, 'auto'] as const)
+    expect(darkChart.spec({ ...props, theme }).theme).toBe(dark);
+  const spec = toyChart.spec({ ...props, theme: 'dark', tooltip: true, hidden: ['b'] });
+  expect(spec).toMatchObject({ width: 100, height: 100, y: { domain: [0, 1] }, theme: dark, hidden: ['b'] });
+  expect(spec.marks.map(m => m.key)).toEqual(['a', 'counted']);
+  expect(spec.use).toHaveLength(2);
+  c.destroy();
+  expect(el.childElementCount).toBe(0);
+});
+
+test('types: easyChart takes a builder only of props its kind supplies', () => {
+  // @ts-expect-error no line chart gives a suffix
+  easyChart<'line'>((p: TestProps & { suffix: string }, context) => testBuild(p, context));
+  // @ts-expect-error the rows may be of any type
+  easyChart<'line'>((p: TestProps & { data?: readonly string[] | null }, context) => testBuild(p, context));
+});
+
+test('nested data, an object or a list of roots, mounts and gives a new source only for new data, a new dataVersion or a changed length', () => {
+  const root = (value: number) => ({ name: 'root', children: [{ name: 'a', value, children: [] }] });
+  for (const tree of [root, (v: number) => [root(v), root(1)]]) {
+    const sources: unknown[] = [];
+    const data = tree(1);
+    const el = host();
+    const c = create<ControllerProps>(el, { data }, (p, { source: s, theme }) => {
+      sources.push(s);
+      return {
+        options: { ...BOX, theme, description: p.description, marks: [] },
+        features: null,
+        use: () => [],
+      };
+    });
+    expect(el.querySelector('canvas')).not.toBeNull();
+    const update = (p: Partial<ControllerProps>) => {
+      c.update(p);
+      return sources.at(-1);
+    };
+    const first = sources[0];
+    expect(update({ description: 'again', data })).toBe(first);
+    expect(sources).toHaveLength(2);
+    (Array.isArray(data) ? data[0]! : data).children[0]!.value = 2;
+    expect(update({ data, description: 'mutated' })).toBe(first);
+    const bumped = update({ dataVersion: 1 });
+    expect(bumped).not.toBe(first);
+    expect(update({ data: tree(2) })).not.toBe(bumped);
+    expect(sources).toHaveLength(5);
+    const grown = tree(3);
+    const before = update({ data: grown });
+    if (Array.isArray(grown)) grown.push(root(4));
+    else grown.children.push({ name: 'b', value: 4, children: [] });
+    const longer = update({ data: grown });
+    expect(longer).not.toBe(before);
+    expect(update({ data: grown, description: 'same length' })).toBe(longer);
+    expect(sources).toHaveLength(8);
+    c.destroy();
+  }
+});
 
 test('the controller draws, merges partial props, draws new data and is gone after destroy', () => {
   const { el, c } = easy({ data: ramp(2, () => 0.5), colors: [RED], yAxis: { domain: [0, 1] } });
@@ -1456,8 +1595,8 @@ test('lineChart.spec gives the options plot() draws the same, with keys and labe
   plot(b, spec);
   expect(drawn(a)).toBe(drawn(b));
   expect(spec.marks.map(m => [m.key, m.label])).toEqual([
-    ['api', 'api'],
-    ['web', 'web'],
+    ['series:api', 'api'],
+    ['series:web', 'web'],
   ]);
   expect(lineChart.spec({ ...props, theme: 'auto' })).not.toHaveProperty('theme');
   expect(spec).not.toHaveProperty('theme');
@@ -1488,7 +1627,7 @@ test('lineChart: one series has no legend, a number array is "value", and the fe
   lineChart(many, { data: long, series: 's', width: 300, height: 600, legend: { rows: 1 } });
   expect(new Set(entriesOf(many).map(s => s.parentElement)).size).toBe(1);
 
-  const yAfterZoom = async (zoom: Base['zoom']) => {
+  const yAfterZoom = async (zoom: Axes['zoom']) => {
     const onViewChange = vi.fn();
     const el = host();
     lineChart(el, { data, ...BOX, zoom, onViewChange });
@@ -2138,6 +2277,962 @@ test("scatterChart tooltip is the nearest dot's series, x and y in the axis form
   expect(tipRows(named)).toEqual(['v: east, 5']);
 });
 
+const spans = [
+  { dose: 'none', mean: 5, low: 4, high: 6 },
+  { dose: 'some', mean: 7, low: 5, high: 8 },
+  { dose: 'much', mean: 3, low: 2, high: 3.5 },
+];
+const errorsOf = (o: Options) =>
+  o.marks
+    .filter(m => m.type === 'errorBars')
+    .map(m => {
+      const { x, y1, y2 } = m.options as { x: Col; y1: Col; y2: Col };
+      return [m.group, numbers(x), numbers(y1), numbers(y2)];
+    });
+const PURE = '#00ff00';
+const SPREAD = { low: 'low', high: 'high' } as const;
+
+test('errorBars add one unlabelled mark at the x of the series and leave the guessing pool', () => {
+  for (const [spec, types] of [
+    [lineChart.spec({ data: spans, errorBars: SPREAD }), ['errorBars', 'line']],
+    [barChart.spec({ data: spans, errorBars: SPREAD }), ['bar', 'errorBars']],
+    [scatterChart.spec({ data: spans, x: 'dose', errorBars: SPREAD }), ['errorBars', 'dots']],
+  ] as const) {
+    expect(spec.marks.map(m => m.type)).toEqual(types);
+    expect((spec.x as BandAxis).categories).toEqual(['none', 'some', 'much']);
+    expect(errorsOf(spec)).toEqual([['mean', [0, 1, 2], [4, 5, 2], [6, 8, 3.5]]]);
+    expect(spec.marks.map(m => m.label).filter(l => l !== undefined)).toEqual(['mean']);
+  }
+  const styled = lineChart.spec({
+    data: spans,
+    y: 'mean',
+    colors: [RED],
+    errorBars: { low: d => d.mean - 1, high: 'high', cap: 0, width: 3 },
+  });
+  expect(styled.marks[0]!.options).toMatchObject({ cap: 0, width: 3, color: RED });
+  expect(
+    errorsOf(
+      lineChart.spec({ data: spans, y: 'mean', errorBars: { low: d => d.mean - 1, high: 'high' } }),
+    )[0]![2],
+  ).toEqual([4, 6, 2]);
+  expect(barChart.spec({ data: spans, errorBars: SPREAD }).marks[1]!.color).toBe(light.text);
+});
+
+test('errorBars follow a sorted line, a series split and a dropped row, and an end missing draws none', () => {
+  const data = [
+    { t: 3, s: 'a', v: 3, low: 2.5, high: 3.5 },
+    { t: 1, s: 'b', v: 1, low: null, high: 1.5 },
+    { t: null, s: 'a', v: 9, low: 8, high: 10 },
+    { t: 1, s: 'a', v: 2, low: 1.5, high: 2.5 },
+  ];
+  const series = { data, x: 't', y: 'v', series: 's', errorBars: SPREAD } as const;
+  expect(errorsOf(lineChart.spec(series))).toEqual([
+    ['a', [1, 3], [1.5, 2.5], [2.5, 3.5]],
+    ['b', [1], [Number.NaN], [1.5]],
+  ]);
+  expect(errorsOf(scatterChart.spec(series))).toEqual([
+    ['a', [3, 1], [2.5, 1.5], [3.5, 2.5]],
+    ['b', [1], [Number.NaN], [1.5]],
+  ]);
+  expect(errorsOf(barChart.spec(series))).toEqual([
+    ['a', [0, 1], [2.5, 1.5], [3.5, 2.5]],
+    ['b', [0, 1], [Number.NaN, Number.NaN], [Number.NaN, 1.5]],
+  ]);
+});
+
+test('an automatic y domain leaves out the end left of an incomplete error bar', () => {
+  const rows = (high: number | null, low: number | null = null) => [
+    { q: 'one', s: 'a', v: 5, low: 4, high: 7 },
+    { q: 'two', s: 'a', v: 6, low, high },
+    { q: 'one', s: 'b', v: 4, low: 3, high: 5 },
+  ];
+  for (const chart of [lineChart, barChart, scatterChart])
+    for (const count of [2, 3]) {
+      const show = (data: ReturnType<typeof rows>) => {
+        const el = host();
+        chart(el, {
+          data: data.slice(0, count),
+          x: 'q',
+          y: 'v',
+          series: 's',
+          errorBars: SPREAD,
+          width: 200,
+          height: 200,
+        });
+        return el.innerText;
+      };
+      const none = show(rows(null));
+      expect(show(rows(1e6))).toBe(none);
+      expect(show(rows(null, -1e6))).toBe(none);
+      expect(show(rows(1e6, 5))).not.toBe(none);
+    }
+});
+
+test('errorBars of one series and another series named like them each keep their own mark on update', () => {
+  const spec = (v: number) =>
+    lineChart.spec({
+      data: ['a', 'errorBars:a', 'series:a'].flatMap(s =>
+        [0, 1].map(t => ({ t, s, v: v + t, low: v - 1, high: v + 2 })),
+      ),
+      x: 't',
+      y: 'v',
+      series: 's',
+      errorBars: SPREAD,
+      ...BOX,
+    });
+  const [before, after] = [spec(1), spec(2)];
+  const names = ['a', 'errorBars:a', 'series:a'];
+  expect(before.marks.map(m => m.group)).toEqual(names.concat(names));
+  const c = plot(host(), before);
+  const prepared = after.marks.map(m => vi.spyOn(m, 'prepare'));
+  c.update({ marks: after.marks });
+  prepared.forEach((p, i) => expect(p.mock.calls[0]![1]).toBe(before.marks[i]));
+});
+
+test('errorBars errors name the chart, the field and the prop; areaChart takes none', () => {
+  const two = spans.map(d => ({ ...d, other: 1 }));
+  const bad =
+    (errorBars: object, data: object[] = spans, y?: string) =>
+    () =>
+      lineChart.spec({ data, y, errorBars } as never);
+  expect(bad({ low: 'nope', high: 'high' })).toThrow(
+    /^lineChart: there is no field "nope".*Pass errorBars.low as one of these fields\.$/,
+  );
+  expect(bad({ low: 'low', high: 'dose' })).toThrow(/errorBars.high "dose" is text/);
+  expect(bad({ low: 'low', high: (d: { dose: string }) => d.dose }, spans, 'mean')).toThrow(
+    /accessor errorBars.high is text/,
+  );
+  expect(bad(SPREAD, two)).toThrow(/with errorBars there is one y\..*Pass y as one field\.$/);
+  expect(() => barChart.spec({ data: two, y: ['mean', 'other'], errorBars: SPREAD })).toThrow(
+    /there is one y/,
+  );
+  expect(() =>
+    barChart.spec({ data: spans, x: 'mean', y: 'mean', series: 'dose', stack: true, errorBars: SPREAD }),
+  ).toThrow(/^barChart: errorBars do not apply to stacked bars/);
+  expect(() => barChart.spec({ data: spans, stack: true, errorBars: SPREAD })).not.toThrow();
+  expect(() => lineChart.spec({ data: null, errorBars: { low: 'nope', high: 'nope' } })).not.toThrow();
+  expect(areaChart.spec({ data: spans, errorBars: SPREAD } as never).marks.map(m => m.label)).toEqual([
+    'mean',
+    'low',
+    'high',
+  ]);
+});
+
+test('errorBars on dodged bars stand on their own bar and move with it as a series is hidden', () => {
+  const data = [
+    { q: 'one', s: 'a', v: 4, low: 2, high: 8 },
+    { q: 'one', s: 'b', v: 4, low: 2, high: 8 },
+  ];
+  const el = host();
+  const c = barChart(el, {
+    data,
+    y: 'v',
+    series: 's',
+    x: 'q',
+    errorBars: { ...SPREAD, width: 2 },
+    ...BOX,
+    legend: false,
+    theme: { ...light, text: PURE },
+    colors: [RED, BLUE],
+    yAxis: { domain: [0, 10] },
+  });
+  const green = (x: number) => near(pixel(el, x, 50), [...rgb(PURE), 255]);
+  expect([30, 50, 70].map(green)).toEqual([true, false, true]);
+  c.update({ hidden: ['b'] });
+  expect([30, 50, 70].map(green)).toEqual([false, true, false]);
+});
+
+test('errorBars and alpha and ring: an equal copy sends nothing and a change redraws', () => {
+  const props = () =>
+    ({ data: spans, x: 'dose', errorBars: { ...SPREAD, cap: 4 }, alpha: 0.5, ring: 2 }) as const;
+  const el = host();
+  const c = scatterChart(el, { ...BOX, ...props() });
+  const update = vi.spyOn(c.chart, 'update');
+  c.update(props());
+  expect(update).not.toHaveBeenCalled();
+  for (const change of [
+    { errorBars: { ...SPREAD, cap: 0 } },
+    { alpha: 0.2 },
+    { ring: 3 },
+    { errorBars: undefined },
+  ]) {
+    c.update(change);
+    expect(update).toHaveBeenCalledTimes(1);
+    expect(Object.keys(update.mock.calls[0]![0])).toEqual(['marks']);
+    update.mockClear();
+  }
+});
+
+test('scatterChart passes alpha and ring to the dots of every series', () => {
+  const data = [
+    { s: 'a', h: 2, w: 2 },
+    { s: 'b', h: 5, w: 5 },
+  ];
+  for (const m of scatterChart.spec({ data, series: 's', alpha: 0.6, ring: 2 }).marks)
+    expect(m.options).toMatchObject({ alpha: 0.6, ring: 2 });
+  expect(scatterChart.spec({ data, series: 's' }).marks[0]!.options).not.toHaveProperty('ring');
+});
+
+const DELIVERIES = [
+  { courier: 'North', minutes: 2, late: 1 },
+  { courier: 'East', minutes: 8, late: 3 },
+  { courier: 'North', minutes: 5, late: 2 },
+];
+
+test('scatterChart puts a text y on a band axis in order of first appearance, by name or accessor', () => {
+  const spec = scatterChart.spec({ data: DELIVERIES, x: 'minutes', y: 'courier' });
+  expect(spec.x).toMatchObject({ label: 'minutes' });
+  expect(spec.y).toMatchObject({ label: 'courier', categories: ['North', 'East'] });
+  expect(columns(spec)).toEqual([['courier', [2, 8, 5], [0, 1, 0], [4, 4, 4]]]);
+  expect(scatterChart.spec({ data: DELIVERIES, x: 'minutes', y: d => d.courier }).y).toMatchObject({
+    label: '',
+    categories: ['North', 'East'],
+  });
+  expect(scatterChart.spec({ data: DELIVERIES, y: 'courier', yAxis: { label: 'Who' } }).y).toMatchObject({
+    label: 'Who',
+  });
+  const grouped = scatterChart.spec({ data: DELIVERIES, x: 'minutes', y: 'courier', series: 'courier' });
+  expect(columns(grouped)).toEqual([
+    ['North', [2, 5], [0, 0], [4, 4]],
+    ['East', [8], [1], [4]],
+  ]);
+  const both = scatterChart.spec({ data: DELIVERIES, x: 'minutes', y: 'courier', y2: 'late' });
+  expect(both.y2).toMatchObject({ label: 'late' });
+  expect(both.y2).not.toHaveProperty('categories');
+  expect(both.marks[1]!.yAxis).toBe('y2');
+});
+
+test('scatterChart tooltip names the category of a text y, and a y2 value stays a number', () => {
+  const el = host();
+  scatterChart(el, {
+    data: DELIVERIES,
+    x: 'minutes',
+    y: 'courier',
+    y2: 'late',
+    ...BOX,
+    legend: false,
+    xAxis: { domain: [0, 10] },
+    yAxis: { format: v => `${v} no` },
+    y2Axis: { domain: [0, 10] },
+  });
+  hover(el, 80, 25);
+  expect(tipRows(el)).toEqual(['courier: 8, East']);
+  hover(el, 80, 70);
+  expect(tipRows(el)).toEqual(['late: 8, 3']);
+});
+
+test('a text y is never guessed, and is scatterChart alone', () => {
+  expect(scatterChart.spec({ data: DELIVERIES }).y).toMatchObject({ label: 'late' });
+  expect(() =>
+    scatterChart.spec({ data: DELIVERIES.map(({ courier, minutes }) => ({ courier, minutes })) }),
+  ).toThrow(/^scatterChart: a scatter chart needs two fields/);
+  for (const chart of [lineChart, areaChart, barChart]) {
+    expect(() => chart.spec({ data: DELIVERIES, x: 'minutes', y: 'courier' } as never)).toThrow(
+      /: y "courier" is text, not numbers\./,
+    );
+    expect(() =>
+      chart.spec({ data: DELIVERIES, x: 'minutes', y: d => d.courier, series: 'courier' }),
+    ).toThrow(/: the accessor y1 is text, not numbers\./);
+  }
+  const dated = [{ at: '2026-01-02', n: 1 }];
+  expect(() => scatterChart.spec({ data: dated, x: 'n', y: 'at' })).toThrow(
+    /^scatterChart: y "at" is time, not numbers or text/,
+  );
+  const bad = (props: object) => () =>
+    scatterChart.spec({ data: DELIVERIES, x: 'minutes', y: 'courier', ...props } as never);
+  expect(bad({ yAxis: LOG })).toThrow(/^scatterChart: yAxis.scale 'log' does not apply to a text y/);
+  expect(bad({ errorBars: { low: 'late', high: 'late' } })).toThrow(
+    /^scatterChart: errorBars do not apply to a text y/,
+  );
+});
+
+test("scatterChart shape 'tick' draws ticks r long that answer no tooltip, and an update switches the shape", () => {
+  const props = {
+    data: DELIVERIES,
+    x: 'minutes' as const,
+    y: 'courier' as const,
+    ...BOX,
+    xAxis: { domain: [0, 10] as [number, number] },
+    colors: [RED],
+  };
+  const spec = scatterChart.spec({ ...props, shape: 'tick', r: 10, alpha: 0.6 });
+  expect(spec.marks.map(m => [m.type, m.options])).toEqual([
+    ['ticks', expect.objectContaining({ size: 10, alpha: 0.6, label: 'courier', color: RED })],
+  ]);
+  expect(scatterChart.spec({ ...props, shape: 'tick' }).marks[0]!.options).toMatchObject({ size: 4 });
+  expect(scatterChart.spec({ ...props, shape: 'dot' }).marks[0]!.type).toBe('dots');
+  for (const wrong of [{ r: 'late' }, { ring: 2 }])
+    expect(() => scatterChart.spec({ ...props, ...wrong, shape: 'tick' } as never)).toThrow(
+      /^scatterChart: .* does not apply to shape 'tick'/,
+    );
+
+  const el = host();
+  const c = scatterChart(el, { ...props, r: 10 });
+  hover(el, 20, 75);
+  expect(tipRows(el)).toEqual(['courier: 2, North']);
+  expect(isRed(el, 26, 75)).toBe(true);
+  c.update({ shape: 'tick' });
+  hover(el, 20, 75);
+  expect(tipOf(el)()).toBe(false);
+  expect(isRed(el, 26, 75)).toBe(false);
+  const inked = (y: number) => [19, 20].some(x => pixel(el, x, y)[3]! > 0);
+  expect([67, 75, 83].map(inked)).toEqual([true, true, true]);
+  expect([61, 88].map(inked)).toEqual([false, false]);
+  c.update({ r: 4 });
+  expect([67, 75, 83].map(inked)).toEqual([false, true, false]);
+});
+
+test('types: errorBars check field names, and alpha and ring are for scatter', () => {
+  const cols = { t: [1], v: [1], lo: [1], hi: [1], note: ['a'] };
+  lineChart.spec({
+    data: cols,
+    x: 't',
+    y: 'v',
+    series: 'note',
+    errorBars: { low: 'lo', high: 'hi', cap: 0 },
+  });
+  barChart.spec({ data: spans, y: 'mean', errorBars: { low: d => d.low, high: 'high', width: 2 } });
+  lineChart.spec({ errorBars: { low: 'anything', high: 'anything' } });
+  const wrong = () => {
+    // @ts-expect-error not a field of the rows
+    lineChart.spec({ data: spans, errorBars: { low: 'nope', high: 'high' } });
+    // @ts-expect-error a text field is not an end
+    barChart.spec({ data: spans, errorBars: { low: 'low', high: 'dose' } });
+    // @ts-expect-error a list is not an end
+    scatterChart.spec({ data: spans, errorBars: { low: ['low'], high: 'high' } });
+    // @ts-expect-error both ends are needed
+    scatterChart.spec({ data: spans, errorBars: { low: 'low' } });
+    // @ts-expect-error not a column
+    lineChart.spec({ data: cols, errorBars: { low: 'nope', high: 'hi' } });
+    // @ts-expect-error numbers have no fields to name
+    lineChart.spec({ data: [1, 2], errorBars: { low: 'value', high: 'value' } });
+    // @ts-expect-error an area chart has no error bars
+    areaChart.spec({ data: spans, errorBars: { low: 'low', high: 'high' } });
+    // @ts-expect-error a line has no ring
+    lineChart.spec({ data: spans, ring: 2 });
+    // @ts-expect-error bars have no alpha
+    barChart.spec({ data: spans, alpha: 0.5 });
+  };
+  expect(wrong).toBeTypeOf('function');
+});
+
+const BOTH = days(3, i => ({ rain: 10 * (i + 1), sun: i + 1, wind: 6 - i }));
+const axesOf = (o: Options) => o.marks.map(m => [m.label, m.yAxis ?? 'y']);
+
+test('y2 adds series on a right-hand axis with its own settings, and its fields are not guessed for y', () => {
+  for (const chart of [lineChart, areaChart, barChart, scatterChart]) {
+    const spec = chart.spec({ data: BOTH, y: 'sun', y2: 'rain', y2Axis: { step: 10 }, colors: [RED, BLUE] });
+    expect(axesOf(spec)).toEqual([
+      ['sun', 'y'],
+      ['rain', 'y2'],
+    ]);
+    expect(spec.marks.map(m => m.color)).toEqual([RED, BLUE]);
+    expect(spec.y).toMatchObject({ label: 'sun', domain: 'nice' });
+    expect(spec.y2).toEqual({ label: 'rain', domain: 'nice', step: 10 });
+    expect(chart.spec({ data: BOTH, y: 'sun', y2Axis: { step: 10 } })).not.toHaveProperty('y2');
+    expect(chart.spec({ data: BOTH, y: 'sun', y2: [] })).not.toHaveProperty('y2');
+    expect(axesOf(chart.spec({ data: BOTH, y: 'sun', y2: ['rain', 'wind'] }))).toEqual([
+      ['sun', 'y'],
+      ['rain', 'y2'],
+      ['wind', 'y2'],
+    ]);
+  }
+  expect(axesOf(lineChart.spec({ data: BOTH, y2: 'rain' }))).toEqual([
+    ['sun', 'y'],
+    ['wind', 'y'],
+    ['rain', 'y2'],
+  ]);
+  const noted = BOTH.map(d => ({ ...d, note: 'a' }));
+  expect(axesOf(lineChart.spec({ data: noted, y: 'sun', y2: 'rain' }))).toEqual([
+    ['sun', 'y'],
+    ['rain', 'y2'],
+  ]);
+  const two = lineChart.spec({ data: BOTH, y: d => d.sun, y2: [d => d.rain, 'wind'] });
+  expect(axesOf(two)).toEqual([
+    ['y1', 'y'],
+    ['y2', 'y2'],
+    ['wind', 'y2'],
+  ]);
+  expect([(two.y as { label?: string }).label, two.y2!.label]).toEqual(['', '']);
+  const el = host();
+  lineChart(el, { data: BOTH, y: 'sun', y2: 'rain', y2Axis: { label: 'mm' }, width: 300, height: 200 });
+  expect(entriesOf(el).map(e => e.textContent)).toEqual(['sun', 'rain']);
+  expect(el.textContent).toContain('mm');
+});
+
+test('an accessor beside y2 is named apart from the columns y1 and y2', () => {
+  const data = [{ x: 1, y1: 2, y2: 3 }];
+  expect(axesOf(lineChart.spec({ data, x: 'x', y: d => d.y2, y2: 'y1' }))).toEqual([
+    ['y2', 'y'],
+    ['y1', 'y2'],
+  ]);
+  expect(axesOf(lineChart.spec({ data, x: 'x', y: 'y2', y2: d => d.y1 }))).toEqual([
+    ['y2', 'y'],
+    ['y3', 'y2'],
+  ]);
+  expect(axesOf(lineChart.spec({ data, x: 'x', y: [d => d.y2, d => d.x], y2: 'y1' }))).toEqual([
+    ['y2', 'y'],
+    ['y3', 'y'],
+    ['y1', 'y2'],
+  ]);
+});
+
+test('y2 errors name the chart, the fields and the props', () => {
+  const bad = (props: object) => () => lineChart.spec({ data: BOTH, ...props } as never);
+  expect(bad({ y: 'sun', y2: 'date' })).toThrow(/^lineChart: y2 "date" is time, not numbers/);
+  expect(bad({ y: 'sun', y2: 'nope' })).toThrow(/no field "nope".*Pass y2 as one of these fields/);
+  expect(bad({ y: 'sun', y2: () => 'a' })).toThrow(/the accessor y2 is text/);
+  expect(bad({ y: ['sun', 'rain'], y2: 'rain' })).toThrow(/"rain" is named in both y and y2/);
+  expect(() => areaChart.spec({ data: BOTH, y: 'sun', y2: ['rain', 'rain'], stack: true })).toThrow(
+    /^areaChart: "rain" is named twice in y2.*Pass it once\.$/,
+  );
+  expect(bad({ y2: ['sun', 'rain', 'wind'] })).toThrow(/no field of numbers for y\./);
+  expect(bad({ y: 'sun', y2: 'rain', series: 'wind' })).toThrow(/series and y2 do not go together/);
+  expect(bad({ y: 'sun', y2: 'rain', errorBars: { low: 'wind', high: 'wind' } })).toThrow(
+    /errorBars and y2 do not go together/,
+  );
+  expect(() => scatterChart.spec({ data: BOTH, y: 'sun', y2: 'rain', series: 'wind' })).toThrow(
+    /^scatterChart: series and y2/,
+  );
+  const stacked = { y: 'sun', y2: 'rain', stack: true } as const;
+  expect(() => barChart.spec({ data: BOTH, ...stacked })).toThrow(
+    /^barChart: stack does not apply to bars on both y and y2\. Leave out stack or y2\.$/,
+  );
+  expect(() => barChart.spec({ data: null, y2: 'rain', stack: true })).not.toThrow();
+  expect(lineChart.spec({ data: null, y2: 'rain' }).y2).toMatchObject({ label: 'rain' });
+});
+
+test('bars on both axes stand side by side, and areas stack within their axis only', () => {
+  const box = { ...BOX, legend: false, colors: [RED, BLUE] };
+  const bars = host();
+  barChart(bars, {
+    data: [{ name: 'a', p: 1, q: 30 }],
+    y: 'p',
+    y2: 'q',
+    ...box,
+    yAxis: { domain: [0, 4] },
+    y2Axis: { domain: [0, 40] },
+  });
+  expect(tallShare(bars, 30, RED)).toBeCloseTo(0.25, 1);
+  expect(tallShare(bars, 30, BLUE)).toBe(0);
+  expect(tallShare(bars, 70, BLUE)).toBeCloseTo(0.75, 1);
+  expect(tallShare(bars, 70, RED)).toBe(0);
+
+  const areas = host();
+  areaChart(areas, {
+    data: days(5, () => ({ a: 1, b: 2, c: 10 })),
+    y: ['a', 'b'],
+    y2: 'c',
+    stack: true,
+    ...box,
+    yAxis: { domain: [0, 4] },
+    y2Axis: { domain: [0, 40] },
+  });
+  const filled = (y: number) => pixel(areas, 50, y)[3]! > 0;
+  expect([20, 30, 60, 90].map(filled)).toEqual([false, true, true, true]);
+  // The area on y2 is see-through, so the stack on y shows under it.
+  expect(pixel(areas, 50, 90)).not.toEqual(pixel(areas, 50, 60));
+  expect(areaChart.spec({ data: BOTH, y: 'sun', y2: 'rain', stack: true }).marks.map(m => m.options)).toEqual(
+    [0, 1].map(() => expect.objectContaining({ stack: 'stack', alpha: 0.5 })),
+  );
+});
+
+test('the tooltip gives each value in the format of its axis and follows a new y2 format', () => {
+  const formats = {
+    yAxis: { domain: [0, 4] as [number, number], format: (v: number) => `${v} h` },
+    y2Axis: { domain: [0, 40] as [number, number], format: (v: number) => `${v} mm` },
+  };
+  const lines = host();
+  const c = lineChart(lines, { data: BOTH, y: 'sun', y2: 'rain', ...BOX, legend: false, ...formats });
+  hover(lines, 50, 50);
+  expect(tipRows(lines)).toEqual(['2024-01-02', 'sun: 2 h', 'rain: 20 mm']);
+  const { chart } = c;
+  c.update({ y2Axis: { ...formats.y2Axis, format: v => `${v / 10} cm` } });
+  expect(c.chart).toBe(chart);
+  hover(lines, 50, 50);
+  expect(tipRows(lines)).toEqual(['2024-01-02', 'sun: 2 h', 'rain: 2 cm']);
+
+  const bars = host();
+  const data = [{ name: 'a', p: 2, q: 30 }];
+  barChart(bars, { data, y: 'p', y2: 'q', ...BOX, legend: false, ...formats });
+  hover(bars, 30, 90);
+  expect(tipRows(bars)).toEqual(['a · p: 2 h']);
+  hover(bars, 70, 90);
+  expect(tipRows(bars)).toEqual(['a · q: 30 mm']);
+
+  const points = host();
+  scatterChart(points, {
+    data: [{ x: 5, p: 2, q: 30 }],
+    x: 'x',
+    y: 'p',
+    y2: 'q',
+    ...BOX,
+    legend: false,
+    xAxis: { domain: [0, 10] },
+    ...formats,
+  });
+  hover(points, 50, 50);
+  expect(tipRows(points)).toEqual(['p: 5, 2 h']);
+  hover(points, 50, 25);
+  expect(tipRows(points)).toEqual(['q: 5, 30 mm']);
+});
+
+test('y2 identity: an equal copy sends nothing, and a field moved between the axes moves', () => {
+  const props = () => ({ data: BOTH, y: ['sun'] as const, y2: ['rain'] as const, y2Axis: { step: 10 } });
+  const el = host();
+  const c = lineChart(el, { ...BOX, ...props() });
+  const update = vi.spyOn(c.chart, 'update');
+  c.update(props());
+  expect(update).not.toHaveBeenCalled();
+  const fresh = (p: LineChartProps<typeof BOTH>) => {
+    const one = host();
+    lineChart(one, { ...BOX, ...p });
+    return drawn(one);
+  };
+  c.update({ y: ['sun', 'rain'], y2: undefined, y2Axis: undefined });
+  expect(drawn(el)).toBe(fresh({ data: BOTH, y: ['sun', 'rain'] }));
+  c.update(props());
+  expect(drawn(el)).toBe(fresh(props()));
+});
+
+test('a recreation carries a zoomed y2 window, and one fitted to the x window refits', async () => {
+  const wide = (k: number) => days(9, i => ({ a: i, b: k * i * i }));
+  const base = { y: 'a', y2: 'b', ...BOX, legend: false } as const;
+  const onViewChange = vi.fn();
+  const el = host();
+  const c = lineChart(el, { data: wide(1), ...base, zoom: { axes: 'xy' }, onViewChange });
+  await zoomIn(el);
+  const zoomed = drawn(el);
+  const view = onViewChange.mock.calls.at(-1)![0];
+  expect(view.y2).toHaveLength(2);
+  const { chart } = c;
+  c.update({ zoom: true });
+  expect(c.chart).not.toBe(chart);
+  expect(drawn(el)).toBe(zoomed);
+  const other = host();
+  lineChart(other, { data: wide(1), ...base, view: { x: view.x, y: view.y } });
+  expect(drawn(other)).not.toBe(zoomed);
+
+  const fit = { ...base, y2Axis: { fit: 'window' as const } };
+  const fitted = host();
+  const f = lineChart(fitted, { data: wide(1), ...fit, zoom: true, onViewChange });
+  await zoomIn(fitted);
+  const { x, y2 } = onViewChange.mock.calls.at(-1)![0];
+  expect(y2).toBeUndefined();
+  f.update({ zoom: { axes: 'x' } });
+  f.update({ data: wide(3.3) });
+  const fresh = host();
+  lineChart(fresh, { data: wide(3.3), ...fit, view: { x } });
+  expect(drawn(fitted)).toBe(drawn(fresh));
+});
+
+test('types: y2 takes number fields of rows and columns', () => {
+  const cols = { t: [1], v: [1], w: [1], note: ['a'] };
+  lineChart.spec({ data: cols, x: 't', y: 'v', y2: ['w'], y2Axis: { format: String, fit: 'window' } });
+  scatterChart.spec({ data: BOTH, y: 'sun', y2: ['rain', d => d.wind] });
+  areaChart.spec({ y2: 'anything', y2Axis: { label: 'mm' } });
+  const wrong = () => {
+    // @ts-expect-error not a field of the rows
+    lineChart.spec({ data: BOTH, y2: 'nope' });
+    // @ts-expect-error a text field is not drawn
+    barChart.spec({ data: BOTH, y2: 'date' });
+    // @ts-expect-error not a column of numbers
+    areaChart.spec({ data: cols, y2: ['w', 'note'] });
+    // @ts-expect-error numbers have no fields to name
+    lineChart.spec({ data: [1, 2], y2: 'value' });
+    // @ts-expect-error pairs have no second axis
+    scatterChart.spec({ data: [[0, 1]], y2Axis: { label: 'mm' } });
+    // @ts-expect-error y2Axis takes what yAxis takes
+    lineChart.spec({ data: BOTH, y2: 'rain', y2Axis: { unit: 'day' } });
+  };
+  expect(wrong).toBeTypeOf('function');
+});
+
+const GROWTH = [
+  { week: 1, users: 100, other: 10, low: 10, high: 1000 },
+  { week: 2, users: 0, other: -1, low: 0, high: 10 },
+  { week: 3, users: 1000, other: 1, low: 100, high: 10000 },
+];
+const LOG = { scale: 'log' } as const;
+
+test("yAxis.scale 'log' draws through the core's log axis, with a gap at or below zero", () => {
+  const format = (v: number) => `${v} users`;
+  const spec = lineChart.spec({
+    data: GROWTH,
+    x: 'week',
+    y: 'users',
+    yAxis: { ...LOG, format, domain: [1, 1e4] },
+  });
+  expect(spec.y).toMatchObject({ base: 10, label: 'users', domain: [0, 4], format });
+  expect(numbers(optionsOf(spec.marks[0]!).y)).toEqual([2, Number.NaN, 3]);
+  expect(numbers(optionsOf(spec.marks[0]!).x)).toEqual([1, 2, 3]);
+  expect(lineChart.spec({ data: GROWTH, y: 'users', yAxis: { scale: 'linear' } }).y).toEqual(
+    lineChart.spec({ data: GROWTH, y: 'users' }).y,
+  );
+
+  for (const chart of [lineChart, scatterChart]) {
+    const two = chart.spec({ data: GROWTH, x: 'week', y: 'users', y2: 'other', y2Axis: LOG });
+    expect(two.y).not.toHaveProperty('base');
+    expect(two.y2).toMatchObject({ base: 10, domain: 'nice' });
+    expect(two.marks.map(m => numbers(optionsOf(m).y))).toEqual([
+      [100, 0, 1000],
+      [1, Number.NaN, 0],
+    ]);
+  }
+
+  const el = host();
+  const box = { ...BOX, legend: false, xAxis: { domain: [0, 4] as [number, number] } };
+  const c = scatterChart(el, {
+    data: GROWTH,
+    x: 'week',
+    y: 'users',
+    ...box,
+    yAxis: { ...LOG, format, domain: [1, 1e4] },
+  });
+  hover(el, 25, 50);
+  expect(tipRows(el)).toEqual(['users: 1, 100 users']);
+  c.update({ yAxis: { format, domain: [0, 200] } });
+  hover(el, 25, 50);
+  expect(tipRows(el)).toEqual(['users: 1, 100 users']);
+  expect(tipOf(el)()).toBe(true);
+
+  const twenty = {
+    data: [
+      { week: 1, users: 1, other: 20 },
+      { week: 2, users: 20, other: 20 },
+      { week: 3, users: 1, other: 20 },
+    ],
+    x: 'week',
+    y: 'users',
+    y2: 'other',
+    ...box,
+    yAxis: { ...LOG, format, domain: [1, 400] as [number, number] },
+    y2Axis: { ...LOG, format, domain: [20, 2000] as [number, number] },
+  } as const;
+  const dotted = host();
+  scatterChart(dotted, twenty);
+  hover(dotted, 50, 50);
+  expect(tipRows(dotted)).toEqual(['users: 2, 20 users']);
+  const lined = host();
+  lineChart(lined, twenty);
+  hover(lined, 50, 50);
+  expect(tipRows(lined)).toEqual(['2', 'users: 20 users', 'other: 20 users']);
+
+  const precise = {
+    ...twenty,
+    data: [
+      { week: 1, users: 20, other: 20 },
+      { week: 2, users: 1.0000000000001, other: 20.000000000001 },
+      { week: 2.5, users: 1.0000000000002, other: 21 },
+      { week: 3, users: 20, other: 22 },
+    ],
+  } as const;
+  const point = host();
+  scatterChart(point, precise);
+  hover(point, 50, 97);
+  expect(tipRows(point)).toEqual(['users: 2, 1.0000000000001 users']);
+  const exact = host();
+  const path = lineChart(exact, precise);
+  hover(exact, 50, 50);
+  expect(tipRows(exact)).toEqual(['2', 'users: 1.0000000000001 users', 'other: 20.000000000001 users']);
+  path.update({ curve: 'step' });
+  hover(exact, 70, 50);
+  expect(tipRows(exact)!.slice(1)).toEqual(['users: 1.0000000000002 users', 'other: 21 users']);
+});
+
+test('a log scale throws on areas and bars, with a step, and with a domain that is not above zero', () => {
+  const bad = (chart: typeof areaChart | typeof barChart, props: object) => () =>
+    chart.spec({ data: GROWTH, x: 'week', y: 'users', ...props } as never);
+  expect(bad(areaChart, { yAxis: LOG })).toThrow(/^areaChart: yAxis.scale 'log' does not apply/);
+  expect(bad(barChart, { yAxis: LOG })).toThrow(/^barChart: yAxis.scale 'log' does not apply/);
+  expect(bad(barChart, { y2: 'other', y2Axis: LOG })).toThrow(/^barChart: y2Axis.scale 'log'/);
+  expect(() => lineChart.spec({ data: GROWTH, yAxis: { ...LOG, step: 10 } })).toThrow(
+    /^lineChart: yAxis.step does not apply to a log scale/,
+  );
+  expect(() => scatterChart.spec({ data: GROWTH, y2: 'other', y2Axis: { ...LOG, step: 10 } })).toThrow(
+    /^scatterChart: y2Axis.step/,
+  );
+  for (const domain of [
+    [0, 10],
+    [1, Infinity],
+  ] as [number, number][])
+    expect(() => lineChart.spec({ data: GROWTH, yAxis: { ...LOG, domain } })).toThrow(
+      /^lineChart: yAxis.domain must be above zero/,
+    );
+});
+
+test('a y rule, a y zone and error bars on a log axis land at the logarithm of their values', () => {
+  const { marks } = lineChart.spec({
+    data: GROWTH,
+    x: 'week',
+    y: 'users',
+    errorBars: SPREAD,
+    yAxis: LOG,
+    rules: [{ y: 1000 }, { x: 2 }, { y: 0 }],
+    zones: [{ y: [10, 100] }, { x: [1, 2] }, { y: [0, 100] }],
+  });
+  const [band, along, open, errors, , up, across, none] = marks.map(
+    m => m.options as Record<string, number & Col>,
+  );
+  expect([band!.y1, band!.y2]).toEqual([1, 2]);
+  expect([along!.x1, along!.x2]).toEqual([1, 2]);
+  expect([open!.y1, open!.y2]).toEqual([-Infinity, 2]);
+  expect([numbers(errors!.y1!), numbers(errors!.y2!)]).toEqual([
+    [1, Number.NaN, 2],
+    [3, 1, 4],
+  ]);
+  expect([up!.y, across!.x, none!.y]).toEqual([3, 2, Number.NaN]);
+
+  const el = host();
+  lineChart(el, {
+    data: GROWTH,
+    x: 'week',
+    y: 'users',
+    ...BOX,
+    yAxis: { ...LOG, domain: [1, 100] },
+    zones: [{ y: [0, 10], color: PURE }],
+  });
+  expect([pixel(el, 50, 25)[3], pixel(el, 50, 75)[3]! > 0]).toEqual([0, true]);
+});
+
+test('rules and zones are marks with keys, zones under the data and rules over it, in no legend and no guess', () => {
+  for (const chart of [lineChart, areaChart, barChart, scatterChart]) {
+    const props = {
+      data: BOTH,
+      y: 'sun',
+      y2: 'rain',
+      rules: [
+        { y: 2, text: 'two', dashed: true, color: RED },
+        { y: 1, text: undefined },
+      ],
+      zones: [{ y: [1, 2], text: 'between', color: BLUE }, { y: [2, 1] }],
+    } as const;
+    const spec = chart.spec(props);
+    const plain = chart.spec({ data: BOTH, y: 'sun', y2: 'rain' });
+    expect(spec.marks.map(m => m.key)).toEqual([
+      'zone:0',
+      'zone:1',
+      ...plain.marks.map(m => m.key),
+      'rule:0',
+      'rule:1',
+    ]);
+    expect(spec.marks.slice(2, 4).map(m => m.options)).toEqual(plain.marks.map(m => m.options));
+    expect(spec.marks.map(m => m.type).filter(t => t === 'zone' || t === 'rule')).toHaveLength(4);
+    expect(spec.marks.filter(m => m.label).map(m => m.label)).toEqual(['sun', 'rain']);
+    expect(spec.marks[4]!.options).toEqual({ key: 'rule:0', y: 2, text: 'two', dashed: true, color: RED });
+    expect(spec.marks[5]!.options).toEqual({ key: 'rule:1', y: 1, color: light.text });
+    expect(spec.marks[0]!.options).toEqual({ key: 'zone:0', y1: 1, y2: 2, text: 'between', color: BLUE });
+    expect(spec.marks[1]!.options).toEqual({ key: 'zone:1', y1: 2, y2: 1, color: light.muted });
+    expect(chart.spec({ ...props, theme: 'dark' }).marks[5]!.color).toBe(dark.text);
+    expect(chart.spec({ ...props, data: null }).marks).toHaveLength(4);
+    expect(() => chart.spec({ data: BOTH, y: 'sun', rules: [{ text: 'x' }] } as never)).toThrow(
+      /^\w+Chart: rules\[0\] takes x or y/,
+    );
+    expect(() => chart.spec({ data: BOTH, y: 'sun', zones: [{ text: 'x' }] } as never)).toThrow(
+      /^\w+Chart: zones\[0\] takes x or y/,
+    );
+  }
+  const one = host();
+  lineChart(one, { data: days(3, i => ({ v: i })), width: 300, height: 200, rules: [{ y: 1, text: 'one' }] });
+  expect(entriesOf(one)).toEqual([]);
+  expect(one.textContent).toContain('one');
+});
+
+test('the x of a rule or a zone is a number, a date as the data writes them, or a category', () => {
+  const at = (o: Options) =>
+    o.marks
+      .filter(m => m.type === 'rule' || m.type === 'zone')
+      .map(m => m.options as { x?: number; x1?: number; x2?: number })
+      .map(({ x, x1, x2 }) => x ?? [x1, x2]);
+  const day = Date.UTC(2024, 0, 2);
+  const dated = {
+    rules: [{ x: '2024-01-02' }, { x: new Date(day) }, { x: day }, { x: 'nope' }],
+    zones: [{ x: ['2024-01-02', new Date(day + 5)] }],
+  } as const;
+  expect(at(lineChart.spec({ data: BOTH, y: 'sun', ...dated }))).toEqual([
+    [day, day + 5],
+    day,
+    day,
+    day,
+    Number.NaN,
+  ]);
+  expect(
+    at(lineChart.spec({ data: BOTH, y: 'sun', xAxis: { utc: false }, rules: [{ x: '2024-01-02' }] })),
+  ).toEqual([new Date(2024, 0, 2).getTime()]);
+  expect(at(barChart.spec({ data: BOTH, y: 'sun', rules: dated.rules }))).toEqual([1, 1, 1, Number.NaN]);
+  const midnights = ['2024-01-01', '2024-01-02'].map(date => ({ date, kind: 1, v: 1 }));
+  for (const series of [undefined, 'kind'] as const)
+    expect(
+      at(
+        barChart.spec({
+          data: midnights,
+          x: 'date',
+          y: 'v',
+          ...(series && { series }),
+          rules: [{ x: '2024-01-01T12:00' }, { x: new Date(Date.UTC(2024, 0, 2)) }],
+          zones: [{ x: ['2024-01-01', '2024-01-02T12:00'] }],
+        } as never),
+      ),
+    ).toEqual([[Number.NaN, Number.NaN], Number.NaN, 1]);
+
+  const named = { rules: [{ x: 'some' }, { x: 'nope' }], zones: [{ x: ['much', 'some'] }] } as const;
+  for (const chart of [lineChart, barChart, scatterChart, areaChart])
+    expect(at(chart.spec({ data: spans, x: 'dose', y: 'mean', ...named }))).toEqual([
+      [0.5, 2.5],
+      1,
+      Number.NaN,
+    ]);
+  const years = [
+    { year: 2019, v: 1 },
+    { year: 2020, v: 2 },
+  ];
+  expect(
+    at(
+      barChart.spec({
+        data: years,
+        x: 'year',
+        y: 'v',
+        rules: [{ x: 2020 }],
+        zones: [{ x: [2019, 2020] }],
+      }),
+    ),
+  ).toEqual([[-0.5, 1.5], 1]);
+  expect(at(lineChart.spec({ data: [], ...named }))).toEqual([
+    [Number.NaN, Number.NaN],
+    Number.NaN,
+    Number.NaN,
+  ]);
+});
+
+test('lineChart passes fill to the line; an equal copy of fill, rules, zones and a log scale sends nothing', () => {
+  expect(lineChart.spec({ data: BOTH, y: 'sun' }).marks[0]!.options).not.toHaveProperty('fill');
+  const fade = gradient(0.4, 0);
+  for (const fill of [true, fade])
+    expect(lineChart.spec({ data: BOTH, y: 'sun', fill }).marks[0]!.options).toMatchObject({ fill });
+  const props = () => ({
+    data: BOTH,
+    y: 'sun' as const,
+    fill: gradient(0.4, 0),
+    yAxis: { scale: 'log' as const },
+    rules: [{ x: '2024-01-02', text: 'here' }],
+    zones: [{ y: [1, 2] as const }],
+    brush: { axes: 'xy' as const },
+  });
+  const el = host();
+  const c = lineChart(el, { ...BOX, ...props(), theme: 'light' });
+  const { chart } = c;
+  const update = vi.spyOn(c.chart, 'update');
+  c.update(props());
+  expect(update).not.toHaveBeenCalled();
+  for (const change of [
+    { fill: true },
+    { rules: [{ x: '2024-01-03', text: 'here' }] },
+    { zones: [] },
+    { rules: undefined },
+  ]) {
+    c.update(change);
+    expect(update).toHaveBeenCalledTimes(1);
+    expect(Object.keys(update.mock.calls[0]![0])).toEqual(['marks']);
+    update.mockClear();
+  }
+  expect(c.chart).toBe(chart);
+});
+
+test('brush reports the range to the newest onBrush, and only a change of brush recreates the chart', () => {
+  const calls = [vi.fn(), vi.fn(), vi.fn()];
+  for (const chart of [lineChart, areaChart, barChart, scatterChart]) {
+    calls.forEach(f => f.mockClear());
+    const el = host();
+    const box = { ...BOX, legend: false, yAxis: { domain: [0, 10] as [number, number] } };
+    const c = chart(el, { data: BOTH, y: 'sun', ...box, brush: true, onBrush: calls[0] });
+    const { chart: first } = c;
+    const update = vi.spyOn(c.chart, 'update');
+    c.update({ onBrush: calls[1] });
+    c.update({ brush: true, onBrush: calls[2] });
+    expect(c.chart).toBe(first);
+    expect(update).not.toHaveBeenCalled();
+    drag(el, [20, 50], [80, 50]);
+    expect(calls.map(f => f.mock.calls.length)).toEqual([0, 0, 1]);
+    const { x, y } = calls[2]!.mock.calls[0]![0];
+    expect(y).toEqual([0, 10]);
+    expect(x[0]).toBeLessThan(x[1]);
+
+    c.update({ brush: { axes: 'y' } });
+    expect(c.chart).not.toBe(first);
+    calls[2]!.mockClear();
+    drag(el, [50, 80], [50, 20]);
+    const [low, high] = calls[2]!.mock.calls.at(-1)![0].y;
+    expect(low).toBeCloseTo(2, 0);
+    expect(high).toBeCloseTo(8, 0);
+    calls[2]!.mockClear();
+    c.update({ brush: undefined });
+    drag(el, [50, 80], [50, 20]);
+    expect(calls[2]).not.toHaveBeenCalled();
+  }
+});
+
+test('with zoom a release of the brush shows the range brushed, and a spec holds no onBrush', () => {
+  const [onBrush, onViewChange] = [vi.fn(), vi.fn()];
+  const data = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+  const base = { data, ...BOX, brush: true, onBrush, onViewChange } as const;
+  const zoomed = host();
+  lineChart(zoomed, { ...base, zoom: true });
+  drag(zoomed, [20, 50], [60, 50]);
+  expect(onBrush).toHaveBeenCalledTimes(1);
+  const { x } = onBrush.mock.calls[0]![0];
+  expect(x[0]).toBeCloseTo(2, 0);
+  expect(x[1]).toBeCloseTo(6, 0);
+  expect(onViewChange.mock.calls[0]![0].x).toEqual(x);
+
+  onViewChange.mockClear();
+  const still = host();
+  lineChart(still, base);
+  drag(still, [20, 50], [60, 50]);
+  expect(onViewChange).not.toHaveBeenCalled();
+  expect(lineChart.spec(base)).not.toHaveProperty('onBrush');
+  expect(lineChart.spec(base).use).toHaveLength(2);
+});
+
+test('a recreation that fails leaves the old brush reporting to the old onBrush', () => {
+  const [was, now] = [vi.fn(), vi.fn()];
+  const el = host();
+  const c = lineChart(el, { data: BOTH, y: 'sun', ...BOX, brush: true, onBrush: was });
+  const boom = () => {
+    throw new Error('boom');
+  };
+  expect(() => c.update({ zoom: true, onBrush: now, yAxis: { format: boom } })).toThrow('boom');
+  drag(el, [20, 50], [80, 50]);
+  expect([was.mock.calls.length, now.mock.calls.length]).toEqual([1, 0]);
+});
+
+test('types: a log scale is for line and scatter, fill for line, and a rule takes x or y', () => {
+  scatterChart.spec({ data: BOTH, yAxis: LOG, y2: 'rain', y2Axis: LOG });
+  lineChart.spec({
+    data: [1, 2],
+    yAxis: LOG,
+    rules: [{ y: 1 }],
+    zones: [{ x: [0, 1] }],
+    brush: true,
+    fill: true,
+  });
+  lineChart.spec({ data: [[0, 1]], onBrush: range => range?.x[0].toFixed() });
+  const wrong = () => {
+    // @ts-expect-error an area starts at zero
+    areaChart.spec({ data: BOTH, yAxis: LOG });
+    // @ts-expect-error a bar starts at zero
+    barChart.spec({ data: BOTH, yAxis: LOG });
+    // @ts-expect-error a rule is on one axis
+    lineChart.spec({ data: BOTH, rules: [{ x: 1, y: 1 }] });
+    // @ts-expect-error a zone has two edges
+    lineChart.spec({ data: BOTH, zones: [{ y: 1 }] });
+    // @ts-expect-error dots have no fill
+    scatterChart.spec({ data: BOTH, fill: true });
+    // @ts-expect-error not an axis
+    barChart.spec({ data: BOTH, brush: { axes: 'z' } });
+  };
+  expect(wrong).toBeTypeOf('function');
+});
+
 const DAY = 864e5;
 const XS = Float64Array.from({ length: 11 }, (_, i) => i * DAY);
 const HALF = new Float64Array(11).fill(0.5);
@@ -2628,4 +3723,2221 @@ test('a failed update rolls back to a controlled view it dropped and to a pointe
   expect(() => m.update({ view: undefined, marks: [throwing] })).toThrow('boom');
   expect(grabbed.view().x).toEqual(view.x);
   expect(grabbed.pointer()).not.toBeNull();
+});
+
+type Visit = { source: string; visits: number; share: number | null };
+const visits = (): Visit[] => [
+  { source: 'search', visits: 1, share: 4 },
+  { source: 'direct', visits: 1, share: null },
+];
+const partCharts = [
+  ['pieChart', pieChart, 'arcs', 'polar'],
+  ['funnelChart', funnelChart, 'funnel', 'blank'],
+  ['radialBarChart', radialBarChart, 'radialBars', 'polar'],
+] as const;
+type PartOptions = { values: Col; labels?: string[]; colors: string[] };
+const partOf = (o: Options) => {
+  expect(o.marks).toHaveLength(1);
+  const { type, label, options } = o.marks[0]!;
+  const { values: v, labels, colors, ...rest } = options as PartOptions & Record<string, unknown>;
+  return { type, label, values: Array.from(v), labels, colors, rest };
+};
+
+test.each(partCharts)('%s picks label and value: named, guessed or positional', (_, chart, type, frame) => {
+  const rows = visits();
+  const guessed = chart.spec({ data: rows.map(({ source: s, visits: v }) => ({ v, s })) });
+  expect(guessed).toMatchObject({ frame });
+  expect(guessed).not.toHaveProperty('x');
+  expect(partOf(guessed)).toMatchObject({ type, label: 'v', values: [1, 1], labels: ['search', 'direct'] });
+  expect(partOf(chart.spec({ data: rows, value: 'visits' }))).toMatchObject({
+    label: 'visits',
+    labels: ['search', 'direct'],
+  });
+  expect(partOf(chart.spec({ data: rows, value: 'share', label: 'visits' }))).toMatchObject({
+    values: [4, NaN],
+    labels: ['1', '1'],
+  });
+  expect(partOf(chart.spec({ data: rows, label: 'share' }))).toMatchObject({
+    label: 'visits',
+    labels: ['4', ''],
+  });
+  expect(
+    partOf(chart.spec({ data: rows, label: d => d.source.toUpperCase(), value: d => d.visits * 2 })),
+  ).toMatchObject({ label: 'value', values: [2, 2], labels: ['SEARCH', 'DIRECT'] });
+  expect(partOf(chart.spec({ data: { a: ['x', 'y'], b: ['p', 'q'], n: [3, 5] } }))).toMatchObject({
+    label: 'n',
+    values: [3, 5],
+    labels: ['x', 'y'],
+  });
+  expect(partOf(chart.spec({ data: [{ day: '2026-11-01', n: 1 }], label: 'day' }))).toMatchObject({
+    labels: ['2026-11-01'],
+  });
+  expect(
+    partOf(
+      chart.spec({
+        data: [
+          ['a', 1],
+          ['b', 2],
+        ],
+      }),
+    ),
+  ).toMatchObject({ values: [1, 2], labels: ['a', 'b'] });
+});
+
+test.each(partCharts)('%s with no text field draws parts without names', (_, chart) => {
+  for (const data of [
+    [{ n: 3 }, { n: 5 }],
+    [3, 5],
+  ]) {
+    const { values: v, labels } = partOf(chart.spec({ data: data as { n: number }[] }));
+    expect(v).toEqual([3, 5]);
+    expect(labels).toBeUndefined();
+  }
+  const el = host();
+  chart(el, { data: [3, 5], width: 300, height: 300 });
+  expect(entriesOf(el)).toEqual([]);
+});
+
+test.each(partCharts)('%s errors name the chart, the fields and the props to pass', (name, chart) => {
+  const rows = visits();
+  expect(() => chart.spec({ data: rows })).toThrow(
+    new RegExp(
+      `^${name}: .*"visits", "share".* The fields are source \\(text\\), visits \\(number\\), share \\(number\\)\\. Pass value as one of them\\.$`,
+    ),
+  );
+  expect(() => chart.spec({ data: [{ a: 'x', b: '5' }] })).toThrow(
+    /no field of numbers for value; "b" holds numbers as text.*Pass value as a field of numbers\.$/,
+  );
+  expect(() => chart.spec({ data: rows, value: 'source' as 'visits' })).toThrow(
+    /value "source" is text, not numbers/,
+  );
+  expect(() => chart.spec({ data: rows, label: 'nope' as 'source' })).toThrow(
+    /no field "nope".*Pass label as/,
+  );
+  expect(() => chart.spec({ data: rows, value: () => 'x' })).toThrow(/accessor value is text, not numbers/);
+  for (const wrong of [{ x: 'source' }, { y: 'visits' }, { x: false }, { y: false }])
+    expect(() => chart.spec({ data: rows, value: 'visits', ...wrong } as object)).toThrow(
+      `${name}: use label and value, not x and y`,
+    );
+  for (const wrong of [
+    { xAxis: {} },
+    { yAxis: { label: 'v' } },
+    { zoom: true },
+    { xAxis: false },
+    { yAxis: false },
+    { zoom: false },
+  ])
+    expect(() => chart.spec({ data: rows, value: 'visits', ...wrong } as object)).toThrow(
+      `${name}: ${Object.keys(wrong)[0]} does not apply, as there are no axes`,
+    );
+});
+
+test.each(partCharts)(
+  '%s with no data chooses nothing and throws nothing, and later data draws',
+  (_, chart) => {
+    for (const data of [undefined, null, []])
+      expect(chart.spec({ data, label: 'a', value: 'b' } as object).marks).toEqual([]);
+    const el = host();
+    const c = chart(el, { ...BOX, colors: [RED] });
+    expect(shows(el, RED)).toBe(false);
+    c.update({ data: visits(), value: 'visits' });
+    expect(shows(el, RED)).toBe(true);
+  },
+);
+
+test.each(partCharts)('%s installs no zoom while data is pending', (_, chart) => {
+  for (const data of [undefined, null, []]) {
+    const count = (props: object) => chart.spec({ data, ...props } as object).use!.length;
+    expect(count({ zoom: true })).toBe(count({}));
+    expect(count({ zoom: {} })).toBe(count({}));
+  }
+});
+
+test.each(partCharts)(
+  '%s colours follow the theme and wrap, and the chart props reach plot()',
+  (_, chart) => {
+    const props = { data: visits(), value: 'visits' } as const;
+    expect(partOf(chart.spec(props)).colors).toEqual(palette.slice(0, 2));
+    expect(partOf(chart.spec({ ...props, theme: 'dark' })).colors).toEqual(paletteDark.slice(0, 2));
+    expect(partOf(chart.spec({ ...props, colors: [RED] })).colors).toEqual([RED, RED]);
+    const given = { ...BOX, description: 'visits', hidden: ['visits'] };
+    expect(chart.spec({ ...props, ...given })).toMatchObject(given);
+  },
+);
+
+test.each(partCharts)('%s lists two or more parts in a legend unless it is false', (_, chart) => {
+  const names = (props: object) => {
+    const el = host();
+    chart(el, { data: visits(), value: 'visits', width: 300, height: 300, ...props });
+    return entriesOf(el).map(e => e.textContent);
+  };
+  expect(names({})).toEqual(['search', 'direct']);
+  expect(names({ legend: {} })).toEqual(['search', 'direct']);
+  expect(names({ legend: false })).toEqual([]);
+  expect(names({ data: visits().slice(0, 1) })).toEqual([]);
+});
+
+test.each(partCharts)(
+  '%s sends nothing for an identical update and redraws after a dataVersion bump',
+  (_, chart) => {
+    const data = { name: ['a', 'b'], n: new Float64Array([3, 3]) };
+    const props = () => ({ data, label: 'name', value: 'n', colors: [RED, BLUE], ...BOX }) as const;
+    const el = host();
+    const c = chart(el, props());
+    const spy = vi.spyOn(c.chart, 'update');
+    c.update(props());
+    expect(spy).not.toHaveBeenCalled();
+    c.update({ legend: {} });
+    expect(spy).not.toHaveBeenCalled();
+    const before = drawn(el);
+    data.n[1] = 1;
+    c.update({ dataVersion: 1 });
+    expect(keysOf(spy)).toEqual([['marks']]);
+    expect(drawn(el)).not.toBe(before);
+  },
+);
+
+test.each(partCharts)(
+  '%s answers the tooltip with the part and its value, also after new data',
+  (_, chart) => {
+    const el = host();
+    const c = chart(el, { data: visits(), value: 'visits', ...BOX, legend: false, inner: 0.3 } as object);
+    const live = c.chart;
+    // Inside the second slice of the pie, the second stage and, on the second ring, the second bar.
+    const at = { pieChart: [20, 50], funnelChart: [50, 75], radialBarChart: [74, 50] }[_] as [number, number];
+    hover(el, ...at);
+    expect(tipRows(el)).toEqual(['direct: 1']);
+    c.update({
+      data: [
+        { source: 'a', visits: 1234.567 },
+        { source: 'b', visits: 1234.567 },
+      ],
+    } as object);
+    hover(el, ...at);
+    expect(tipRows(el)).toEqual(['b: 1,234.57']);
+    c.update({
+      data: [
+        { source: 'a', visits: 1 },
+        { source: null, visits: 1 },
+      ],
+    } as object);
+    hover(el, ...at);
+    expect(tipRows(el)).toEqual(['visits: 1']);
+    expect(c.chart).toBe(live);
+    c.update({ tooltip: false });
+    hover(el, ...at);
+    expect(tipRows(el)).toBeUndefined();
+  },
+);
+
+test('pieChart, funnelChart and radialBarChart pass their own props to the mark', () => {
+  const props = { data: visits(), value: 'visits' } as const;
+  expect(partOf(pieChart.spec(props)).rest).toEqual({ key: 'pie', label: 'visits', text: true });
+  expect(partOf(pieChart.spec({ ...props, inner: 0.6, text: false, sweep: 0.3 })).rest).toEqual({
+    key: 'pie',
+    label: 'visits',
+    inner: 0.6,
+    sweep: 0.3,
+  });
+  const fill = gradient(RED, BLUE);
+  expect(partOf(funnelChart.spec(props)).rest).toEqual({ key: 'funnel', label: 'visits', text: true });
+  expect(partOf(funnelChart.spec({ ...props, text: false, fill })).rest).toEqual({
+    key: 'funnel',
+    label: 'visits',
+    fill,
+  });
+  expect(partOf(radialBarChart.spec(props)).rest).toEqual({ key: 'radialBar', label: 'visits' });
+  expect(partOf(radialBarChart.spec({ ...props, max: 100, sweep: 0.35, inner: 0.5 })).rest).toEqual({
+    key: 'radialBar',
+    label: 'visits',
+    max: 100,
+    sweep: 0.35,
+    inner: 0.5,
+  });
+});
+
+test('types: the part charts check field names and take no axis props', () => {
+  const rows = visits();
+  const columns = { name: ['a'], n: new Float64Array([1]) };
+  for (const chart of [pieChart, funnelChart, radialBarChart] as const) {
+    expectTypeOf(chart.spec({ data: rows, label: 'source', value: 'share' })).toEqualTypeOf<Options>();
+    const c = chart(host(), { data: rows, value: d => d.visits });
+    c.update({ label: 'source', value: 'visits' });
+    chart.spec({ data: columns, label: 'name', value: 'n' });
+    chart.spec({ label: 'anything' });
+    expect(chart.spec({ data: [] }).marks).toEqual([]);
+    const later = chart(host(), {});
+    later.update({ data: rows, value: 'visits' });
+    const wrong = () => {
+      // @ts-expect-error not a field of the rows
+      chart.spec({ data: rows, label: 'nope' });
+      // @ts-expect-error a text field is not a value
+      chart.spec({ data: rows, value: 'source' });
+      // @ts-expect-error not a column
+      chart.spec({ data: columns, label: 'nope' });
+      // @ts-expect-error a text column is not a value
+      chart.spec({ data: columns, value: 'name' });
+      // @ts-expect-error a number array has no fields to name
+      chart.spec({ data: [1, 2], value: 'value' });
+      // @ts-expect-error pairs have no fields to name
+      chart.spec({ data: [['a', 1]], label: 'x' });
+      // @ts-expect-error not a field of the rows
+      c.update({ label: 'nope' });
+      // @ts-expect-error not a field of the rows
+      later.update({ data: rows, label: 'nope' });
+      // @ts-expect-error parts have no x
+      chart.spec({ data: rows, x: 'source' });
+      // @ts-expect-error parts have no y
+      chart.spec({ data: rows, y: 'visits' });
+      // @ts-expect-error there are no axes
+      chart.spec({ data: rows, yAxis: {} });
+      // @ts-expect-error there are no axes
+      chart.spec({ data: rows, xAxis: {} });
+      // @ts-expect-error there are no axes
+      chart.spec({ data: rows, zoom: true });
+      // @ts-expect-error there are no axes
+      chart.spec({ data: rows, view: {} });
+    };
+    expect(wrong).toBeTypeOf('function');
+  }
+  expectTypeOf<NonNullable<PieProps<Visit[]>['inner']>>().toEqualTypeOf<number>();
+});
+
+type Rating = { feature: string; a: number; b: number | null };
+const ratings = (): Rating[] => [
+  { feature: 'screen', a: 1, b: 2 },
+  { feature: 'sound', a: 3, b: null },
+  { feature: 'price', a: 4, b: 2 },
+  { feature: 'size', a: 4, b: -2 },
+];
+type RadarMark = { axes: string[]; hi: number; fill: number; values: Col; color: string };
+const radarOf = (o: Options) => {
+  const [grid, ...shapes] = o.marks;
+  expect(grid).toMatchObject({ type: 'radar-grid', key: 'radar-grid' });
+  const { axes, hi } = grid!.options as RadarMark;
+  return {
+    axes,
+    hi,
+    shapes: shapes.map(m => {
+      const { values: v, color, fill } = m.options as RadarMark;
+      expect(m).toMatchObject({ type: 'radar', key: `shape:${m.label}`, group: m.label });
+      return { label: m.label, values: Array.from(v), color, fill };
+    }),
+  };
+};
+const shapesOf = (o: Options) => radarOf(o).shapes.map(s => [s.label, s.values]);
+
+test('radarChart picks spokes and shapes: guessed, named or positional', () => {
+  const rows = ratings();
+  const guessed = radarChart.spec({ data: rows.map(({ feature, ...n }) => ({ ...n, feature })) });
+  expect(guessed).toMatchObject({ frame: 'polar' });
+  expect(guessed).not.toHaveProperty('x');
+  expect(radarOf(guessed)).toEqual({
+    axes: ['screen', 'sound', 'price', 'size'],
+    hi: 4,
+    shapes: [
+      { label: 'a', values: [1, 3, 4, 4], color: palette[0], fill: 0.15 },
+      { label: 'b', values: [2, NaN, 2, -2], color: palette[1], fill: 0.15 },
+    ],
+  });
+  expect(shapesOf(radarChart.spec({ data: rows, y: ['b', 'a'] }))).toEqual([
+    ['b', [2, NaN, 2, -2]],
+    ['a', [1, 3, 4, 4]],
+  ]);
+  expect(shapesOf(radarChart.spec({ data: rows, y: 'a' }))).toEqual([['a', [1, 3, 4, 4]]]);
+  const numbered = radarChart.spec({ data: rows, x: 'a' });
+  expect(radarOf(numbered).axes).toEqual(['1', '3', '4', '4']);
+  expect(shapesOf(numbered)).toEqual([['b', [2, NaN, 2, -2]]]);
+  const read = radarChart.spec({
+    data: rows,
+    x: d => d.feature.toUpperCase(),
+    y: [d => d.a * 2, 'b'],
+  });
+  expect(radarOf(read).axes[0]).toBe('SCREEN');
+  expect(radarOf(read).shapes.map(s => s.label)).toEqual(['y1', 'b']);
+  const dated = [{ day: '2026-11-01', when: 'early', n: 1 }];
+  expect(radarOf(radarChart.spec({ data: dated })).axes).toEqual(['early']);
+  expect(radarOf(radarChart.spec({ data: dated, x: 'day' })).axes).toEqual(['2026-11-01']);
+  expect(radarOf(radarChart.spec({ data: { a: ['x', null], n: new Float64Array([3, 5]) } }))).toMatchObject({
+    axes: ['x', ''],
+    shapes: [{ label: 'n', values: [3, 5] }],
+  });
+  expect(
+    radarOf(
+      radarChart.spec({
+        data: [
+          ['a', 1],
+          ['b', 2],
+        ],
+      }),
+    ),
+  ).toMatchObject({ axes: ['a', 'b'], shapes: [{ label: 'y', values: [1, 2] }] });
+  expect(radarOf(radarChart.spec({ data: [3, 5] }))).toMatchObject({
+    axes: ['', ''],
+    shapes: [{ label: 'value', values: [3, 5] }],
+  });
+});
+
+test('radarChart errors name the chart, the fields and the props to pass', () => {
+  const rows = ratings();
+  expect(() => radarChart.spec({ data: [{ a: 'x', b: '5' }] })).toThrow(
+    /^radarChart: there is no field of numbers for y; "b" holds numbers as text.*Pass y as a field of numbers\.$/,
+  );
+  expect(() => radarChart.spec({ data: rows, y: 'feature' as 'a' })).toThrow(
+    /y "feature" is text, not numbers/,
+  );
+  expect(() => radarChart.spec({ data: rows, x: 'nope' as 'a' })).toThrow(/no field "nope".*Pass x as/);
+  expect(() => radarChart.spec({ data: rows, y: () => 'x' })).toThrow(/accessor y1 is text, not numbers/);
+  for (const wrong of [{ label: 'feature' }, { value: 'a' }, { label: false }])
+    expect(() => radarChart.spec({ data: rows, ...wrong } as object)).toThrow(
+      'radarChart: use x and y, not label and value',
+    );
+  for (const k of ['xAxis', 'yAxis', 'zoom'])
+    for (const v of [{}, false])
+      expect(() => radarChart.spec({ data: rows, [k]: v } as object)).toThrow(
+        `radarChart: ${k} does not apply, as there are no axes`,
+      );
+});
+
+test('radarChart with no data chooses nothing, throws nothing and installs no zoom, and later data draws', () => {
+  for (const data of [undefined, null, []]) {
+    const spec = (props: object) => radarChart.spec({ data, x: 'a', y: 'b', ...props } as object);
+    expect(spec({}).marks).toEqual([]);
+    expect(spec({ zoom: true }).use!.length).toBe(spec({}).use!.length);
+  }
+  const el = host();
+  const c = radarChart(el, { ...BOX, colors: [RED] });
+  expect(shows(el, RED)).toBe(false);
+  c.update({ data: ratings() });
+  expect(shows(el, RED)).toBe(true);
+});
+
+test('radarChart passes max and fill to the mark, colours wrap, and the chart props reach plot()', () => {
+  const props = { data: ratings(), colors: [RED] };
+  const { hi, shapes } = radarOf(radarChart.spec({ ...props, max: 10, fill: 0 }));
+  expect(hi).toBe(10);
+  expect(shapes.map(s => [s.color, s.fill])).toEqual([
+    [RED, 0],
+    [RED, 0],
+  ]);
+  const onDark = radarOf(radarChart.spec({ data: ratings(), theme: 'dark' }));
+  expect(onDark.shapes.map(s => s.color)).toEqual(paletteDark.slice(0, 2));
+  const given = { ...BOX, description: 'phones', hidden: ['a'] };
+  expect(radarChart.spec({ ...props, ...given })).toMatchObject(given);
+});
+
+test('radarChart lists two or more shapes in a legend unless it is false, and hides them', () => {
+  const names = (props: object) => {
+    const el = host();
+    radarChart(el, { data: ratings(), width: 300, height: 300, ...props });
+    return entriesOf(el).map(e => e.textContent);
+  };
+  expect(names({})).toEqual(['a', 'b']);
+  expect(names({ y: 'a' })).toEqual([]);
+  expect(names({ legend: false })).toEqual([]);
+
+  const el = host();
+  const onHiddenChange = vi.fn();
+  radarChart(el, { data: ratings(), width: 300, height: 300, colors: [RED, BLUE], onHiddenChange });
+  expect(shows(el, RED)).toBe(true);
+  hideFirst(el);
+  expect(onHiddenChange).toHaveBeenCalledWith(['a']);
+  expect(shows(el, RED)).toBe(false);
+  expect(shows(el, BLUE)).toBe(true);
+  const given = host();
+  radarChart(given, { data: ratings(), ...BOX, legend: false, colors: [RED, BLUE], hidden: ['b'] });
+  expect(shows(given, RED)).toBe(true);
+  expect(shows(given, BLUE)).toBe(false);
+});
+
+test('radarChart sends nothing for an identical update and redraws after a dataVersion bump', () => {
+  const data = { name: ['p', 'q', 'r'], n: new Float64Array([3, 3, 3]), m: [1, 1, 1] };
+  const props = () => ({ data, x: 'name', y: ['n', 'm'], max: 4, colors: [RED, BLUE], ...BOX }) as const;
+  const el = host();
+  const c = radarChart(el, props());
+  const spy = vi.spyOn(c.chart, 'update');
+  c.update(props());
+  expect(spy).not.toHaveBeenCalled();
+  const before = drawn(el);
+  data.n[1] = 1;
+  c.update({ dataVersion: 1 });
+  expect(keysOf(spy)).toEqual([['marks']]);
+  expect(drawn(el)).not.toBe(before);
+});
+
+test('radarChart answers the tooltip with the spoke, the shape and its value, also after new data', () => {
+  const el = host();
+  const props = { ...BOX, max: 1, legend: false };
+  const row = (feature: string, a: number | null) => ({ feature, a });
+  const ring = (a: number | null) => ['N', 'E', 'S', 'W'].map(f => row(f, f === 'N' ? a : null));
+  const c = radarChart(el, { ...props, data: ring(1234.567) });
+  const live = c.chart;
+  // The first spoke runs up to the rim, 25 px out at least; the corners of the rest are at the centre.
+  hover(el, 50, 25);
+  expect(tipRows(el)).toEqual(['N · a: 1,234.57']);
+  c.update({ data: ring(2) });
+  hover(el, 50, 25);
+  expect(tipRows(el)).toEqual(['N · a: 2']);
+  expect(c.chart).toBe(live);
+  c.update({ data: ring(null).map(r => ({ ...r, a: r.feature === 'E' ? 1 : null })) });
+  hover(el, 45, 55);
+  expect(tipRows(el)).toEqual(['W · a: –']);
+  c.update({ data: [{ a: 5 }] as never });
+  hover(el, 50, 25);
+  expect(tipRows(el)).toEqual(['a: 5']);
+  c.update({ tooltip: false });
+  hover(el, 50, 25);
+  expect(tipRows(el)).toBeUndefined();
+});
+
+test('radarChart answers the tooltip with the value of the shape hit when two shapes share a label', () => {
+  const el = host();
+  const data = ['N', 'E', 'S', 'W'].map(name => ({ name, y1: name === 'N' ? 0.5 : 0, y2: 0 }));
+  radarChart(el, { ...BOX, data, y: ['y2', d => d.y1 * 2], max: 1, legend: false });
+  hover(el, 50, 25);
+  expect(tipRows(el)).toEqual(['N · y2: 1']);
+});
+
+test('radarChart hides and pairs shapes that share a label, or are named like the grid, one by one', () => {
+  const data = ['N', 'E', 'S', 'W'].map(name => ({ name, y1: name === 'N' ? 0.5 : 0, y2: 0 }));
+  const props = { data, y: ['y2', (d: (typeof data)[0]) => d.y1 * 2], max: 1, colors: [RED, BLUE] } as const;
+  const el = host();
+  const onHiddenChange = vi.fn();
+  radarChart(el, { ...props, width: 300, height: 300, onHiddenChange });
+  expect(entriesOf(el).map(e => e.textContent)).toEqual(['y2', 'y2']);
+  hideFirst(el);
+  expect(onHiddenChange).toHaveBeenLastCalledWith(['y2']);
+  expect([shows(el, RED), shows(el, BLUE)]).toEqual([false, true]);
+  hideFirst(el);
+  entriesOf(el)[1]!.click();
+  expect(onHiddenChange).toHaveBeenLastCalledWith(['y2 (2)']);
+  expect([shows(el, RED), shows(el, BLUE)]).toEqual([true, false]);
+
+  const marksOf = (y: readonly (string | ((d: never) => number))[]) =>
+    radarChart.spec({
+      data: [{ name: 'N', y2: 1, 'y2 (2)': 2, 'radar-grid': 3 }],
+      x: 'name',
+      y: y as never,
+    }).marks;
+  const marks = marksOf(['y2', () => 1, 'y2', 'y2 (2)', 'radar-grid']);
+  expect(new Set(marks.map(m => m.key)).size).toBe(6);
+  expect(marks.map(m => m.group)).toEqual([undefined, 'y2', 'y2 (3)', 'y2 (4)', 'y2 (2)', 'radar-grid']);
+  expect(marksOf([() => 1, 'y2']).map(m => m.group)).toEqual([undefined, 'y1', 'y2']);
+});
+
+test('types: radarChart checks field names and takes no axis props', () => {
+  const rows = ratings();
+  const columns = { name: ['a'], n: new Float64Array([1]) };
+  expectTypeOf(radarChart.spec({ data: rows, x: 'feature', y: ['a', 'b'] })).toEqualTypeOf<Options>();
+  const c = radarChart(host(), { data: rows, y: d => d.a });
+  c.update({ x: 'feature', y: 'b' });
+  radarChart.spec({ data: columns, x: 'name', y: ['n'] });
+  radarChart.spec({ x: 'anything' });
+  expect(radarChart.spec({ data: [] }).marks).toEqual([]);
+  const later = radarChart(host(), {});
+  later.update({ data: rows, y: 'a' });
+  const wrong = () => {
+    // @ts-expect-error not a field of the rows
+    radarChart.spec({ data: rows, x: 'nope' });
+    // @ts-expect-error a text field is not a shape
+    radarChart.spec({ data: rows, y: ['a', 'feature'] });
+    // @ts-expect-error not a column
+    radarChart.spec({ data: columns, x: 'nope' });
+    // @ts-expect-error a text column is not a shape
+    radarChart.spec({ data: columns, y: 'name' });
+    // @ts-expect-error a number array has no fields to name
+    radarChart.spec({ data: [1, 2], y: 'value' });
+    // @ts-expect-error pairs have no fields to name
+    radarChart.spec({ data: [['a', 1]], x: 'x' });
+    // @ts-expect-error not a field of the rows
+    c.update({ x: 'nope' });
+    // @ts-expect-error not a field of the rows
+    later.update({ data: rows, x: 'nope' });
+    // @ts-expect-error a radar has no label
+    radarChart.spec({ data: rows, label: 'feature' });
+    // @ts-expect-error a radar has no series field
+    radarChart.spec({ data: rows, series: 'feature' });
+    // @ts-expect-error there are no axes
+    radarChart.spec({ data: rows, xAxis: {} });
+    // @ts-expect-error there are no axes
+    radarChart.spec({ data: rows, yAxis: {} });
+    // @ts-expect-error there are no axes
+    radarChart.spec({ data: rows, zoom: true });
+    // @ts-expect-error there are no axes
+    radarChart.spec({ data: rows, view: {} });
+  };
+  expect(wrong).toBeTypeOf('function');
+  expectTypeOf<NonNullable<RadarProps<Rating[]>['fill']>>().toEqualTypeOf<number>();
+});
+
+type Load = { day: string; hour: string; requests: number };
+const loads = (): Load[] => [
+  { day: 'Sun', hour: '00', requests: 1 },
+  { day: 'Sun', hour: '01', requests: 2 },
+  { day: 'Sat', hour: '00', requests: 3 },
+  { day: 'Sat', hour: '01', requests: 4 },
+];
+const gridOf = (o: Options) => {
+  expect(o.marks).toHaveLength(1);
+  const { type, label, options } = o.marks[0]!;
+  const { values: v, columns, color } = options as { values: Col; columns: number; color?: ColorScale };
+  const side = (a: Options['x']) => (a as BandAxis).categories;
+  return { type, label, values: Array.from(v), columns, color, x: side(o.x), y: side(o.y) };
+};
+
+test('heatmapChart lays long rows on a row-major grid, text in order of first appearance, numbers and dates ascending', () => {
+  const grid = { values: [1, 2, 3, 4], columns: 2, x: ['00', '01'], y: ['Sun', 'Sat'] };
+  const rows = loads();
+  const named = { x: 'hour', y: 'day' } as const;
+  expect(gridOf(heatmapChart.spec({ data: rows, ...named }))).toMatchObject({
+    type: 'heatmap',
+    label: 'requests',
+    ...grid,
+  });
+  const shuffled = [0, 3, 2, 1].map(i => rows[i]!);
+  expect(gridOf(heatmapChart.spec({ data: shuffled, ...named }))).toMatchObject(grid);
+  expect(gridOf(heatmapChart.spec({ data: rows.toReversed(), ...named }))).toMatchObject({
+    values: [4, 3, 2, 1],
+    x: ['01', '00'],
+    y: ['Sat', 'Sun'],
+  });
+  expect(gridOf(heatmapChart.spec({ data: rows, x: 'day', y: 'hour' }))).toMatchObject({
+    values: [1, 3, 2, 4],
+    x: ['Sun', 'Sat'],
+    y: ['00', '01'],
+  });
+  const dated = [
+    { hour: 10, date: '2026-11-02', n: 4 },
+    { hour: 9, date: '2026-11-01', n: 1 },
+    { hour: 10, date: '2026-11-01', n: 2 },
+    { hour: 9, date: '2026-11-02', n: 3 },
+  ];
+  for (const data of [dated, dated.toReversed()])
+    expect(gridOf(heatmapChart.spec({ data, x: 'hour', y: 'date' }))).toMatchObject({
+      values: [1, 2, 3, 4],
+      x: ['9', '10'],
+      y: ['2026-11-01', '2026-11-02'],
+    });
+});
+
+test('heatmapChart leaves a missing cell NaN, keeps the last of a repeated one and drops a row without a place', () => {
+  const data = [
+    ...loads().slice(0, 3),
+    { day: 'Sun', hour: '01', requests: 9 },
+    { day: null, hour: '07', requests: 5 },
+    { day: 'Fri', hour: null, requests: 5 },
+  ];
+  expect(gridOf(heatmapChart.spec({ data, x: 'hour', y: 'day' }))).toMatchObject({
+    values: [1, 9, 3, NaN],
+    x: ['00', '01'],
+    y: ['Sun', 'Sat'],
+  });
+  const el = host();
+  heatmapChart(el, { ...BOX, data: data.slice(4), x: 'hour', y: 'day' });
+  expect(legendOf(el)).toBe('');
+});
+
+test('heatmapChart guesses x and y from text and dates and value from the number left', () => {
+  const data = loads().map(({ day, hour, requests }) => ({ requests, day, hour }));
+  expect(heatmapChart.spec({ data })).toMatchObject({ x: { label: 'day' }, y: { label: 'hour' } });
+  expect(gridOf(heatmapChart.spec({ data })).label).toBe('requests');
+  expect(heatmapChart.spec({ data, x: 'hour' })).toMatchObject({ x: { label: 'hour' }, y: { label: 'day' } });
+  expect(heatmapChart.spec({ data, y: 'day' })).toMatchObject({ x: { label: 'hour' }, y: { label: 'day' } });
+  const when = { n: [1], when: ['2026-11-01'], at: ['a'] };
+  expect(heatmapChart.spec({ data: when })).toMatchObject({ x: { label: 'when' }, y: { label: 'at' } });
+  const read = heatmapChart.spec({
+    data,
+    x: d => d.day.toUpperCase(),
+    y: 'hour',
+    value: d => d.requests * 2,
+  });
+  expect(read).toMatchObject({ x: { label: '' } });
+  expect(gridOf(read)).toMatchObject({ label: 'value', values: [2, 6, 4, 8], x: ['SUN', 'SAT'] });
+  const labelled = { xAxis: { label: 'Hour' }, yAxis: { label: '' } };
+  expect(heatmapChart.spec({ data, ...labelled })).toMatchObject({ x: { label: 'Hour' }, y: { label: '' } });
+});
+
+test('heatmapChart errors name the chart, the fields and the props to pass', () => {
+  const rows = loads();
+  expect(() => heatmapChart.spec({ data: rows.map(r => ({ ...r, errors: 1 })) })).toThrow(
+    /^heatmapChart: "requests", "errors" are all fields of numbers.*Pass value as one of them\.$/,
+  );
+  expect(() => heatmapChart.spec({ data: [{ a: 'x', b: 'y', c: '5' }] })).toThrow(
+    /no field of numbers for value; "c" holds numbers as text/,
+  );
+  expect(() => heatmapChart.spec({ data: [{ n: 1 }] })).toThrow(/left for x\..*Pass x as/);
+  expect(() => heatmapChart.spec({ data: [{ a: 'x', n: 1 }] })).toThrow(/left for y\..*Pass y as/);
+  expect(() => heatmapChart.spec({ data: rows, x: 'nope' as 'day' })).toThrow(/no field "nope".*Pass x as/);
+  expect(() => heatmapChart.spec({ data: rows, value: 'day' as 'requests' })).toThrow(
+    /value "day" is text, not numbers/,
+  );
+  for (const data of [[1, 2], [['a', 1]]])
+    expect(() => heatmapChart.spec({ data } as object)).toThrow(/Pass rows or columns with fields for x, y/);
+  expect(() => heatmapChart.spec({ data: rows, label: 'day' } as object)).toThrow(
+    'heatmapChart: use x, y and value, not label and value',
+  );
+  for (const zoomed of [true, false])
+    expect(() => heatmapChart.spec({ data: rows, zoom: zoomed } as object)).toThrow(
+      'heatmapChart: zoom does not apply',
+    );
+});
+
+test('heatmapChart refuses a grid over ten million cells, with its dimensions, before laying it out', () => {
+  expect([fits(10_000, 1000), fits(10_000, 1001), fits(1001, 10_000)]).toEqual([true, false, false]);
+  const data = Array.from({ length: 10_000 }, (_, i) => ({ a: i, b: i % 1001, n: 1 }));
+  expect(() => heatmapChart.spec({ data, x: 'a', y: 'b', value: 'n' })).toThrow(
+    /^heatmapChart: a grid of 10,000 columns by 1,001 rows is over the limit of 10,000,000 cells\..*Pass x and y as/,
+  );
+});
+
+test('heatmapChart names distinct times apart on both sides and in the tooltip', () => {
+  const at = (ms: number) => new Date(Date.UTC(2026, 10, 22, 12) + ms);
+  const data = [
+    { x: at(1000), y: at(1250), n: 1 },
+    { x: at(2000), y: at(1500), n: 2 },
+  ];
+  const x = ['2026-11-22 12:00:01', '2026-11-22 12:00:02'];
+  const y = ['2026-11-22 12:00:01.250', '2026-11-22 12:00:01.500'];
+  expect(gridOf(heatmapChart.spec({ data }))).toMatchObject({ x, y });
+  const minutes = data.map((d, i) => ({ ...d, x: at(i * 6e4 + 1000) }));
+  expect(gridOf(heatmapChart.spec({ data: minutes })).x).toEqual(['2026-11-22 12:00', '2026-11-22 12:01']);
+  const el = host();
+  heatmapChart(el, { ...BOX, data, legend: false });
+  hover(el, 75, 25);
+  expect(tipRows(el)).toEqual([`${x[1]} · ${y[1]} · n: 2`]);
+});
+
+test('heatmapChart with no data chooses nothing, throws nothing and installs no zoom, and later data draws', () => {
+  for (const data of [undefined, null, []]) {
+    const spec = (props: object) => heatmapChart.spec({ data, x: 'a', value: 'b', ...props } as object);
+    expect(spec({}).marks).toEqual([]);
+    expect(spec({ zoom: true }).use!.length).toBe(spec({}).use!.length);
+  }
+  const el = host();
+  const c = heatmapChart(el, { ...BOX, legend: false, color: sequential({ stops: [RED, RED] }) });
+  expect(shows(el, RED)).toBe(false);
+  c.update({ data: loads() });
+  expect(shows(el, RED)).toBe(true);
+});
+
+const legendOf = (el: HTMLElement) =>
+  [...el.querySelectorAll('span')]
+    .filter(s => s.style.backgroundImage.includes('linear-gradient'))
+    .map(s => s.parentElement!.textContent)
+    .join();
+
+test('heatmapChart colours by the scale given and shows its strip unless legend is false', () => {
+  const color = sequential({ stops: [RED, BLUE] });
+  const props = { data: loads(), color };
+  expect(gridOf(heatmapChart.spec(props)).color).toBe(color);
+  expect(gridOf(heatmapChart.spec({ data: loads() })).color).toBeUndefined();
+  const el = host();
+  heatmapChart(el, { ...props, width: 300, height: 300 });
+  expect([shows(el, RED), shows(el, BLUE)]).toEqual([true, true]);
+  expect(legendOf(el)).toBe('requests 14');
+  const bare = host();
+  heatmapChart(bare, { ...props, width: 300, height: 300, legend: false });
+  expect(legendOf(bare)).toBe('');
+  const given = { ...BOX, description: 'load', hidden: ['requests'] };
+  expect(heatmapChart.spec({ ...props, ...given })).toMatchObject(given);
+});
+
+test('heatmapChart sends nothing for an identical update, with a scale made inline, and redraws what changed', () => {
+  const data = { x: ['a', 'b'], y: ['p', 'p'], n: new Float64Array([1, 2]) };
+  const props = (to = BLUE) => ({ data, color: sequential({ stops: [RED, to], domain: [0, 4] }), ...BOX });
+  const el = host();
+  const c = heatmapChart(el, props());
+  const spy = vi.spyOn(c.chart, 'update');
+  c.update(props());
+  expect(spy).not.toHaveBeenCalled();
+  const before = drawn(el);
+  data.n[1] = 4;
+  c.update({ dataVersion: 1 });
+  const after = drawn(el);
+  expect(after).not.toBe(before);
+  c.update(props('#00ff00'));
+  expect(keysOf(spy)).toEqual([['marks'], ['marks']]);
+  expect(drawn(el)).not.toBe(after);
+});
+
+test('heatmapChart answers the tooltip with the cell and its value, also after new data', () => {
+  const el = host();
+  const c = heatmapChart(el, { ...BOX, data: loads(), x: 'hour', y: 'day', legend: false });
+  const live = c.chart;
+  hover(el, 75, 25);
+  expect(tipRows(el)).toEqual(['01 · Sat · requests: 4']);
+  c.update({ data: loads().map(r => ({ ...r, day: r.day === 'Sat' ? 'Fri' : r.day, requests: 1234.567 })) });
+  hover(el, 75, 25);
+  expect(tipRows(el)).toEqual(['01 · Fri · requests: 1,234.57']);
+  expect(c.chart).toBe(live);
+  c.update({ tooltip: false });
+  hover(el, 75, 25);
+  expect(tipRows(el)).toBeUndefined();
+});
+
+test('types: heatmapChart checks field names and takes axis titles only', () => {
+  const rows = loads();
+  const columns = { a: ['p'], b: ['q'], n: new Float64Array([1]) };
+  expectTypeOf(
+    heatmapChart.spec({ data: rows, x: 'hour', y: d => d.day, value: 'requests' }),
+  ).toEqualTypeOf<Options>();
+  const c = heatmapChart(host(), { data: rows, x: 'hour', y: 'day' });
+  c.update({ x: 'day', y: 'hour' });
+  heatmapChart.spec({ data: columns, x: 'a', y: 'b', value: 'n' });
+  heatmapChart.spec({ x: 'anything' });
+  heatmapChart.spec({ data: [], x: 'anything' });
+  const later = heatmapChart(host(), {});
+  later.update({ data: rows, x: 'hour' });
+  const wrong = () => {
+    // @ts-expect-error not a field of the rows
+    heatmapChart.spec({ data: rows, x: 'nope' });
+    // @ts-expect-error a text field is not a value
+    heatmapChart.spec({ data: rows, value: 'day' });
+    // @ts-expect-error not a column
+    heatmapChart.spec({ data: columns, y: 'nope' });
+    // @ts-expect-error a text column is not a value
+    heatmapChart.spec({ data: columns, value: 'a' });
+    // @ts-expect-error numbers have no cells
+    heatmapChart.spec({ data: [1, 2] });
+    // @ts-expect-error pairs have no cells
+    heatmapChart.spec({ data: [['a', 1]] });
+    // @ts-expect-error not a field of the rows
+    c.update({ x: 'nope' });
+    // @ts-expect-error not a field of the rows
+    later.update({ data: rows, x: 'nope' });
+    // @ts-expect-error a heatmap has no label
+    heatmapChart.spec({ data: rows, label: 'day' });
+    // @ts-expect-error a category axis takes a title only
+    heatmapChart.spec({ data: rows, xAxis: { step: 1 } });
+    // @ts-expect-error a category axis takes a title only
+    heatmapChart.spec({ data: rows, yAxis: { format: String } });
+    // @ts-expect-error a heatmap does not zoom
+    heatmapChart.spec({ data: rows, zoom: true });
+    // @ts-expect-error a heatmap does not zoom
+    heatmapChart.spec({ data: rows, view: {} });
+  };
+  expect(wrong).toBeTypeOf('function');
+  expectTypeOf<NonNullable<HeatmapProps<Load[]>['color']>>().toEqualTypeOf<ColorScale>();
+});
+
+const only = (o: Options) => {
+  expect(o.marks).toHaveLength(1);
+  return o.marks[0]!;
+};
+const barsOf = (o: Options) => {
+  const { x1, x2, y2 } = only(o).options as { x1: Col; x2: Col; y2: Col };
+  return { x1: Array.from(x1), x2: Array.from(x2), y2: Array.from(y2) };
+};
+
+test('histogramChart counts numbers, the sole number field or the field named into bins', () => {
+  const numbers = [1, 2, 2, 3, 9, 5];
+  const auto = bin(numbers);
+  const rows = numbers.map(ms => ({ page: 'a', ms }));
+  for (const spec of [
+    histogramChart.spec({ data: numbers }),
+    histogramChart.spec({ data: Float64Array.from(numbers) }),
+    histogramChart.spec({ data: rows }),
+    histogramChart.spec({ data: { ms: numbers, page: rows.map(r => r.page) } }),
+    histogramChart.spec({ data: rows.map(r => ({ ...r, other: 1 })), x: 'ms' }),
+    histogramChart.spec({ data: rows, x: d => d.ms }),
+  ]) {
+    expect(only(spec)).toMatchObject({ type: 'bar', label: 'count', options: { gap: 1 } });
+    expect(barsOf(spec)).toEqual({ x1: [...auto.x1], x2: [...auto.x2], y2: [...auto.y2] });
+  }
+  expect(histogramChart.spec({ data: rows })).toMatchObject({
+    x: { label: 'ms', domain: 'nice' },
+    y: { label: 'count', domain: 'nice' },
+  });
+  expect(histogramChart.spec({ data: numbers })).toMatchObject({ x: { label: 'value' } });
+  expect(histogramChart.spec({ data: rows, x: d => d.ms })).toMatchObject({ x: { label: '' } });
+});
+
+test('histogramChart takes bins as a count or as edges, up to a million of a count', () => {
+  const data = [0, 1, 2, 10, null];
+  expect(barsOf(histogramChart.spec({ data, bins: 2 }))).toEqual({ x1: [0, 5], x2: [5, 10], y2: [3, 1] });
+  for (const bins of [[0, 1, 10], new Float64Array([0, 1, 10])])
+    expect(barsOf(histogramChart.spec({ data, bins }))).toEqual({ x1: [0, 1], x2: [1, 10], y2: [1, 3] });
+  expect(barsOf(histogramChart.spec({ data, bins: 1_000_000 })).y2).toHaveLength(1_000_000);
+  expect(() => histogramChart.spec({ data, bins: 1_000_001 })).toThrow(
+    'histogramChart: 1,000,001 bins are over the limit of 1,000,000',
+  );
+});
+
+test('histogramChart passes the axis settings on and zooms', async () => {
+  const format = (v: number) => `${v} ms`;
+  const props = {
+    data: [1, 2, 3],
+    xAxis: { label: 'Load', step: 1, format },
+    yAxis: { label: 'Pages', step: 2 },
+  };
+  expect(histogramChart.spec(props)).toMatchObject({
+    x: { label: 'Load', step: 1, format },
+    y: { label: 'Pages', step: 2 },
+  });
+  const el = host();
+  const onViewChange = vi.fn();
+  histogramChart(el, { ...BOX, data: [1, 2, 3], zoom: true, onViewChange });
+  await zoomIn(el);
+  expect(onViewChange).toHaveBeenCalled();
+});
+
+test('histogramChart errors name the chart, the fields and the prop to pass', () => {
+  expect(() => histogramChart.spec({ data: [{ a: 1, b: 2 }] })).toThrow(
+    /^histogramChart: "a", "b" are all fields of numbers, so x cannot be guessed\..*Pass x as one of them\.$/,
+  );
+  expect(() => histogramChart.spec({ data: [{ a: '5' }] })).toThrow(
+    /no field of numbers for x; "a" holds numbers as text/,
+  );
+  expect(() => histogramChart.spec({ data: [{ a: 1 }], x: 'nope' as 'a' })).toThrow(/no field "nope"/);
+  expect(() => histogramChart.spec({ data: [{ a: 'p' }], x: 'a' as never })).toThrow(
+    /x "a" is text, not numbers/,
+  );
+  expect(() => histogramChart.spec({ data: [[1, 2]] } as object)).toThrow(/a list of pairs/);
+  for (const k of ['y', 'label', 'value'])
+    expect(() => histogramChart.spec({ data: [{ a: 1 }], [k]: 'a' })).toThrow(
+      `histogramChart: use x for the values counted, not ${k}`,
+    );
+});
+
+test('histogramChart sends nothing for an identical update, with edges made inline, and redraws what changed', () => {
+  const data = new Float64Array([0.5, 1.5, 1.5]);
+  const props = (to = 2) => ({ ...BOX, data, bins: [0, 1, to] });
+  const el = host();
+  const c = histogramChart(el, props());
+  const spy = vi.spyOn(c.chart, 'update');
+  c.update(props());
+  expect(spy).not.toHaveBeenCalled();
+  const before = drawn(el);
+  c.update({ bins: [0, 0.2, 2] });
+  expect(drawn(el)).not.toBe(before);
+  c.update(props());
+  expect(drawn(el)).toBe(before);
+  data[1] = 0.5;
+  data[2] = 0.5;
+  c.update({ dataVersion: 1 });
+  expect(drawn(el)).not.toBe(before);
+});
+
+test('histogramChart draws in the first colour and answers the tooltip with the bin, also after an update', () => {
+  const el = host();
+  const props = { ...BOX, data: [0, 1, 1, 1], bins: 2, colors: [RED, BLUE], legend: false };
+  const c = histogramChart(el, props);
+  const live = c.chart;
+  expect([shows(el, RED), shows(el, BLUE)]).toEqual([true, false]);
+  hover(el, 75, 75);
+  expect(tipRows(el)).toEqual(['0.5 – 1 · count: 3']);
+  c.update({ data: [0, 0.001, 0.001, 0.0015] });
+  hover(el, 60, 90);
+  expect(tipRows(el)).toEqual(['0.00075 – 0.0015 · count: 3']);
+  c.update({ data: [0, 1.5e-22], bins: [0, 1e-22, 2e-22] });
+  hover(el, 75, 75);
+  expect(tipRows(el)).toEqual(['1e-22 – 2e-22 · count: 1']);
+  c.update({ data: [0, 0.001, 0.001, 0.0015], bins: 2 });
+  c.update({ xAxis: { format: v => `${v}s` }, yAxis: { format: v => `${v} rows` } });
+  hover(el, 60, 90);
+  expect(tipRows(el)).toEqual(['0.00075s – 0.0015s · count: 3 rows']);
+  expect(c.chart).toBe(live);
+  c.update({ tooltip: false });
+  hover(el, 60, 90);
+  expect(tipRows(el)).toBeUndefined();
+});
+
+type Trip = { day: string; minutes: number };
+const trips = (): Trip[] => [
+  { day: 'Tue', minutes: 10 },
+  { day: 'Mon', minutes: 1 },
+  { day: 'Tue', minutes: 20 },
+  { day: 'Mon', minutes: 3 },
+  { day: 'Tue', minutes: 30 },
+];
+const boxesOf = (o: Options) => {
+  const { x, min, q1, median, q3, max } = only(o).options as Record<string, Col>;
+  return {
+    at: Array.from(x!),
+    five: [min, q1, median, q3, max].map(c => Array.from(c!)),
+    names: (o.x as BandAxis).categories,
+  };
+};
+const fives = (...groups: number[][]) => Object.values(fiveNumbers(groups)).map(c => Array.from(c));
+
+test('boxPlotChart draws one box with no text field, of numbers, or with x null', () => {
+  const one = { at: [0], five: fives([1, 2, 3, 10]), names: [''] };
+  const minutes = [1, 2, 3, 10];
+  const rows = minutes.map((m, i) => ({ id: `r${i}`, minutes: m }));
+  for (const spec of [
+    boxPlotChart.spec({ data: minutes }),
+    boxPlotChart.spec({ data: new Float32Array(minutes) }),
+    boxPlotChart.spec({ data: minutes.map(m => ({ minutes: m })) }),
+    boxPlotChart.spec({ data: { minutes } }),
+    boxPlotChart.spec({ data: rows, x: null }),
+  ])
+    expect(boxesOf(spec)).toEqual(one);
+  expect(boxPlotChart.spec({ data: rows, x: null })).toMatchObject({
+    x: { label: '' },
+    y: { label: 'minutes', domain: 'nice' },
+  });
+  expect(only(boxPlotChart.spec({ data: rows, x: null }))).toMatchObject({ type: 'box', label: 'minutes' });
+});
+
+test('boxPlotChart groups by the sole text field or the x named, in order of first appearance', () => {
+  const rows = trips();
+  const two = { at: [0, 1], five: fives([10, 20, 30], [1, 3]), names: ['Tue', 'Mon'] };
+  for (const spec of [
+    boxPlotChart.spec({ data: rows }),
+    boxPlotChart.spec({ data: rows, x: 'day', y: 'minutes' }),
+    boxPlotChart.spec({ data: rows, x: d => d.day, y: d => d.minutes }),
+    boxPlotChart.spec({ data: { day: rows.map(r => r.day), minutes: rows.map(r => r.minutes) } }),
+    boxPlotChart.spec({ data: rows.map(r => [r.day, r.minutes] as [string, number]) }),
+  ])
+    expect(boxesOf(spec)).toEqual(two);
+  expect(boxPlotChart.spec({ data: rows })).toMatchObject({ x: { label: 'day' }, y: { label: 'minutes' } });
+  expect(boxPlotChart.spec({ data: rows, x: d => d.day, y: d => d.minutes })).toMatchObject({
+    x: { label: '' },
+    y: { label: '' },
+    marks: [{ label: 'y' }],
+  });
+  const numbered = rows.map(r => ({ hour: r.day === 'Tue' ? 9 : 8, minutes: r.minutes }));
+  expect(boxesOf(boxPlotChart.spec({ data: numbered, x: 'hour' }))).toEqual({ ...two, names: ['9', '8'] });
+  const dated = rows.map(r => ({ ...r, day: r.day === 'Tue' ? '2026-11-02' : '2026-11-01' }));
+  expect(boxesOf(boxPlotChart.spec({ data: dated, x: 'day' })).names).toEqual(['2026-11-02', '2026-11-01']);
+});
+
+test('boxPlotChart drops a row without a group and leaves a group without values empty', () => {
+  const data = [...trips(), { day: null, minutes: 99 }, { day: 'Wed', minutes: null }];
+  const { five, names } = boxesOf(boxPlotChart.spec({ data }));
+  expect(names).toEqual(['Tue', 'Mon', 'Wed']);
+  expect(five).toEqual(fives([10, 20, 30], [1, 3], []));
+});
+
+test('boxPlotChart errors name the chart, the fields and the props to pass', () => {
+  const rows = trips();
+  const ids = rows.map((r, i) => ({ id: `r${i}`, minutes: r.minutes }));
+  expect(() => boxPlotChart.spec({ data: ids })).toThrow(
+    /^boxPlotChart: no value of "id" repeats.*Pass x as the field of groups, or x: null for one box\.$/,
+  );
+  expect(() =>
+    boxPlotChart.spec({ data: [...ids, { id: null, minutes: 1 }, { id: null, minutes: 2 }] }),
+  ).toThrow(/no value of "id" repeats/);
+  expect(boxesOf(boxPlotChart.spec({ data: ids, x: 'id' })).names).toHaveLength(5);
+  expect(() => boxPlotChart.spec({ data: rows.map(r => ({ ...r, town: 'A' })) })).toThrow(
+    /^boxPlotChart: "day", "town" are all fields of text.*Pass x as one of them, or x: null for one box\.$/,
+  );
+  expect(() => boxPlotChart.spec({ data: rows.map(r => ({ ...r, km: 1 })) })).toThrow(
+    /"minutes", "km" are all fields of numbers, so y cannot be guessed/,
+  );
+  expect(() => boxPlotChart.spec({ data: rows, y: 'day' as 'minutes' })).toThrow(
+    /y "day" is text, not numbers/,
+  );
+  expect(() => boxPlotChart.spec({ data: rows, x: 'nope' as 'day' })).toThrow(/no field "nope".*Pass x as/);
+  expect(() => boxPlotChart.spec({ data: rows, value: 'minutes' } as object)).toThrow(
+    'boxPlotChart: use x and y, not label and value',
+  );
+  for (const zoomed of [true, false])
+    expect(() => boxPlotChart.spec({ data: rows, zoom: zoomed } as object)).toThrow('boxPlotChart: zoom');
+});
+
+test('histogramChart and boxPlotChart with no data choose nothing and throw nothing, and later data draws', () => {
+  for (const data of [undefined, null, []]) {
+    expect(histogramChart.spec({ data, x: 'a', y: 'b', bins: 1e9 } as object).marks).toEqual([]);
+    const spec = (props: object) => boxPlotChart.spec({ data, x: 'a', value: 'b', ...props } as object);
+    expect(spec({}).marks).toEqual([]);
+    expect(spec({ zoom: true }).use!.length).toBe(spec({}).use!.length);
+  }
+  const [bars, box] = [host(), host()];
+  const h = histogramChart(bars, { ...BOX, colors: [RED] });
+  const b = boxPlotChart(box, { ...BOX, colors: [RED] });
+  expect([shows(bars, RED), shows(box, RED)]).toEqual([false, false]);
+  h.update({ data: trips() });
+  b.update({ data: trips() });
+  expect([shows(bars, RED), shows(box, RED)]).toEqual([true, true]);
+});
+
+test('boxPlotChart takes axis settings and a fill, and sends nothing for an identical update', () => {
+  const data = trips();
+  const props = (from = 0.6) => ({
+    ...BOX,
+    data,
+    fill: gradient(from, 0.05),
+    yAxis: { step: 5, label: 'Min' },
+  });
+  expect(boxPlotChart.spec({ ...props(), xAxis: { label: 'Day' } })).toMatchObject({
+    x: { label: 'Day' },
+    y: { label: 'Min', step: 5 },
+    marks: [{ options: { fill: gradient(0.6, 0.05) } }],
+  });
+  expect(only(boxPlotChart.spec({ data })).options).not.toHaveProperty('fill');
+  const el = host();
+  const c = boxPlotChart(el, props());
+  const spy = vi.spyOn(c.chart, 'update');
+  c.update(props());
+  expect(spy).not.toHaveBeenCalled();
+  const before = drawn(el);
+  c.update(props(0.9));
+  expect(keysOf(spy)).toEqual([['marks']]);
+  expect(drawn(el)).not.toBe(before);
+});
+
+test('boxPlotChart draws in the first colour and answers the tooltip with the group and its five numbers', () => {
+  const el = host();
+  const c = boxPlotChart(el, {
+    ...BOX,
+    data: trips(),
+    colors: [RED, BLUE],
+    legend: false,
+    yAxis: { domain: [0, 40] },
+  });
+  const live = c.chart;
+  expect([shows(el, RED), shows(el, BLUE)]).toEqual([true, false]);
+  hover(el, 25, 50);
+  expect(tipRows(el)).toEqual(['Tue · minutes: min 10, q1 15, median 20, q3 25, max 30']);
+  c.update({
+    data: trips().map(r => ({ ...r, day: 'All' })),
+    yAxis: { domain: [0, 40], format: v => `${v}m` },
+  });
+  hover(el, 50, 75);
+  expect(tipRows(el)).toEqual(['All · minutes: min 1m, q1 3m, median 10m, q3 20m, max 30m']);
+  c.update({ x: null });
+  hover(el, 50, 75);
+  expect(tipRows(el)).toEqual(['minutes: min 1m, q1 3m, median 10m, q3 20m, max 30m']);
+  expect(c.chart).toBe(live);
+});
+
+test('types: histogramChart and boxPlotChart check field names and props', () => {
+  const rows = trips();
+  const columns = { day: ['p'], minutes: new Float64Array([1]) };
+  expectTypeOf(
+    histogramChart.spec({ data: rows, x: 'minutes', bins: 4, zoom: true }),
+  ).toEqualTypeOf<Options>();
+  histogramChart.spec({ data: columns, x: 'minutes', bins: new Float32Array(2) });
+  histogramChart.spec({ x: 'anything' });
+  boxPlotChart.spec({ data: rows, x: 'day', y: d => d.minutes, fill: RED });
+  boxPlotChart.spec({ data: columns, x: null, y: 'minutes' });
+  boxPlotChart.spec({ x: 'anything' });
+  const later = histogramChart(host(), {});
+  later.update({ data: rows, x: 'minutes' });
+  const xAxis = { label: 'Minutes', step: 1, format: String, fit: 'all', domain: 'data' } as const;
+  histogramChart.spec({ data: rows, x: 'minutes', xAxis, view: {}, onViewChange: () => {} });
+  histogramChart.spec({ data: columns, xAxis });
+  histogramChart.spec({ data: [1, 2], xAxis });
+  histogramChart.spec({ xAxis });
+  const wrong = () => {
+    // @ts-expect-error the values are never dates
+    histogramChart.spec({ data: rows, xAxis: { unit: 'day' } });
+    // @ts-expect-error the values are never dates
+    histogramChart.spec({ data: columns, xAxis: { every: 2 } });
+    // @ts-expect-error the values are never dates
+    histogramChart.spec({ data: [1, 2], xAxis: { utc: false } });
+    // @ts-expect-error the values are never dates
+    histogramChart.spec({ xAxis: { unit: 'day' } });
+    // @ts-expect-error the values are never dates
+    later.update({ xAxis: { utc: false } });
+    // @ts-expect-error not a field of the rows
+    histogramChart.spec({ data: rows, x: 'nope' });
+    // @ts-expect-error a text field is not counted
+    histogramChart.spec({ data: rows, x: 'day' });
+    // @ts-expect-error a text column is not counted
+    histogramChart.spec({ data: columns, x: 'day' });
+    // @ts-expect-error numbers have no fields
+    histogramChart.spec({ data: [1, 2], x: 'value' });
+    // @ts-expect-error pairs are not one list of values
+    histogramChart.spec({ data: [['a', 1]] });
+    // @ts-expect-error a histogram has no y
+    histogramChart.spec({ data: rows, y: 'minutes' });
+    // @ts-expect-error not a field of the rows
+    later.update({ data: rows, x: 'nope' });
+    // @ts-expect-error not a field of the rows
+    boxPlotChart.spec({ data: rows, x: 'nope' });
+    // @ts-expect-error a text field is not a value
+    boxPlotChart.spec({ data: rows, y: 'day' });
+    // @ts-expect-error a text column is not a value
+    boxPlotChart.spec({ data: columns, y: 'day' });
+    // @ts-expect-error numbers have no fields
+    boxPlotChart.spec({ data: [1, 2], x: null });
+    // @ts-expect-error a category axis takes a title only
+    boxPlotChart.spec({ data: rows, xAxis: { step: 1 } });
+    // @ts-expect-error a box plot does not zoom
+    boxPlotChart.spec({ data: rows, zoom: true });
+    // @ts-expect-error a box plot does not zoom
+    boxPlotChart.spec({ data: rows, view: {} });
+  };
+  expect(wrong).toBeTypeOf('function');
+});
+
+type Candle = { date: string; open: number; high: number; low: number; close: number };
+const candles = (): Candle[] => [
+  { date: '2026-11-03', open: 20, high: 90, low: 10, close: 70 },
+  { date: '2026-11-06', open: 80, high: 85, low: 15, close: 30 },
+  { date: '2026-11-05', open: 30, high: 60, low: 20, close: 50 },
+];
+const candlesOf = (o: Options) => {
+  const m = only(o);
+  expect(m.type).toBe('candlestick');
+  const { x, open, high, low, close, width } = m.options as Record<
+    'x' | 'open' | 'high' | 'low' | 'close',
+    Col
+  > & {
+    width: number;
+  };
+  return { x: Array.from(x), prices: [open, high, low, close].map(c => Array.from(c)), width };
+};
+const WHOLE_DAY = 864e5;
+
+test('candlestickChart matches the four prices by full name in any case, or takes the fields named', () => {
+  const rows = candles();
+  const prices = (['open', 'high', 'low', 'close'] as const).map(k => rows.map(r => r[k]));
+  const x = rows.map(r => Date.parse(r.date));
+  const expected = { x, prices, width: 0.6 * WHOLE_DAY };
+  const [first, highest, lowest, last] = prices as [number[], number[], number[], number[]];
+  for (const spec of [
+    candlestickChart.spec({ data: rows }),
+    candlestickChart.spec({
+      data: rows.map(r => ({
+        Close: r.close,
+        volume: 5,
+        LOW: r.low,
+        High: r.high,
+        OPEN: r.open,
+        day: r.date,
+      })),
+    }),
+    candlestickChart.spec({
+      data: { date: x.map(t => new Date(t)), open: first, high: highest, low: lowest, close: last },
+    }),
+    candlestickChart.spec({
+      data: rows.map(r => ({ o: r.open, h: r.high, l: r.low, c: r.close, t: r.date })),
+      open: 'o',
+      high: d => d.h,
+      low: d => d.l,
+      close: 'c',
+      x: d => d.t,
+    }),
+    candlestickChart.spec({ data: rows.map(r => ({ ...r, Open: 1 })), open: 'open' }),
+    candlestickChart.spec({ data: rows.map(r => ({ ...r, Open: null })), open: 'open' }),
+  ])
+    expect(candlesOf(spec)).toEqual(expected);
+  const missing = candlestickChart.spec({ data: rows.map(r => ({ ...r, open: null })) });
+  expect(candlesOf(missing).prices).toEqual([[NaN, NaN, NaN], highest, lowest, last]);
+  expect(candlestickChart.spec({ data: rows })).toMatchObject({
+    x: { label: 'date', utc: true },
+    y: { label: '', domain: 'nice' },
+    marks: [{ label: 'price' }],
+  });
+});
+
+test('candlestickChart errors name the chart, the fields and the four props', () => {
+  const rows = candles();
+  const pass = 'Pass open, high, low and close as fields of numbers\\.$';
+  expect(() =>
+    candlestickChart.spec({
+      data: rows.map(r => ({ t: r.date, o: r.open, h: r.high, l: r.low, c: r.close })),
+    }),
+  ).toThrow(
+    new RegExp(`^candlestickChart: there is no field called open\\. The fields are t \\(time\\), o.*${pass}`),
+  );
+  expect(() =>
+    candlestickChart.spec({ data: rows.map(({ date, open, high, close }) => ({ date, open, high, close })) }),
+  ).toThrow(new RegExp(`there is no field called low\\..*${pass}`));
+  expect(() => candlestickChart.spec({ data: rows.map(r => ({ ...r, CLOSE: 1 })) })).toThrow(
+    new RegExp(`"close", "CLOSE" are all called close, so it cannot be guessed\\..*${pass}`),
+  );
+  expect(() => candlestickChart.spec({ data: rows.map(r => ({ ...r, open: 'x' })) })).toThrow(
+    /open "open" is text, not numbers/,
+  );
+  expect(() => candlestickChart.spec({ data: rows.map(r => ({ ...r, OPEN: null })) })).toThrow(
+    /"open", "OPEN" are all called open, so it cannot be guessed/,
+  );
+  expect(() => candlestickChart.spec({ data: rows.map(r => ({ ...r, open: {} })) })).toThrow(
+    /"open" holds values that are not numbers, dates or text.*Pass open as another field/,
+  );
+  expect(() => candlestickChart.spec({ data: rows.map(r => ({ ...r, date: 1 })) })).toThrow(
+    /no field of dates or text for x/,
+  );
+  expect(() => candlestickChart.spec({ data: rows, x: 'nope' as 'date' })).toThrow(/no field "nope"/);
+  expect(() => candlestickChart.spec({ data: [[1, 2]] } as object)).toThrow(/has no candles/);
+  for (const k of ['y', 'series', 'label', 'value'])
+    expect(() => candlestickChart.spec({ data: rows, [k]: 'open' })).toThrow(
+      `candlestickChart: use x, open, high, low and close, not ${k}`,
+    );
+});
+
+test('candlestickChart prefers dates over text, gives each text row a category and takes a number x named', () => {
+  const rows = candles().map(({ open, high, low, close }, i) => ({
+    week: ['Mon', 'Tue', 'Mon'][i]!,
+    n: i * 5,
+    open,
+    high,
+    low,
+    close,
+  }));
+  const spec = candlestickChart.spec({ data: rows });
+  expect(candlesOf(spec)).toMatchObject({ x: [0, 1, 2], width: 0.6 });
+  expect(spec.x).toMatchObject({ label: 'week', categories: ['Mon', 'Tue', 'Mon'] });
+  const dated = candlestickChart.spec({ data: rows.map((r, i) => ({ ...r, at: candles()[i]!.date })) });
+  expect(dated.x).toMatchObject({ label: 'at', utc: true });
+  const numbered = candlestickChart.spec({ data: rows, x: 'n' });
+  expect(candlesOf(numbered)).toMatchObject({ x: [0, 5, 10], width: 3 });
+  expect(numbered.x).toMatchObject({ label: 'n', domain: 'nice' });
+  const gap = candlestickChart.spec({ data: rows.map((r, i) => ({ ...r, week: i === 1 ? null : r.week })) });
+  expect(candlesOf(gap)).toMatchObject({ x: [0, Number.NaN, 2], width: 0.6 });
+  expect(gap.x).toMatchObject({ categories: ['Mon', '', 'Mon'] });
+});
+
+test('candlestickChart is 0.6 of the smallest gap wide, and a candle alone 0.6 of a day or a unit of axis', () => {
+  const at = (...times: (string | null)[]) => times.map(date => ({ ...candles()[0]!, date }));
+  const width = (...times: (string | null)[]) =>
+    candlesOf(candlestickChart.spec({ data: at(...times) })).width;
+  expect(width('2026-11-02T12:00', null, '2026-11-02T10:00', '2026-11-02T12:00', '2026-11-02T10:30')).toBe(
+    0.6 * 18e5,
+  );
+  const t = Date.parse('2026-11-02');
+  for (const times of [['2026-11-02'], ['2026-11-02', '2026-11-02', null]]) {
+    expect(width(...times)).toBe(0.6 * WHOLE_DAY);
+    expect(candlestickChart.spec({ data: at(...times) }).x).toMatchObject({
+      domain: [t - WHOLE_DAY / 2, t + WHOLE_DAY / 2],
+    });
+  }
+  expect(candlestickChart.spec({ data: at('2026-11-02'), xAxis: { domain: [0, t] } }).x).toMatchObject({
+    domain: [0, t],
+  });
+  expect(candlestickChart.spec({ data: candles() }).x).toMatchObject({ domain: 'data' });
+  const el = host();
+  candlestickChart(el, { ...BOX, data: at('2026-11-02'), colors: [RED], yAxis: { domain: [0, 100] } });
+  expect([10, 50, 90].map(x => pixel(el, x, 45)[0] === 255)).toEqual([false, true, false]);
+  const numbered = (n: number, count = 1) => Array.from({ length: count }, () => ({ ...candles()[0]!, n }));
+  for (const data of [numbered(5), numbered(5, 2)]) {
+    const spec = candlestickChart.spec({ data, x: 'n' });
+    expect(candlesOf(spec).width).toBe(0.6);
+    expect(spec.x).toMatchObject({ domain: [4.5, 5.5] });
+  }
+  expect(candlestickChart.spec({ data: numbered(5), x: 'n', xAxis: { domain: [0, 10] } }).x).toMatchObject({
+    domain: [0, 10],
+  });
+  const el2 = host();
+  candlestickChart(el2, {
+    ...BOX,
+    data: numbered(5),
+    x: 'n',
+    colors: [RED],
+    yAxis: { domain: [0, 100] },
+  });
+  expect([10, 50, 90].map(x => pixel(el2, x, 45)[0] === 255)).toEqual([false, true, false]);
+  const text = candlestickChart.spec({ data: [{ ...candles()[0]!, date: 'Mon' }] });
+  expect(candlesOf(text)).toMatchObject({ x: [0], width: 0.6 });
+});
+
+test('candlestickChart draws up and down in their colours, else in the first of colors', () => {
+  const el = host();
+  const c = candlestickChart(el, { ...BOX, data: candles(), up: RED, down: BLUE, legend: false });
+  expect([shows(el, RED), shows(el, BLUE)]).toEqual([true, true]);
+  c.update({ up: undefined, down: undefined, colors: ['#00ff00', RED] });
+  expect([shows(el, '#00ff00'), shows(el, RED), shows(el, BLUE)]).toEqual([true, false, false]);
+  const { options } = only(candlestickChart.spec({ data: candles() }));
+  expect(options).not.toHaveProperty('up');
+  expect(options).not.toHaveProperty('down');
+  expect(options).toMatchObject({ color: palette[0] });
+});
+
+test('candlestickChart passes the axis settings on, reads local time with utc false, and zooms', async () => {
+  const format = (v: number) => `$${v}`;
+  const spec = candlestickChart.spec({
+    data: candles(),
+    xAxis: { label: 'Day', unit: 'day', every: 2, utc: false },
+    yAxis: { label: 'Price', step: 20, format },
+  });
+  expect(spec).toMatchObject({
+    x: { label: 'Day', unit: 'day', every: 2, utc: false },
+    y: { label: 'Price', step: 20, format },
+  });
+  expect(candlesOf(spec).x[0]).toBe(new Date(2026, 10, 3).getTime());
+  const weeks = candles().map((r, i) => ({ ...r, date: `week ${i}` }));
+  for (const data of [candles(), weeks]) {
+    const el = host();
+    const onViewChange = vi.fn();
+    candlestickChart(el, { ...BOX, data, zoom: true, onViewChange });
+    await zoomIn(el);
+    expect(onViewChange).toHaveBeenCalled();
+  }
+});
+
+test('candlestickChart answers the tooltip with the date and the four prices, also after an update', () => {
+  const el = host();
+  const props = { ...BOX, data: candles(), yAxis: { domain: [0, 100] as [number, number] } };
+  const c = candlestickChart(el, props);
+  const live = c.chart;
+  hover(el, 8, 50);
+  expect(tipRows(el)).toEqual(['2026-11-03 · open 20, high 90, low 10, close 70']);
+  c.update({ data: candles().map((r, i) => ({ ...r, date: `2026-11-03T10:0${i}`, close: 1234.567 })) });
+  hover(el, 8, 50);
+  expect(tipRows(el)).toEqual(['2026-11-03 10:00 · open 20, high 90, low 10, close 1,234.57']);
+  const folded = candles().map((r, i) => ({ ...r, date: `2026-11-01T0${5 + i}:30Z` }));
+  c.update({ data: folded, xAxis: { utc: false } });
+  hover(el, 8, 50);
+  expect(tipRows(el)).toEqual(['2026-11-01 01:30 UTC-04:00 · open 20, high 90, low 10, close 70']);
+  c.update({ data: candles().map((r, i) => ({ ...r, date: `week ${i}` })) });
+  c.update({ yAxis: { ...props.yAxis, format: v => `$${v}` } });
+  hover(el, 50, 50);
+  expect(tipRows(el)).toEqual(['week 1 · open $80, high $85, low $15, close $30']);
+  expect(c.chart).toBe(live);
+  c.update({ tooltip: false });
+  hover(el, 50, 50);
+  expect(tipRows(el)).toBeUndefined();
+});
+
+test('candlestickChart sends nothing for an identical update and redraws what changed', () => {
+  const rows = candles();
+  const data = {
+    date: rows.map(r => r.date),
+    open: rows.map(r => r.open),
+    high: rows.map(r => r.high),
+    low: rows.map(r => r.low),
+    close: Float64Array.from(rows, r => r.close),
+  };
+  const props = () => ({ ...BOX, data, down: RED, xAxis: { label: 'Day' } });
+  const el = host();
+  const c = candlestickChart(el, props());
+  const spy = vi.spyOn(c.chart, 'update');
+  c.update(props());
+  expect(spy).not.toHaveBeenCalled();
+  const before = drawn(el);
+  data.close[0] = 40;
+  c.update({ dataVersion: 1 });
+  expect(drawn(el)).not.toBe(before);
+  c.update({ down: BLUE });
+  expect(keysOf(spy)).toEqual([['marks'], ['marks']]);
+});
+
+test('candlestickChart keeps the categories of unchanged data', () => {
+  const data = candles().map((r, i) => ({ ...r, date: `week ${i}` }));
+  const c = candlestickChart(host(), { ...BOX, data, xAxis: { label: 'a' } });
+  const spy = vi.spyOn(c.chart, 'update');
+  for (const label of ['b', 'c']) c.update({ xAxis: { label } });
+  expect(keysOf(spy)).toEqual([['x'], ['x']]);
+  const [first, second] = spy.mock.calls.map(([o]) => (o.x as { categories?: string[] }).categories);
+  expect(first).toEqual(['week 0', 'week 1', 'week 2'].slice(0, data.length));
+  expect(second).toBe(first);
+});
+
+test('candlestickChart with no data chooses nothing and throws nothing, and later data draws', () => {
+  for (const data of [undefined, null, []])
+    expect(candlestickChart.spec({ data, x: 'a', open: 'b', y: 'c' } as object).marks).toEqual([]);
+  const el = host();
+  const c = candlestickChart(el, { ...BOX, colors: [RED] });
+  expect(shows(el, RED)).toBe(false);
+  c.update({ data: candles() });
+  expect(shows(el, RED)).toBe(true);
+});
+
+test('types: candlestickChart checks field names and props', () => {
+  const rows = candles();
+  const columns = { day: ['p'], open: [1], high: [2], low: [0], close: new Float64Array([1]) };
+  expectTypeOf(
+    candlestickChart.spec({
+      data: rows,
+      x: 'date',
+      open: 'open',
+      high: d => d.high,
+      up: RED,
+      down: BLUE,
+      zoom: true,
+    }),
+  ).toEqualTypeOf<Options>();
+  candlestickChart.spec({ data: columns, x: 'day', close: 'close', xAxis: { unit: 'day' }, view: {} });
+  candlestickChart.spec({ x: 'anything', open: 'anything' });
+  candlestickChart.spec({ data: [], x: 'anything' });
+  const later = candlestickChart(host(), {});
+  later.update({ data: rows, x: 'date' });
+  const wrong = () => {
+    // @ts-expect-error not a field of the rows
+    candlestickChart.spec({ data: rows, x: 'nope' });
+    // @ts-expect-error a text field is not a price
+    candlestickChart.spec({ data: rows, open: 'date' });
+    // @ts-expect-error a text column is not a price
+    candlestickChart.spec({ data: columns, high: 'day' });
+    // @ts-expect-error not a column
+    candlestickChart.spec({ data: columns, low: 'nope' });
+    // @ts-expect-error numbers have no candles
+    candlestickChart.spec({ data: [1, 2] });
+    // @ts-expect-error pairs have no candles
+    candlestickChart.spec({ data: [['a', 1]] });
+    // @ts-expect-error a candlestick chart has no y
+    candlestickChart.spec({ data: rows, y: 'close' });
+    // @ts-expect-error not a field of the rows
+    later.update({ data: rows, close: 'nope' });
+  };
+  expect(wrong).toBeTypeOf('function');
+});
+
+type Flow = { from: string; to: string; amount: number };
+const flows = (): Flow[] => [
+  { from: 'Salary', to: 'Budget', amount: 4200 },
+  { from: 'Freelance', to: 'Budget', amount: 800 },
+  { from: 'Budget', to: 'Home', amount: 3000 },
+];
+const linksOf = (o: Options) => {
+  const m = only(o);
+  expect(m.type).toBe('sankey');
+  const { nodes, source, target, value, colors, ...rest } = m.options as {
+    nodes: string[];
+    source: Col;
+    target: Col;
+    value: Col;
+    colors: string[];
+  };
+  return {
+    links: { nodes, source: Array.from(source), target: Array.from(target), value: Array.from(value) },
+    colors,
+    rest,
+  };
+};
+
+test('sankeyChart guesses source, target and value, or takes the fields named', () => {
+  const rows = flows();
+  const expected = {
+    nodes: ['Salary', 'Budget', 'Freelance', 'Home'],
+    source: [0, 2, 1],
+    target: [1, 1, 3],
+    value: [4200, 800, 3000],
+  };
+  const columns = {
+    from: rows.map(r => r.from),
+    to: rows.map(r => r.to),
+    amount: Float64Array.from(rows, r => r.amount),
+  };
+  for (const spec of [
+    sankeyChart.spec({ data: rows }),
+    sankeyChart.spec({ data: columns }),
+    sankeyChart.spec({
+      data: rows.map(({ from, to, amount }) => ({ id: 7, to, from, amount })),
+      source: 'from',
+      value: 'amount',
+    }),
+    sankeyChart.spec({ data: rows, source: d => d.from, target: d => d.to, value: d => d.amount }),
+  ])
+    expect(linksOf(spec).links).toEqual(expected);
+  const back = sankeyChart.spec({ data: rows.slice(0, 1), source: 'to' });
+  expect(linksOf(back).links).toMatchObject({ nodes: ['Budget', 'Salary'], source: [0], target: [1] });
+  const numbered = sankeyChart.spec({ data: [{ a: 1, b: 2, n: 5 }], source: 'a', target: 'b' });
+  expect(linksOf(numbered).links.nodes).toEqual(['1', '2']);
+  expect(sankeyChart.spec({ data: rows }).frame).toBe('blank');
+  expect(linksOf(sankeyChart.spec({ data: rows })).colors).toEqual(palette.slice(0, 4));
+  expect(linksOf(sankeyChart.spec({ data: rows, colors: [RED, BLUE] })).colors).toEqual([
+    RED,
+    BLUE,
+    RED,
+    BLUE,
+  ]);
+});
+
+test('sankeyChart drops a link without an end and passes blend and text to the mark', () => {
+  const rows = [{ from: null, to: 'Budget', amount: 1 }, ...flows(), { from: 'Home', to: '', amount: 2 }];
+  expect(linksOf(sankeyChart.spec({ data: rows })).links).toEqual(
+    linksOf(sankeyChart.spec({ data: flows() })).links,
+  );
+  const rest = (props: object) => linksOf(sankeyChart.spec({ data: flows(), ...props })).rest;
+  expect(rest({})).toEqual({ key: 'sankey', label: 'amount' });
+  expect(rest({ text: true, blend: true })).toEqual({ key: 'sankey', label: 'amount', blend: true });
+  expect(rest({ text: false })).toEqual({ key: 'sankey', label: 'amount', text: false });
+});
+
+test('sankeyChart errors name the chart, the fields and the props to pass', () => {
+  const rows = flows();
+  expect(() => sankeyChart.spec({ data: rows.map(({ from, amount }) => ({ from, amount })) })).toThrow(
+    /^sankeyChart: there is no field of text left for target\. The fields are from \(text\), amount \(number\)\. Pass target as/,
+  );
+  expect(() => sankeyChart.spec({ data: rows.map(r => ({ ...r, rate: 1 })) })).toThrow(
+    /"amount", "rate" are all fields of numbers, so value cannot be guessed/,
+  );
+  expect(() => sankeyChart.spec({ data: rows, target: 'nope' as 'to' })).toThrow(/no field "nope"/);
+  expect(() => sankeyChart.spec({ data: [['a', 1]] } as object)).toThrow(/has no links/);
+  for (const k of ['x', 'y', 'label', 'series'])
+    expect(() => sankeyChart.spec({ data: rows, [k]: 'from' })).toThrow(
+      `sankeyChart: use source, target and value, not ${k}`,
+    );
+  expect(() => sankeyChart.spec({ data: rows, zoom: true } as object)).toThrow(
+    'sankeyChart: zoom does not apply, as there are no axes',
+  );
+  expect(() => sankeyChart.spec({ data: [{ from: 'a', to: 'a', n: 1 }] })).toThrow(
+    /^sankeyChart: a links to itself/,
+  );
+  const circle = [
+    { from: 'a', to: 'b', n: 1 },
+    { from: 'b', to: 'a', n: 1 },
+  ];
+  expect(() => sankeyChart.spec({ data: circle })).toThrow(/^sankeyChart: the links go round in a circle/);
+});
+
+test('sankeyChart sends nothing for an identical update and redraws what changed', () => {
+  const data = flows();
+  const props = () => ({ ...BOX, data, text: false, colors: [RED, BLUE] });
+  const el = host();
+  const c = sankeyChart(el, props());
+  const spy = vi.spyOn(c.chart, 'update');
+  c.update(props());
+  expect(spy).not.toHaveBeenCalled();
+  const before = drawn(el);
+  data[0]!.amount = 1;
+  c.update({ dataVersion: 1 });
+  expect(drawn(el)).not.toBe(before);
+  c.update({ blend: true });
+  expect(keysOf(spy)).toEqual([['marks'], ['marks']]);
+});
+
+test('sankeyChart answers the tooltip with a node and its flow, or a link, also after new data', () => {
+  const el = host();
+  const c = sankeyChart(el, { ...BOX, data: [{ a: 'In', b: 'Out', n: 1234.567 }], text: false });
+  const live = c.chart;
+  hover(el, 3, 50);
+  expect(tipRows(el)).toEqual(['In: 1,234.57']);
+  hover(el, 50, 50);
+  expect(tipRows(el)).toEqual(['In → Out: 1,234.57']);
+  c.update({
+    data: [
+      { a: 'New', b: 'Out', n: 5 },
+      { a: 'New', b: 'Out', n: -2 },
+      { a: 'Out', b: 'End', n: 7 },
+    ],
+  });
+  hover(el, 50, 50);
+  expect(tipRows(el)).toEqual(['Out: 7']);
+  expect(c.chart).toBe(live);
+  c.update({ tooltip: false });
+  hover(el, 50, 50);
+  expect(tipRows(el)).toBeUndefined();
+});
+
+test('sankeyChart with no data chooses nothing and throws nothing, and later data draws', () => {
+  for (const data of [undefined, null, []])
+    expect(sankeyChart.spec({ data, source: 'a', x: 'b' } as object).marks).toEqual([]);
+  const el = host();
+  const c = sankeyChart(el, { ...BOX, colors: [RED], legend: false });
+  expect(shows(el, RED)).toBe(false);
+  c.update({ data: flows() });
+  expect(shows(el, RED)).toBe(true);
+});
+
+const disk = (): Nested[] => [
+  {
+    name: 'Media',
+    children: [
+      { name: 'Photos', value: 60 },
+      { name: 'Video', value: 20 },
+    ],
+  },
+  { name: 'Code', value: 20 },
+];
+const treeOf = (o: Options) => {
+  const m = only(o);
+  const { nodes, parent, value, colors, ...rest } = m.options as {
+    nodes: string[];
+    parent: Col;
+    value: Col;
+    colors: string[];
+  };
+  return { type: m.type, nodes, parent: Array.from(parent), value: Array.from(value), colors, rest };
+};
+const TREES = [
+  ['treemapChart', treemapChart, 'treemap', 'blank'],
+  ['sunburstChart', sunburstChart, 'sunburst', 'polar'],
+] as const;
+
+for (const [name, chart, type, frame] of TREES) {
+  test(`${name} takes one root or a list of roots, with a colour per branch`, () => {
+    const spec = chart.spec({ data: disk() });
+    expect(spec.frame).toBe(frame);
+    expect(treeOf(spec)).toEqual({
+      type,
+      nodes: ['Media', 'Photos', 'Video', 'Code'],
+      parent: [-1, 0, 0, -1],
+      value: [0, 60, 20, 20],
+      colors: palette.slice(0, 2),
+      rest: { key: type },
+    });
+    const root = { name: 'Disk', children: [...disk(), { name: 'Rest', value: 1 }] };
+    expect(treeOf(chart.spec({ data: root }))).toMatchObject({
+      nodes: ['Disk', 'Media', 'Photos', 'Video', 'Code', 'Rest'],
+      parent: [-1, 0, 1, 1, 0, 0],
+      colors: palette.slice(0, 3),
+    });
+    expect(treeOf(chart.spec({ data: root, colors: [RED, BLUE] })).colors).toEqual([RED, BLUE, RED]);
+    const same = { name: 'Same', value: 1 };
+    expect(treeOf(chart.spec({ data: [same, same] as readonly Nested[] })).nodes).toEqual(['Same', 'Same']);
+    const el = host();
+    chart(el, { ...BOX, data: disk(), colors: [RED, BLUE], text: false });
+    expect([shows(el, RED), shows(el, BLUE)]).toEqual([true, true]);
+  });
+
+  test(`${name} draws a lone node in the first colour`, () => {
+    const solo = { name: 'Solo', value: 7 };
+    for (const data of [solo, [{ ...solo, children: [] }]])
+      for (const props of [{}, { shade: 1 }]) {
+        const el = host();
+        chart(el, { ...BOX, data, colors: [RED], text: false, ...props });
+        expect(shows(el, RED)).toBe(true);
+      }
+    expect(treeOf(chart.spec({ data: solo })).colors).toEqual(palette.slice(0, 1));
+  });
+
+  test(`${name} passes shade and text to the mark`, () => {
+    const rest = (props: object) => treeOf(chart.spec({ data: disk(), ...props })).rest;
+    expect(rest({ shade: 0.3, text: true })).toEqual({ key: type, shade: 0.3 });
+    expect(rest({ text: false })).toEqual({ key: type, text: false });
+  });
+
+  test(`${name} errors name the chart and the shape of the data`, () => {
+    const shape = `${name}: data must be a root { name, value, children } or a list of roots`;
+    const bad: unknown[] = [
+      [1, 2],
+      [['a', 1]],
+      [null],
+      { name: ['a'], value: [1] },
+      [{ folder: 'a', size: 1 }],
+      { name: 'a', children: [null] },
+      { name: 'a', children: 5 },
+    ];
+    for (const data of bad) expect(() => chart.spec({ data } as object)).toThrow(shape);
+    const loop: Nested = { name: 'Loop', children: [] };
+    loop.children!.push(loop);
+    expect(() => chart.spec({ data: loop })).toThrow(`${name}: Loop is among its own children`);
+    for (const k of ['x', 'y', 'series', 'label', 'value', 'source', 'target'])
+      expect(() => chart.spec({ data: disk(), [k]: 'name' })).toThrow(
+        `${name}: ${k} does not apply, as data is a tree of { name, value, children }`,
+      );
+    expect(() => chart.spec({ data: disk(), xAxis: {} } as object)).toThrow(
+      `${name}: xAxis does not apply, as there are no axes`,
+    );
+  });
+
+  test(`${name} with no data draws an empty frame, and later data draws`, () => {
+    for (const data of [undefined, null, [], {}])
+      expect(chart.spec({ data, x: 'a' } as object).marks).toEqual([]);
+    const el = host();
+    const c = chart(el, { ...BOX, colors: [RED], legend: false });
+    expect(shows(el, RED)).toBe(false);
+    c.update({ data: disk() });
+    expect(shows(el, RED)).toBe(true);
+    c.update({ data: null });
+    expect(shows(el, RED)).toBe(false);
+  });
+
+  test(`${name} sends nothing for an identical update and sees an in-place change after a dataVersion bump`, () => {
+    for (const data of [disk(), { name: 'Disk', children: disk() }]) {
+      const props = () => ({ ...BOX, data, text: false, colors: [RED, BLUE] });
+      const el = host();
+      const c = chart(el, props());
+      const spy = vi.spyOn(c.chart, 'update');
+      c.update(props());
+      expect(spy).not.toHaveBeenCalled();
+      const before = drawn(el);
+      (Array.isArray(data) ? data[0]! : data.children[0]!).children![0]!.value = 1;
+      c.update(props());
+      expect(drawn(el)).toBe(before);
+      c.update({ dataVersion: 1 });
+      expect(drawn(el)).not.toBe(before);
+      c.update({ shade: 0.3 });
+      expect(keysOf(spy)).toEqual([['marks'], ['marks']]);
+    }
+  });
+
+  test(`${name} answers the tooltip with the path to a node and its size, also after new data`, () => {
+    const el = host();
+    const c = chart(el, { ...BOX, data: { name: 'All', children: [{ name: 'One', value: 1234.567 }] } });
+    const live = c.chart;
+    hover(el, 85, 50);
+    expect(tipRows(el)).toEqual(['All · One: 1,234.57']);
+    c.update({ data: [{ name: 'Solo', value: 7, children: [] }] });
+    hover(el, 60, 50);
+    expect(tipRows(el)).toEqual(['Solo: 7']);
+    expect(c.chart).toBe(live);
+    c.update({ tooltip: false });
+    hover(el, 60, 50);
+    expect(tipRows(el)).toBeUndefined();
+  });
+}
+
+test('sunburstChart gives a parent in the tooltip the sum of what is under it', () => {
+  const el = host();
+  const kids = [
+    { name: 'a', value: 3 },
+    { name: 'b', value: -5 },
+    { name: 'c', value: 4, children: [{ name: 'd', value: 2 }] },
+  ];
+  sunburstChart(el, { ...BOX, data: { name: 'All', value: 100, children: kids } });
+  hover(el, 50, 50);
+  expect(tipRows(el)).toEqual(['All: 5']);
+});
+
+test('a total past the largest number says so in the tooltip of a parent and of a flow node', () => {
+  const tree = host();
+  const kids = [
+    { name: 'a', value: 1e308 },
+    { name: 'b', value: 1e308 },
+  ];
+  sunburstChart(tree, { ...BOX, data: { name: 'All', children: kids } });
+  hover(tree, 50, 50);
+  expect(tipRows(tree)).toEqual(['All: over 1.79e+308']);
+  const flow = host();
+  const data = kids.map(k => ({ from: k.name, to: 'Out', n: k.value }));
+  sankeyChart(flow, { ...BOX, data, text: false });
+  hover(flow, 97, 50);
+  expect(tipRows(flow)).toEqual(['Out: over 1.79e+308']);
+});
+
+test('types: sankeyChart checks field names; the tree charts take a nested tree and no fields', () => {
+  const rows = flows();
+  const columns = { a: ['x'], b: ['y'], n: new Float64Array([1]) };
+  expectTypeOf(
+    sankeyChart.spec({ data: rows, source: 'from', target: d => d.to, value: 'amount', blend: true }),
+  ).toEqualTypeOf<Options>();
+  sankeyChart.spec({ data: columns, source: 'a', target: 'b', value: 'n', text: false });
+  sankeyChart.spec({ source: 'anything' });
+  sankeyChart.spec({ data: [], source: 'anything' });
+  const later = sankeyChart(host(), {});
+  later.update({ data: rows, source: 'from' });
+  const inferred = { name: 'Disk', children: [{ name: 'a', value: 1 }, { name: 'b' }] };
+  const root: Nested = inferred;
+  for (const chart of [treemapChart, sunburstChart] as const) {
+    expectTypeOf(chart.spec({ data: root, shade: 0.3, text: false })).toEqualTypeOf<Options>();
+    chart.spec({ data: inferred });
+    chart.spec({ data: [root] as readonly Nested[] });
+    const c = chart(host(), {});
+    c.update({ data: root, colors: [RED] });
+    c.update({ data: [root], shade: 0.5 });
+    const wrongTree = () => {
+      // @ts-expect-error a node has a name
+      chart.spec({ data: [{ folder: 'a', size: 1 }] });
+      // @ts-expect-error numbers are not a tree
+      chart.spec({ data: [1, 2] });
+      // @ts-expect-error columns are not a tree
+      chart.spec({ data: { name: ['a'], value: [1] } });
+      // @ts-expect-error a tree has no fields to name
+      chart.spec({ data: root, value: 'value' });
+      // @ts-expect-error there are no axes
+      chart.spec({ data: root, zoom: true });
+      // @ts-expect-error a node has a name
+      c.update({ data: [{ folder: 'a' }] });
+    };
+    expect(wrongTree).toBeTypeOf('function');
+  }
+  const wrong = () => {
+    // @ts-expect-error not a field of the rows
+    sankeyChart.spec({ data: rows, source: 'nope' });
+    // @ts-expect-error a text field is not a value
+    sankeyChart.spec({ data: rows, value: 'from' });
+    // @ts-expect-error not a column
+    sankeyChart.spec({ data: columns, target: 'nope' });
+    // @ts-expect-error a text column is not a value
+    sankeyChart.spec({ data: columns, value: 'a' });
+    // @ts-expect-error numbers have no links
+    sankeyChart.spec({ data: [1, 2] });
+    // @ts-expect-error pairs have no links
+    sankeyChart.spec({ data: [['a', 1]] });
+    // @ts-expect-error a sankey has no x
+    sankeyChart.spec({ data: rows, x: 'from' });
+    // @ts-expect-error not a field of the rows
+    later.update({ data: rows, target: 'nope' });
+  };
+  expect(wrong).toBeTypeOf('function');
+});
+
+const CLIMATE = [
+  { month: 'Jan', temperature: 3, rain: 78 },
+  { month: 'Feb', temperature: 4, rain: 61 },
+  { month: 'Mar', temperature: 7, rain: 55 },
+];
+const MIXED = days(3, i => ({ a: i + 1, b: 2, c: 10 * (i + 1), d: 30 }));
+
+test('comboChart draws the bars of rain on y2 under the line of temperature over a band x', () => {
+  const spec = comboChart.spec({
+    data: CLIMATE,
+    lines: 'temperature',
+    y2Bars: 'rain',
+    y2Axis: { label: 'Rain (mm)' },
+    colors: [RED, BLUE],
+  });
+  expect(spec.x).toMatchObject({ label: 'month', categories: ['Jan', 'Feb', 'Mar'] });
+  expect([spec.y, spec.y2]).toEqual([
+    { label: 'temperature', domain: 'nice' },
+    { label: 'Rain (mm)', domain: 'nice' },
+  ]);
+  expect(spec.marks.map(m => [m.type, m.label, m.yAxis ?? 'y', m.color, numbers(barOptions(m).y)])).toEqual([
+    ['bar', 'rain', 'y2', BLUE, [78, 61, 55]],
+    ['line', 'temperature', 'y', RED, [3, 4, 7]],
+  ]);
+  expect(spec.marks.map(m => numbers(barOptions(m).x))).toEqual([
+    [0, 1, 2],
+    [0, 1, 2],
+  ]);
+  expect(spec.marks[0]!.options).not.toHaveProperty('width');
+  expect(comboChart.spec({ data: CLIMATE, lines: 'temperature', y2Axis: {} })).not.toHaveProperty('y2');
+});
+
+test('comboChart takes all four props, one field or a list, with the bars first and colours in prop order', () => {
+  const spec = comboChart.spec({
+    data: MIXED,
+    lines: 'a',
+    bars: ['b'],
+    y2Lines: d => d.c,
+    y2Bars: 'd',
+    colors: ['#000001', '#000002', '#000003', '#000004'],
+  });
+  expect(spec.marks.map(m => [m.type, m.label, m.yAxis ?? 'y', m.color])).toEqual([
+    ['bar', 'b', 'y', '#000002'],
+    ['bar', 'd', 'y2', '#000004'],
+    ['line', 'a', 'y', '#000001'],
+    ['line', 'y3', 'y2', '#000003'],
+  ]);
+  expect(spec.x).toMatchObject({ label: 'date', utc: true });
+  expect(comboChart.spec({ data: { n: [1, 2], v: [3, 4] }, bars: 'v' }).x).toMatchObject({ label: 'n' });
+  expect(comboChart.spec({ data: [{ n: 1, v: 2 }], y2Bars: 'v' }).x).toMatchObject({ label: 'n' });
+  const indexed = comboChart.spec({ data: [{ v: 2 }, { v: 3 }], bars: 'v' });
+  expect(indexed.x).toMatchObject({ label: '' });
+  expect(numbers(barOptions(indexed.marks[0]!).x)).toEqual([0, 1]);
+});
+
+test('comboChart draws lines over bars, and bars of both axes side by side', () => {
+  const el = host();
+  comboChart(el, {
+    data: [
+      { name: 'p', bar: 3, other: 30, line: 2 },
+      { name: 'q', bar: 3, other: 30, line: 2 },
+    ],
+    lines: 'line',
+    bars: 'bar',
+    y2Bars: 'other',
+    ...BOX,
+    legend: false,
+    colors: [PURE, RED, BLUE],
+    yAxis: { domain: [0, 4] },
+    y2Axis: { domain: [0, 40] },
+  });
+  expect(near(pixel(el, 15, 90), [...rgb(RED), 255])).toBe(true);
+  expect(near(pixel(el, 35, 90), [...rgb(BLUE), 255])).toBe(true);
+  expect(pixel(el, 35, 50)[1]).toBeGreaterThan(150);
+  expect(pixel(el, 35, 20)[3]).toBe(0);
+});
+
+test('comboChart bars on a number or time x take 0.6 of the smallest gap together, a lone one of a day or 1', () => {
+  const widths = (o: Options) =>
+    o.marks.filter(m => m.type === 'bar').map(m => (m.options as { width?: number }).width);
+  const dates = ['2024-01-01', '2024-01-02', '2024-01-02', '2024-01-05'].map(date => ({ date, v: 1, w: 2 }));
+  expect(widths(comboChart.spec({ data: dates, bars: ['v', 'w'] }))).toEqual([0.6 * DAY, 0.6 * DAY]);
+  const unordered = comboChart.spec({ data: { n: [5, 1, 3], v: [50, 10, 30] }, x: 'n', bars: 'v' });
+  expect(widths(unordered)[0]).toBeCloseTo(1.2);
+  expect(numbers(barOptions(unordered.marks[0]!).y)).toEqual([50, 10, 30]);
+  const lone = comboChart.spec({ data: dates.slice(0, 1), bars: 'v' });
+  const start = Date.UTC(2024, 0, 1);
+  expect(widths(lone)).toEqual([0.6 * DAY]);
+  expect(lone.x).toMatchObject({ domain: [start - DAY / 2, start + DAY / 2] });
+  expect(widths(comboChart.spec({ data: { n: [4], v: [1] }, x: 'n', bars: 'v' }))).toEqual([0.6]);
+  expect(
+    comboChart.spec({ data: { n: [4], v: [1] }, x: 'n', bars: 'v', xAxis: { domain: [0, 9] } }).x,
+  ).toMatchObject({ domain: [0, 9] });
+  expect(comboChart.spec({ data: { n: [4], v: [1] }, x: 'n', lines: 'v' }).x).toMatchObject({
+    domain: 'nice',
+  });
+
+  const el = host();
+  const props = {
+    data: { n: [0, 10], v: [1, 1], w: [1, 1] },
+    x: 'n',
+    bars: ['v', 'w'],
+    ...BOX,
+    legend: false,
+    colors: [RED, BLUE],
+    xAxis: { domain: [-5, 15] as [number, number] },
+    yAxis: { domain: [0, 1] as [number, number] },
+  } as const;
+  const c = comboChart(el, props);
+  expect([8, 12, 22, 28, 38, 42].map(x => pixel(el, x, 55)[3] === 255)).toEqual([
+    false,
+    true,
+    true,
+    true,
+    true,
+    false,
+  ]);
+  expect(isRed(el, 20, 50)).toBe(true);
+  expect(isRed(el, 30, 50)).toBe(false);
+  c.update({ hidden: ['w'] });
+  expect(isRed(el, 30, 50)).toBe(true);
+});
+
+test('comboChart stacks the bars of one axis and not its lines', () => {
+  const spec = comboChart.spec({ data: MIXED, lines: 'a', bars: ['b', 'd'], y2Lines: 'c', stack: true });
+  expect(spec.marks.map(m => [m.type, barOptions(m).stack, barOptions(m).dodge])).toEqual([
+    ['bar', 'stack', undefined],
+    ['bar', 'stack', undefined],
+    ['line', undefined, undefined],
+    ['line', undefined, undefined],
+  ]);
+  expect(() => comboChart.spec({ data: MIXED, lines: 'a', y2Bars: ['b', 'd'], stack: true })).not.toThrow();
+  const both = { bars: 'b', y2Bars: 'd', stack: true } as const;
+  expect(() => comboChart.spec({ data: MIXED, ...both })).toThrow(
+    /^comboChart: stack does not apply to bars on both y and y2\. Leave out stack or y2Bars\.$/,
+  );
+  expect(() => comboChart.spec({ data: null, ...both })).not.toThrow();
+
+  const el = host();
+  comboChart(el, {
+    data: MIXED,
+    bars: ['a', 'b'],
+    stack: true,
+    ...BOX,
+    legend: false,
+    colors: [RED, BLUE],
+    yAxis: { domain: [0, 10], format: v => `${v} mm` },
+  });
+  expect(tallShare(el, 50, RED)).toBeCloseTo(0.2, 1);
+  expect(tallShare(el, 50, BLUE)).toBeCloseTo(0.2, 1);
+  hover(el, 50, 90);
+  expect(tipRows(el)).toEqual(['2024-01-02', 'a: 2 mm', 'b: 2 mm']);
+});
+
+test('comboChart errors name the four props, and nothing throws without data', () => {
+  const bad = (props: object) => () => comboChart.spec({ data: MIXED, ...props } as never);
+  for (const props of [{}, { lines: [], bars: [] }])
+    expect(bad(props)).toThrow(
+      /^comboChart: none of lines, bars, y2Lines and y2Bars is given\. The fields are date \(time\).*Pass at least one/,
+    );
+  expect(bad({ lines: 'a', y2Bars: ['b', 'a'] })).toThrow(
+    /"a" is named in both lines and y2Bars.*Pass it in one/,
+  );
+  expect(bad({ bars: ['a', 'a'] })).toThrow(/"a" is named twice in bars.*Pass it once\.$/);
+  expect(bad({ bars: 'date' })).toThrow(/^comboChart: bars "date" is time, not numbers/);
+  expect(bad({ lines: 'a', y2Bars: 'nope' })).toThrow(/no field "nope".*Pass y2Bars as one of these fields/);
+  expect(bad({ y2Lines: () => 'a' })).toThrow(/the accessor y2Lines is text/);
+  for (const k of ['y', 'y2', 'series', 'errorBars'])
+    expect(bad({ [k]: 'a' })).toThrow(`comboChart: use lines, bars, y2Lines and y2Bars, not ${k}`);
+  expect(bad({ data: [1, 2], lines: 'value' })).toThrow(/^comboChart: a list of numbers or pairs/);
+  expect(bad({ bars: 'a', yAxis: LOG })).toThrow(
+    "comboChart: yAxis.scale 'log' does not apply, as bars start at zero, which it cannot show",
+  );
+  expect(bad({ lines: 'a', y2Bars: 'b', y2Axis: LOG })).toThrow(/^comboChart: y2Axis.scale 'log'/);
+  const across = comboChart.spec({ data: GROWTH, x: 'week', lines: 'users', y2Bars: 'other', yAxis: LOG });
+  expect(across.y).toMatchObject({ base: 10 });
+  expect(numbers(optionsOf(across.marks[1]!).y)).toEqual([2, Number.NaN, 3]);
+  for (const data of [null, undefined, []]) {
+    expect(comboChart.spec({ data }).marks).toEqual([]);
+    expect(comboChart.spec({ data, lines: 'a', y2Bars: ['b', 'b'] }).y2).toMatchObject({ domain: 'nice' });
+    expect(comboChart.spec({ data, y: 'a' } as never).marks).toEqual([]);
+  }
+  comboChart(host(), { data: null, bars: 'a' });
+});
+
+test('comboChart tooltip gives every series at the nearest row in the format of its axis', () => {
+  const formats = {
+    yAxis: { domain: [0, 8] as [number, number], format: (v: number) => `${v} °C` },
+    y2Axis: { domain: [0, 100] as [number, number], format: (v: number) => `${v} mm` },
+  };
+  const el = host();
+  const c = comboChart(el, {
+    data: CLIMATE,
+    lines: 'temperature',
+    y2Bars: 'rain',
+    ...BOX,
+    legend: false,
+    ...formats,
+  });
+  for (const x of [38, 50, 60]) {
+    hover(el, x, 60);
+    expect(tipRows(el)).toEqual(['Feb', 'rain: 61 mm', 'temperature: 4 °C']);
+  }
+  c.update({ y2Axis: { ...formats.y2Axis, format: v => `${v / 10} cm` } });
+  hover(el, 50, 60);
+  expect(tipRows(el)).toEqual(['Feb', 'rain: 6.1 cm', 'temperature: 4 °C']);
+
+  const timed = host();
+  comboChart(timed, {
+    data: MIXED.map(d => ({ ...d, b: d.a === 2 ? null : d.b })),
+    lines: 'a',
+    bars: 'b',
+    ...BOX,
+    legend: false,
+  });
+  for (const x of [35, 65]) {
+    hover(timed, x, 50);
+    expect(tipRows(timed)).toEqual(['2024-01-02', 'b: –', 'a: 2']);
+  }
+});
+
+test('comboChart tooltip on the boundary of two categories gives the title and the values of one row', () => {
+  const el = host();
+  const data = [
+    { name: 'p', a: 1, b: 10 },
+    { name: 'q', a: 2, b: 20 },
+  ];
+  comboChart(el, { data, lines: 'a', bars: 'b', ...BOX, legend: false });
+  const rows = [
+    ['p', 'b: 10', 'a: 1'],
+    ['q', 'b: 20', 'a: 2'],
+  ];
+  for (const x of [49, 50]) {
+    hover(el, x, 60);
+    expect(rows).toContainEqual(tipRows(el));
+  }
+  hover(el, 51, 60);
+  expect(tipRows(el)).toEqual(rows[1]);
+});
+
+test('comboChart fits a window to its lines as drawn at the edges, as lineChart does', () => {
+  const props = { data: { n: [0, 10, 20], v: [0, 1, 1000] }, x: 'n', ...BOX, legend: false } as const;
+  const fit = { yAxis: { fit: 'window' } } as const;
+  for (const x of [
+    [9, 16],
+    [-5, 4],
+  ] as [number, number][]) {
+    const [combo, plain] = [host(), host()];
+    comboChart(combo, { ...props, ...fit, lines: 'v', view: { x } });
+    lineChart(plain, { ...props, ...fit, y: 'v', view: { x } });
+    expect(drawn(combo)).toBe(drawn(plain));
+  }
+});
+
+test('comboChart bars of an unsorted x with gaps are clicked, selected and hovered by their row in the data', () => {
+  const props = {
+    data: { n: [null, 5, 1, null, 3], v: [1000, 50, 10, 1000, 30], w: [9, 5, 1, 9, 3] },
+    x: 'n',
+    bars: 'v',
+    ...BOX,
+    legend: false,
+    xAxis: { domain: [0, 6] as [number, number] },
+    yAxis: { domain: [0, 50] as [number, number] },
+  } as const;
+  for (const stack of [false, true]) {
+    const el = host();
+    const onClick = vi.fn();
+    comboChart(el, { ...props, stack, lines: 'w', onClick });
+    for (const [px, row] of [
+      [83, 1],
+      [17, 2],
+      [50, 4],
+    ] as const) {
+      click(el, px, 95);
+      expect(onClick.mock.lastCall![0]).toMatchObject({ row, x: props.data.n[row] });
+      hover(el, px, 95);
+      expect(tipRows(el)).toEqual([
+        String(props.data.n[row]),
+        `v: ${props.data.v[row]}`,
+        `w: ${props.data.w[row]}`,
+      ]);
+    }
+    const [plain, picked] = [host(), host()];
+    comboChart(plain, { ...props, stack });
+    comboChart(picked, { ...props, stack, selected: [{ id: 'v', rows: [1] }] });
+    const differs = (from: number) =>
+      [...Array(33).keys()].some(i => !near(pixel(plain, from + i, 95), pixel(picked, from + i, 95)));
+    expect([0, 33, 66].map(differs)).toEqual([false, false, true]);
+  }
+});
+
+test('comboChart bars on a text x with a gap are clicked and selected by their row in the data', () => {
+  const props = {
+    data: { name: [null, 'p', 'q'], v: [1000, 50, 40] },
+    x: 'name',
+    bars: 'v',
+    ...BOX,
+    legend: false,
+    yAxis: { domain: [0, 50] as [number, number] },
+  } as const;
+  for (const stack of [false, true]) {
+    const onClick = vi.fn();
+    const [el, picked] = [host(), host()];
+    comboChart(el, { ...props, stack, onClick });
+    for (const [px, row] of [
+      [25, 1],
+      [75, 2],
+    ] as const) {
+      click(el, px, 95);
+      expect(onClick.mock.lastCall![0]).toMatchObject({ row });
+    }
+    comboChart(picked, { ...props, stack, selected: [{ id: 'v', rows: [1] }] });
+    const differs = (from: number) =>
+      [...Array(50).keys()].some(i => !near(pixel(el, from + i, 95), pixel(picked, from + i, 95)));
+    expect([0, 50].map(differs)).toEqual([true, false]);
+  }
+});
+
+test('comboChart lists two or more series in the legend, and takes rules, zones and brush', () => {
+  const box = { width: 300, height: 200 };
+  const legendOf_ = (props: object) => {
+    const el = host();
+    comboChart(el, { data: CLIMATE, lines: 'temperature', y2Bars: 'rain', ...box, ...props });
+    return entriesOf(el).map(e => e.textContent);
+  };
+  expect(legendOf_({})).toEqual(['rain', 'temperature']);
+  expect(legendOf_({ legend: false })).toEqual([]);
+  expect(legendOf_({ y2Bars: undefined })).toEqual([]);
+  const spec = comboChart.spec({
+    data: CLIMATE,
+    lines: 'temperature',
+    y2Bars: 'rain',
+    rules: [{ x: 'Feb' }],
+    zones: [{ x: ['Jan', 'Feb'] }],
+  });
+  expect(spec.marks.map(m => m.key)).toEqual(['zone:0', 'series:rain', 'series:temperature', 'rule:0']);
+  expect(spec.marks[0]!.options).toMatchObject({ x1: -0.5, x2: 1.5 });
+  const onBrush = vi.fn();
+  const el = host();
+  comboChart(el, { data: MIXED, bars: 'a', ...BOX, brush: true, onBrush });
+  drag(el, [20, 50], [80, 50]);
+  expect(onBrush).toHaveBeenCalledTimes(1);
+});
+
+test('comboChart identity: an equal copy sends nothing, and a field moved between the props moves', () => {
+  for (const x of ['month', 'n']) {
+    const data = CLIMATE.map((d, n) => ({ ...d, n }));
+    type Row = (typeof data)[number];
+    const props = (): ComboProps<Row[]> => ({
+      data,
+      x: x as 'n',
+      lines: ['temperature'],
+      y2Bars: ['rain'],
+      y2Axis: { step: 20 },
+      zones: [{ y: [1, 2] }],
+    });
+    const el = host();
+    const c = comboChart(el, { ...BOX, ...props() });
+    const update = vi.spyOn(c.chart, 'update');
+    c.update(props());
+    expect(update).not.toHaveBeenCalled();
+    const fresh = (p: ComboProps<Row[]>) => {
+      const one = host();
+      comboChart(one, { ...BOX, ...props(), ...p });
+      return drawn(one);
+    };
+    for (const p of [
+      { lines: 'temperature', bars: 'rain', y2Bars: undefined },
+      { lines: ['temperature', 'rain'], bars: undefined, y2Bars: undefined },
+      { lines: 'temperature', bars: undefined, y2Bars: 'rain' },
+    ] as ComboProps<Row[]>[]) {
+      c.update(p);
+      expect(drawn(el)).toBe(fresh(p));
+    }
+  }
+});
+
+test('types: comboChart takes number fields of rows and columns', () => {
+  const cols = { t: [1], v: [1], w: [1], note: ['a'] };
+  comboChart.spec({ data: cols, x: 't', lines: 'v', y2Bars: ['w'], y2Axis: { scale: 'linear' } });
+  comboChart.spec({ data: CLIMATE, lines: [d => d.temperature], y2Bars: 'rain', stack: true });
+  comboChart.spec({ lines: 'anything', y2Bars: ['other'] });
+  const later = comboChart(host(), {});
+  later.update({ data: CLIMATE, bars: 'rain' });
+  const wrong = () => {
+    // @ts-expect-error not a field of the rows
+    comboChart.spec({ data: CLIMATE, lines: 'nope' });
+    // @ts-expect-error a text field is not drawn
+    comboChart.spec({ data: CLIMATE, bars: 'month' });
+    // @ts-expect-error not a column of numbers
+    comboChart.spec({ data: cols, y2Lines: ['w', 'note'] });
+    // @ts-expect-error a field list holds fields of the rows
+    comboChart.spec({ data: CLIMATE, y2Bars: ['rain', 'nope'] });
+    // @ts-expect-error the fields are named by lines and bars
+    comboChart.spec({ data: CLIMATE, y: 'rain' });
+    // @ts-expect-error numbers have no fields to name
+    comboChart.spec({ data: [1, 2], lines: 'value' });
+    // @ts-expect-error not a field of the rows
+    later.update({ data: CLIMATE, bars: 'nope' });
+  };
+  expect(wrong).toBeTypeOf('function');
 });

@@ -12,13 +12,18 @@ Packages: `swiftplot` (the core, with the entry `swiftplot/charts`), `@swiftplot
 
 | The user wants | Use |
 |---|---|
-| A line, area, bar or scatter chart from rows or columns of data | the easy charts: `lineChart`, `areaChart`, `barChart`, `scatterChart` from `swiftplot/charts`, or `<LineChart>` etc. from a wrapper |
-| Any other chart (pie, donut, heatmap, box plot, histogram, radar, radial bars, funnel, sankey, treemap, sunburst) | the explicit API: `plot()` from `swiftplot`, or `<Plot>` from a wrapper |
-| Several kinds of mark in one chart, reference lines, zones, a brush, a log axis | the explicit API |
+| A line, area, bar or scatter chart from rows or columns of data | `lineChart`, `areaChart`, `barChart`, `scatterChart` from `swiftplot/charts`, or `<LineChart>` etc. from a wrapper |
+| Bars and lines in one chart, on one or two y axes | `comboChart` |
+| A pie, donut, funnel or radial bars | `pieChart` (`inner` makes a donut), `funnelChart`, `radialBarChart` |
+| A radar, heatmap, histogram, box plot or candlesticks | `radarChart`, `heatmapChart`, `histogramChart`, `boxPlotChart`, `candlestickChart` |
+| A sankey, treemap or sunburst | `sankeyChart`, `treemapChart`, `sunburstChart` |
+| A second y axis, reference lines, zones, a brush, a log y axis, error bars | props of the easy charts: `y2`, `rules`, `zones`, `brush`, `yAxis.scale`, `errorBars` |
+| Marks mixed in a way no easy chart does, bars or error bars lying down, a log x axis, your own mark | the explicit API: `plot()` from `swiftplot`, or `<Plot>` from a wrapper |
 | A million points already in typed arrays | the explicit API |
 
-Start with an easy chart whenever it fits. `lineChart.spec(props)` returns the explicit options an
-easy chart would use, as a starting point to extend.
+The functions in the table other than `plot()` are the easy charts, all from `swiftplot/charts`. Start with one
+whenever it fits. `lineChart.spec(props)` returns the explicit options an easy chart would use, as a starting
+point to extend.
 
 ## 2. Easy charts
 
@@ -65,33 +70,82 @@ picks a time axis, labels it, colours the series, and adds a tooltip and a legen
 
 ### Every prop (there are no others)
 
+Every chart takes:
+
 | Prop | Type | Notes |
 |---|---|---|
-| `data` | rows, columns, number array, or pairs | see Data. `null` or missing draws an empty frame |
-| `x` | field name or `(row, i) => value` | which field is x. Not an axis config |
-| `y` | field name, accessor, or a list of them | which fields are series. A scatter chart takes one |
-| `series` | field name or accessor | for long data: one series per distinct value |
-| `xAxis` | `{ label, domain, step, format, fit, utc, unit, every }` | axis settings go here, not in `x` |
-| `yAxis` | `{ label, domain, step, format, fit }` | |
-| `colors` | `string[]` | series colours, in order |
+| `data` | rows, columns, number array, or pairs; a tree for `treemapChart` and `sunburstChart` | see Data. `null` or missing draws an empty frame |
+| `colors` | `string[]` | series colours, in order; a pie, a tree or a sankey takes one per part. `heatmapChart` uses `color` instead |
 | `theme` | `'auto' \| 'light' \| 'dark' \| Theme` | `'auto'` (default) follows the page's CSS `color-scheme` |
 | `tooltip` | `boolean` | default on |
-| `legend` | `boolean \| { toggle?, rows? }` | default on with two or more series |
-| `zoom` | `boolean \| { axes?, wheel?, drag? }` | default off |
+| `legend` | `boolean \| { toggle?, rows? }` | default on with two or more series or named parts; on a heatmap, the strip of its colours. Does nothing on `sankeyChart`, `treemapChart`, `sunburstChart` and on the charts of one series (`histogramChart`, `boxPlotChart`, `candlestickChart`) |
 | `animate` | `boolean \| { duration?, enter? }` | default off |
 | `width`, `height` | `number` (px) | default: follow the container |
 | `margin` | `{ top?, right?, bottom?, left? }` | |
 | `description` | `string` | accessible description |
 | `dataVersion` | `number` | bump after changing data in place |
-| `view`, `onViewChange` | `{ x?: [lo, hi], y?: [lo, hi] }` | the zoom window; kept by the chart unless given |
 | `hidden`, `onHiddenChange` | `string[]` | hidden series, by name |
 | `selected` | `{ id: string, rows: number[] }[] \| null` | rows picked out |
 | `onClick` | `(hit, at) => void` | |
 | `pointer`, `onPointerChange` | `{ x, y? } \| null` | show a tooltip from code; link two charts |
+
+`lineChart`, `areaChart`, `barChart`, `scatterChart`, `histogramChart`, `candlestickChart` and
+`comboChart` also take:
+
+| Prop | Type | Notes |
+|---|---|---|
+| `xAxis` | `{ label, domain, step, format, fit, utc, unit, every }` | axis settings go here, not in `x`. A histogram's takes no `utc`, `unit` or `every` |
+| `yAxis` | `{ label, domain, step, format, fit }` | and `scale: 'log'` on line, scatter and combo: a value at or below zero is then a gap, and `step` does not apply |
+| `zoom` | `boolean \| { axes?, wheel?, drag? }` | default off |
+| `view`, `onViewChange` | `{ x?: [lo, hi], y?: [lo, hi], y2?: [lo, hi] }` | the zoom window; kept by the chart unless given |
+
+`boxPlotChart` takes `xAxis: { label }` and the whole of `yAxis`, `heatmapChart` takes `xAxis: { label }` and
+`yAxis: { label }`, and neither zooms. The other charts have no axes.
+
+`lineChart`, `areaChart`, `barChart` and `scatterChart`:
+
+| Prop | Type | Notes |
+|---|---|---|
+| `x` | field name or `(row, i) => value` | which field is x. Not an axis config |
+| `y` | field name, accessor, or a list of them | which fields are series. A scatter chart takes one, of numbers, or of text for a band per category (from `yAxis` only `label` then applies) |
+| `y2` | field name, accessor, or a list of them | more series, drawn against an axis on the right. Never guessed; not with `series` or `errorBars` |
+| `y2Axis` | as `yAxis` | settings of the right-hand axis, drawn only with `y2` |
+| `series` | field name or accessor | for long data: one series per distinct value |
 | `curve` | `'linear' \| 'step' \| 'smooth'` | line and area only |
 | `join` | `boolean` | line and area only: draw across missing values |
-| `stack` | `boolean` | area and bar only |
+| `fill` | `boolean \| gradient(...)` | line only: shade the area under each line |
+| `stack` | `boolean` | area and bar only; on bars not with `y2` |
+| `errorBars` | `{ low, high, cap?, width? }` | line, bar and scatter: an upright bar between two fields. `low` and `high` are values on the y axis, not distances from y. With one `y`; not on stacked series or a text y |
 | `r` | `number` or a field | scatter only: radius in px (default 4) |
+| `alpha` | `number` | scatter only: opacity, 0 to 1 |
+| `ring` | `number` | scatter only: draw rings this many px wide |
+| `shape` | `'dot' \| 'tick'` | scatter only: an upright tick answers no tooltip or click, and takes no `ring` and no field of `r` (a number `r` is its reach up and down) |
+
+The same four and `comboChart`:
+
+| Prop | Type | Notes |
+|---|---|---|
+| `rules` | `({ x } or { y }, with text?, dashed?, color?)[]` | lines across the plot, over the data |
+| `zones` | `({ x: [from, to] } or { y: [from, to] }, with text?, color?)[]` | shaded bands, under the data. `y` is the left axis |
+| `brush` | `boolean \| { axes?: 'x' \| 'y' \| 'xy' }` | default off; a drag marks out a range, and with `zoom` its release shows it |
+| `onBrush` | `({ x, y, y2? } or null) => void` | the range, in axis values; `@brush` in Vue |
+
+The other charts name their fields by what the chart has, not always `x` and `y`. A field is a name or an
+accessor `(row, i) => value`; what is left out is guessed as below.
+
+| Chart | Fields | Guessed when left out | Other props |
+|---|---|---|---|
+| `pieChart` | `label`, `value` | the first text field; the only number field | `inner` (0 to 1, above 0 a donut), `text` (shares on the slices, default true), `sweep` |
+| `funnelChart` | `label`, `value` | as a pie | `text` (default true), `fill` (a `gradient()`) |
+| `radialBarChart` | `label`, `value` | as a pie | `max`, `sweep`, `inner` (default 0.3) |
+| `radarChart` | `x` (spokes), `y` (one shape per field) | the first text field; every number field left | `max`, `fill` (opacity, default 0.15) |
+| `heatmapChart` | `x`, `y`, `value` | the first two text or date fields, in order; the only number field left | `color` (a `sequential()` scale) |
+| `histogramChart` | `x` (the values counted) | the only number field | `bins` (a count, or ascending edges) |
+| `boxPlotChart` | `y` (the values), `x` (a box per group) | the only number field; the only text field, if its values repeat. `x: null` is one box | `fill` (a colour or a `gradient()`) |
+| `candlestickChart` | `x`, `open`, `high`, `low`, `close` | the first date field, else text; the fields of those full names, in any case | `up`, `down` (colours; `colors[0]` by default) |
+| `comboChart` | `x`, and `lines`, `bars`, `y2Lines`, `y2Bars`: a field or a list each | `x` as on a line chart; the other four never: give at least one | `y2Axis`, `stack` (the bars, on one axis) |
+| `sankeyChart` | `source`, `target`, `value` | the first two text fields, in order; the only number field left | `blend`, `text` (default true) |
+| `treemapChart`, `sunburstChart` | none: `data` is a tree | | `shade`, `text` (default true) |
 
 ### Data
 
@@ -118,6 +172,23 @@ gap, a row with a missing x is dropped.
 - Only ISO date strings are dates. `"11/01/2026"` and `"Nov 1"` are text: parse them to `Date`.
 - Millisecond timestamps are numbers, so they get a number axis. Pass `Date` objects for a time axis.
 
+A part or a spoke with a missing name is kept, unnamed; a heatmap, box plot or sankey row with a missing place is
+dropped. A heatmap puts text in order of first appearance, dates and numbers ascending.
+
+Not every chart takes every shape. Rows and columns fit all but the trees.
+
+| Chart | Numbers | Pairs |
+|---|---|---|
+| `lineChart`, `areaChart`, `barChart`, `scatterChart` | y against the index | `[x, y]` |
+| `pieChart`, `funnelChart`, `radialBarChart` | unnamed parts | `[label, value]` |
+| `radarChart` | unnamed spokes | `[name, value]` |
+| `histogramChart` | the values counted | not taken |
+| `boxPlotChart` | one box | `[group, value]` |
+| `heatmapChart`, `candlestickChart`, `comboChart`, `sankeyChart` | not taken | not taken |
+
+`treemapChart` and `sunburstChart` take one root `{ name, value?, children? }` or a list of roots. Only a node
+without children counts by its `value`.
+
 ### How fields are guessed, and how to be explicit
 
 When `x` and `y` are not given, fields are taken in order:
@@ -126,6 +197,8 @@ When `x` and `y` are not given, fields are taken in order:
   named or another number field is left), else the row index.
 - `y`: every number field left, one series each.
 - Scatter: `x` is the first date field, else the first number field; `y` is the next number field.
+- The charts with fields of their own (pie, heatmap, combo and the rest): as the table above says. They guess
+  a single field of numbers only when exactly one number field is left, and throw otherwise.
 
 Name fields whenever the data has number fields that are not measurements (`id`, `year`):
 
@@ -139,9 +212,11 @@ lineChart(el, { data: rows, x: 'date', y: ['api', 'web'] });
 |---|---|---|
 | numbers, or the row index | linear | `label`, `domain`, `step`, `format`, `fit` |
 | dates | time | `label`, `utc`, `unit` with `every`, `format`, `fit`, `domain: [fromMs, toMs]` |
-| text, and every bar chart | category | `label` only |
+| text, and every bar chart, box plot and heatmap | category | `label` only |
 
-A bar chart always uses categories: one per row (or, with `series`, one per distinct x).
+A bar chart always uses categories: one per row (or, with `series`, one per distinct x). A combo or
+candlestick chart uses them for text only; on dates and numbers a bar or candle takes 0.6 of the smallest gap
+between x values.
 
 ### Errors and their fixes
 
@@ -153,14 +228,95 @@ error about which field to use also lists the fields with their kinds and says w
 | `there is no field of numbers for y` | no number field; often numbers held as text | convert the values with `Number()`, or name `y` |
 | `"<name>" is text, so the rows look like long data` | long data without `series` | pass `series: '<name>'` |
 | `there is no field "<name>"` | a misspelt or missing field | use one of the listed fields |
-| `"<name>" is text, not numbers` | `y`, or a scatter chart's `r`, names a text field; a date field reads `is time` | name a number field, or convert it |
+| `"<name>" is text, not numbers` | a prop that takes numbers names a text field (a scatter chart's `y` takes text too); a date field reads `is time` | name a number field, or convert it |
 | `a scatter chart needs two fields of numbers or dates` | fewer than two usable fields | pass `x` and `y` |
 | `a scatter chart has one y` / `with series there is one y` | several `y` where one is allowed | pass one field |
 | `Row N is not an [x, y] pair` | an array row with another length | use row objects or exact pairs |
 | `Columns differ in length` | columns of unequal length | make them the same length |
-| `Accessors work on row objects only` | an accessor with columns | name a column; numbers and pairs take no `x`, `y` or `series` |
+| `Accessors work on row objects only` | an accessor with columns | name a column; numbers and pairs take no field props |
+
+### More errors, by chart
+
+| Charts | Message contains | Cause | Fix |
+|---|---|---|---|
+| line, area, bar, scatter | `series and y2 do not go together` | both given | leave out one |
+| line, bar, scatter | `errorBars and y2 do not go together` | both given | leave out one |
+| line, bar | `with errorBars there is one y` | several `y` with `errorBars` | pass one field |
+| line, area, bar, scatter | `is named in both y and y2`, `is named twice in y2` | one field named twice | name it once |
+| bar | `errorBars do not apply to stacked bars` | `stack` with `errorBars` | leave out one |
+| bar | `stack does not apply to bars on both y and y2` | `stack` with `y2` | leave out one |
+| area, bar | `scale 'log' does not apply, as` | a log scale where marks start at zero | draw lines or dots |
+| line, scatter, combo | `step does not apply to a log scale` | `step` with `scale: 'log'` | leave out `step` |
+| line, scatter, combo | `domain must be above zero and finite on a log scale` | a `domain` that reaches zero or below, or is not finite | pass two finite numbers above zero |
+| scatter | `errorBars do not apply to a text y`, `yAxis.scale 'log' does not apply to a text y` | a text `y` | leave the prop out |
+| scatter | `does not apply to shape 'tick'` | `ring` or a field of `r` with ticks | leave the prop out |
+| line, area, bar, scatter, combo | `takes x or y` | a rule or a zone with neither | give it `x` or `y` |
+| pie, funnel, radial bars, heatmap, sankey | `there is no field of numbers for value` | no number field; often numbers held as text | convert the values with `Number()`, or name `value` |
+| histogram | `there is no field of numbers for x` | no number field; often numbers held as text | convert the values with `Number()`, or name `x` |
+| pie, funnel, radial bars, heatmap, sankey | `are all fields of numbers, so value cannot be guessed` | several number fields and no `value` | pass `value` |
+| histogram | `are all fields of numbers, so x cannot be guessed` | several number fields and no `x` | pass `x` |
+| box plot | `are all fields of numbers, so y cannot be guessed` | several number fields and no `y` | pass `y` |
+| pie, funnel, radial bars | `use label and value, not x and y` | a prop of another chart | use the props named in the message |
+| radar, box plot | `use x and y, not label and value` | a prop of another chart | use the props named in the message |
+| heatmap | `use x, y and value, not label and value` | a prop of another chart | use the props named in the message |
+| histogram | `use x for the values counted, not <name>` | a prop of another chart | use the props named in the message |
+| candlestick | `use x, open, high, low and close, not <name>` | a prop of another chart | use the props named in the message |
+| sankey | `use source, target and value, not <name>` | a prop of another chart | use the props named in the message |
+| combo | `use lines, bars, y2Lines and y2Bars, not <name>` | a prop of another chart | use the props named in the message |
+| treemap, sunburst | `<name> does not apply, as data is a tree` | a field prop | leave the prop out |
+| charts without axes | `<name> does not apply, as there are no axes` | `xAxis`, `yAxis` or `zoom` | leave the prop out |
+| heatmap | `zoom does not apply to a grid of cells` | `zoom` | leave `zoom` out |
+| box plot | `zoom does not apply to boxes` | `zoom` | leave `zoom` out |
+| heatmap | `a list of numbers or pairs has no cells` | data with no fields to name | pass rows or columns |
+| candlestick | `a list of numbers or pairs has no candles` | data with no fields to name | pass rows or columns |
+| sankey | `a list of numbers or pairs has no links` | data with no fields to name | pass rows or columns |
+| combo | `a list of numbers or pairs has no fields to name` | data with no fields to name | pass rows or columns |
+| histogram | `a list of pairs has no one list of values` | pairs | pass numbers, rows or columns |
+| histogram | `bins are over the limit of 1,000,000` | a larger `bins` | pass fewer `bins` |
+| heatmap | `there is no field of text or dates left for <name>` | fewer than two fields of text or dates | pass `x` and `y` |
+| heatmap | `is over the limit of 10,000,000 cells` | too many distinct values of `x` and `y` | name fields with fewer distinct values |
+| box plot | `are all fields of text, so x cannot be guessed` | several text fields and no `x` | pass `x`, or `x: null` for one box |
+| box plot | `no value of "<name>" repeats, so every box would hold one row` | the only text field names each row, such as an id | pass `x`, or `x: null` for one box |
+| candlestick | `there is no field called <name>` | a price field of another name | name it with `open`, `high`, `low` or `close` |
+| candlestick | `are all called <name>, so it cannot be guessed` | price fields whose names differ only in case | name one with `open`, `high`, `low` or `close` |
+| candlestick | `there is no field of dates or text for x` | no field of dates or text | pass `x` |
+| sankey | `there is no field of text left for <name>` | fewer than two text fields | pass `source` and `target` |
+| sankey | `links to itself` | a row with one `source` and `target` | leave such rows out |
+| sankey | `the links go round in a circle through` | links that lead back to a node they left | break the circle |
+| treemap, sunburst | `data must be a root { name, value, children } or a list of roots` | flat rows or another shape | nest the rows by parent |
+| treemap, sunburst | `is among its own children` | a node nested inside itself | leave it out |
+| combo | `none of lines, bars, y2Lines and y2Bars is given` | nothing is guessed | pass at least one |
+| combo | `is named twice in <name>`, `is named in both` | one field named twice | name it once |
+| combo | `stack does not apply to bars on both y and y2` | `stack` with `bars` and `y2Bars` | leave out `stack` or `y2Bars` |
+| combo | `scale 'log' does not apply, as bars start at zero` | a log scale on an axis with bars | draw lines on that axis |
+
+The errors of the table before about a missing or text field, columns and accessors apply to these charts too.
 
 An update that throws leaves the previous chart on screen.
+
+### Other charts, minimally
+
+```ts
+import {
+  boxPlotChart, candlestickChart, comboChart, funnelChart, heatmapChart, histogramChart, pieChart,
+  radarChart, radialBarChart, sankeyChart, sunburstChart, treemapChart,
+} from 'swiftplot/charts';
+
+const parts = [{ plan: 'Free', users: 5 }, { plan: 'Pro', users: 3 }];
+pieChart(el, { data: parts, inner: 0.6 }); // a donut; inner left out, a pie
+funnelChart(el, { data: parts });
+radialBarChart(el, { data: parts, max: 10 });
+radarChart(el, { data: [{ skill: 'Speed', A: 4, B: 3 }, { skill: 'Range', A: 2, B: 5 }, { skill: 'Price', A: 3, B: 4 }] });
+heatmapChart(el, { data: [{ hour: '9', day: 'Mon', visits: 12 }, { hour: '10', day: 'Mon', visits: 30 }] });
+histogramChart(el, { data: [3, 5, 2, 8, 5, 4], bins: 4 });
+boxPlotChart(el, { data: [{ day: 'Mon', minutes: 31 }, { day: 'Mon', minutes: 40 }, { day: 'Tue', minutes: 28 }] });
+candlestickChart(el, { data: [{ date: '2026-11-02', open: 5, high: 8, low: 4, close: 7 }], up: '#16a34a', down: '#dc2626' });
+comboChart(el, { data: [{ month: 'Jan', rain: 50, temperature: 3 }], lines: 'temperature', y2Bars: 'rain' });
+sankeyChart(el, { data: [{ from: 'Pay', to: 'Rent', amount: 900 }, { from: 'Pay', to: 'Food', amount: 400 }] });
+const tree = { name: 'disk', children: [{ name: 'photos', value: 60 }, { name: 'code', value: 25 }] };
+treemapChart(el, { data: tree });
+sunburstChart(el, { data: tree });
+```
 
 ### Updating
 
@@ -196,8 +352,10 @@ export function Requests({ rows }: { rows: Row[] }) {
 }
 ```
 
-- Components: `LineChart`, `AreaChart`, `BarChart`, `ScatterChart`, `Plot`. Props are the chart's
-  props plus `className`, `style`, `id` and `onError`.
+- Components: `LineChart`, `AreaChart`, `BarChart`, `ScatterChart`, `ComboChart`, `PieChart`, `FunnelChart`,
+  `RadialBarChart`, `RadarChart`, `HeatmapChart`, `HistogramChart`, `BoxPlotChart`, `CandlestickChart`,
+  `SankeyChart`, `TreemapChart`, `SunburstChart` and `Plot`. Props are the
+  chart's props plus `className`, `style`, `id` and `onError`.
 - Field names are type-checked against `data` in JSX.
 - With no height from `height`, `style` or CSS, the chart fills a parent that has a height, else is
   300 px tall.
@@ -235,8 +393,12 @@ const failed = ref<unknown>();
 </template>
 ```
 
-- Changes are events: `v-model:view`, `v-model:hidden`, `v-model:pointer`, `@click`, `@error`.
-  `selected` is a plain prop.
+- Components: `LineChart`, `AreaChart`, `BarChart`, `ScatterChart`, `ComboChart`, `PieChart`, `FunnelChart`,
+  `RadialBarChart`, `RadarChart`, `HeatmapChart`, `HistogramChart`, `BoxPlotChart`, `CandlestickChart`,
+  `SankeyChart`, `TreemapChart`, `SunburstChart` and `Plot`, with
+  the chart's props.
+- Changes are events: `v-model:view` (charts that zoom), `v-model:hidden`, `v-model:pointer`, `@click`,
+  `@brush` (charts with `brush`) and `@error`. `selected` is a plain prop.
 - **Keep data in a `shallowRef` and replace the array** (`rows.value = next`). Pushing into it is not
   noticed unless `dataVersion` changes.
 - `class`, `style` and `id` go to the chart's `div`.
@@ -275,7 +437,8 @@ Rules of the explicit API:
 - **Features are imported and listed in `use`**: `tooltip`, `legend`, `zoom`, `brush`, `animate`. `use`
   is read once, when the chart is created.
 - **The tooltip has no defaults**: `tooltip({ mode: 'x', title, value })` (one row per
-  labelled series at the pointer's x, with a crosshair; for lines and areas) or `tooltip({ mode: 'nearest', text })` (the nearest point; every mark).
+  labelled series at the pointer's x, with a crosshair; for lines and areas; `snap: x => other` reads them
+  at another x, such as the nearest row's) or `tooltip({ mode: 'nearest', text })` (the nearest point; every mark).
 - **Frames**: `'axes'` (default), `'polar'` (pie, donut, radar, radial bars, sunburst), `'blank'`
   (funnel, sankey, treemap).
 - **The container must have a height**, or pass `width` and `height`. `plot()` needs a browser.
@@ -289,7 +452,7 @@ Marks, each with its smallest call:
 ```ts
 line({ x, y, color })                                  // curve: 'step' | 'smooth', join, fill
 area({ x, y, color })                                  // or { x, y1, y2 }; stack: 'id'
-bar({ x1, x2, y, color })                              // bounds from bands(n); stack: 'id', dodge: 'id'
+bar({ x1, x2, y, color })                              // bounds from bands(n); or { x, y } with stack: 'id' or dodge: 'id', and width (in x, default 0.8)
 dots({ x, y, r, color })                               // r is a column of radii in px
 errorBars({ x, y1, y2, color })
 box({ x, ...fiveNumbers(groups), color })
@@ -310,7 +473,7 @@ ticks({ x, y, size, color })
 A second y axis: `y2: { domain, label }` in the options (drawn on the right) and `yAxis: 'y2'` on each
 mark that belongs to it; each axis fits its own marks; `view`, `onViewChange`, the click's `at`,
 `pointer` and `onPointerChange` carry `y2`; an x tooltip's `value(v, axis)` gets `'y'` or `'y2'`.
-Exactly two y axes; the easy charts in `swiftplot/charts` do not take `y2`.
+Exactly two y axes. On the easy charts it is the `y2` prop, or `y2Lines` and `y2Bars` on `comboChart`.
 
 Axes: `{ domain: 'nice' | 'data' | [lo, hi], label, step?, format?, fit? }`, `time({ label, utc?,
 unit?, every?, format? })`, `band({ label, categories })`, `log({ label, base? })`, `bare()`.
@@ -318,29 +481,31 @@ Helpers: `bin(values, count)` for histograms, `stack(series)`, `bands(n, { slot,
 `fiveNumbers(groups)`, `fromTree(tree)`, `fromLinks(links)`, `gradient(from, to, direction)`,
 `sequential({ stops })`.
 
-### A pie chart
+### A pie needs no plot()
 
 ```ts
-import { arcs, legend, palette, plot } from 'swiftplot';
+import { pieChart } from 'swiftplot/charts';
 
-plot(el, {
-  frame: 'polar',
-  marks: [arcs({ values: [5, 3, 2], labels: ['A', 'B', 'C'], colors: palette.slice(0, 3), text: true })],
-  use: [legend()],
-});
+pieChart(el, { data: [{ plan: 'A', users: 5 }, { plan: 'B', users: 3 }], label: 'plan', value: 'users' });
 ```
 
-### Bars over categories
+```tsx
+import { PieChart } from '@swiftplot/react';
+
+<PieChart data={rows} label="plan" value="users" />;
+```
+
+### Bars lying down
 
 ```ts
 import { band, bands, bar, plot } from 'swiftplot';
 
 const categories = ['Mon', 'Tue', 'Wed'];
-const [x1, x2] = bands(categories.length);
+const [y1, y2] = bands(categories.length);
 plot(el, {
-  x: band({ label: 'Day', categories }),
-  y: { domain: 'nice', label: 'Orders' },
-  marks: [bar({ x1, x2, y: [12, 19, 7], color: '#2563eb', label: 'Orders' })],
+  x: { domain: 'nice', label: 'Orders' },
+  y: band({ label: 'Day', categories }),
+  marks: [bar({ y1, y2, x: [12, 19, 7], color: '#2563eb', label: 'Orders' })],
 });
 ```
 
@@ -350,16 +515,16 @@ plot(el, {
 
 ```tsx
 import { useMemo } from 'react';
-import { arcs, legend, palette } from 'swiftplot';
+import { band, bands, bar } from 'swiftplot';
 import { Plot } from '@swiftplot/react';
 
-export function Share({ values, labels }: { values: number[]; labels: string[] }) {
-  const marks = useMemo(
-    () => [arcs({ values, labels, colors: palette.slice(0, values.length) })],
-    [values, labels],
-  );
-  const use = useMemo(() => [legend()], []);
-  return <Plot frame="polar" marks={marks} use={use} style={{ height: 320 }} />;
+export function Orders({ values, days }: { values: number[]; days: string[] }) {
+  const marks = useMemo(() => {
+    const [y1, y2] = bands(days.length);
+    return [bar({ y1, y2, x: values, color: '#2563eb', label: 'Orders' })];
+  }, [values, days]);
+  const y = useMemo(() => band({ label: 'Day', categories: days }), [days]);
+  return <Plot x={{ domain: 'nice', label: 'Orders' }} y={y} marks={marks} style={{ height: 320 }} />;
 }
 ```
 
@@ -370,6 +535,9 @@ update rules: it sends the chart only what changed.
 
 - Putting axis settings in `x` or `y` on an easy chart. There `x` and `y` name fields; settings go
   in `xAxis` and `yAxis`. (In the explicit API `x` and `y` are the axes.)
+- Passing `x` and `y` to a pie, a funnel or radial bars (they take `label` and `value`), or flat rows to a
+  treemap or a sunburst (they take a nested tree).
+- Giving `errorBars` distances from y: `low` and `high` are values on the y axis.
 - Passing rows to the explicit API. Marks take numeric columns:
   `Float64Array.from(rows, r => r.value)`.
 - Leaving numbers as strings, or dates in a non-ISO format.

@@ -1,8 +1,8 @@
 export const ratings = [
-  { feature: 'Speed', phoneA: 8, phoneB: 6 },
-  { feature: 'Battery', phoneA: 5, phoneB: 9 },
-  { feature: 'Camera', phoneA: 9, phoneB: 6 },
-  { feature: 'Screen', phoneA: 7, phoneB: 8 },
-  { feature: 'Price', phoneA: 4, phoneB: 8 },
-  { feature: 'Weight', phoneA: 6, phoneB: 5 },
+  { feature: 'Speed', 'Phone A': 8, 'Phone B': 6 },
+  { feature: 'Battery', 'Phone A': 5, 'Phone B': 9 },
+  { feature: 'Camera', 'Phone A': 9, 'Phone B': 6 },
+  { feature: 'Screen', 'Phone A': 7, 'Phone B': 8 },
+  { feature: 'Price', 'Phone A': 4, 'Phone B': 8 },
+  { feature: 'Weight', 'Phone A': 6, 'Phone B': 5 },
 ];

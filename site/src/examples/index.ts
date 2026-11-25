@@ -6,7 +6,12 @@ import candlesticks from './candlesticks';
 import { registry } from './define';
 import errorBars from './error-bars';
 import funnel from './funnel';
+import guideAnnotated from './guide-annotated';
 import guideFields from './guide-fields';
+import guideLog from './guide-log';
+import guidePlot from './guide-plot';
+import guideTicks from './guide-ticks';
+import guideTwoAxes from './guide-two-axes';
 import heatmap from './heatmap';
 import histogram from './histogram';
 import landingFeatures from './landing-features';
@@ -55,4 +60,12 @@ export const examples = registry([
   candlesticks,
 ]);
 
-export const unlisted = [landingFeatures, guideFields];
+export const unlisted = [
+  landingFeatures,
+  guideFields,
+  guidePlot,
+  guideTwoAxes,
+  guideAnnotated,
+  guideLog,
+  guideTicks,
+];

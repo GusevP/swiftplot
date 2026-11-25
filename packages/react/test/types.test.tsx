@@ -1,5 +1,9 @@
 import { arcs, legend, type Options } from 'swiftplot';
-import type { LineChartProps as CoreLineChartProps } from 'swiftplot/charts';
+import type {
+  LineChartProps as CoreLineChartProps,
+  PieChartProps as CorePieChartProps,
+  TreemapChartProps as CoreTreemapChartProps,
+} from 'swiftplot/charts';
 import { expectTypeOf, test } from 'vitest';
 
 import type { HostProps } from '../src/bind.js';
@@ -7,13 +11,17 @@ import {
   AreaChart,
   BarChart,
   LineChart,
+  PieChart,
   Plot,
   ScatterChart,
+  TreemapChart,
   type AreaChartProps,
   type BarChartProps,
   type LineChartProps,
+  type PieChartProps,
   type PlotProps,
   type ScatterChartProps,
+  type TreemapChartProps,
 } from '../src/index.js';
 
 type Row = { date: string; api: number; note: string };
@@ -70,6 +78,30 @@ test('types: JSX checks field names against the data as the stage 1 functions do
     <ScatterChart data={[] as number[]} r="value" />,
   ];
   expectTypeOf(elements).toBeArray();
+});
+
+test('types: PieChart checks its field names against the data; TreemapChart takes a nested tree', () => {
+  const rows: Row[] = [];
+  const elements = [
+    <PieChart data={rows} label="note" value="api" inner={0.6} className="c" />,
+    <PieChart data={rows} label={d => d.note} value={d => d.api} />,
+    <PieChart data={[1, 2]} />,
+    // @ts-expect-error not a field of the rows
+    <PieChart data={rows} label="nope" value="api" />,
+    // @ts-expect-error a text field is not a value
+    <PieChart data={rows} label="note" value="date" />,
+    // @ts-expect-error a pie has no x
+    <PieChart data={rows} x="note" />,
+    <TreemapChart data={{ name: 'all', children: [{ name: 'a', value: 1 }] }} shade={0.5} className="c" />,
+    <TreemapChart data={[{ name: 'a', value: 1 }]} />,
+    // @ts-expect-error rows are not a tree
+    <TreemapChart data={rows} />,
+    // @ts-expect-error a child needs a name
+    <TreemapChart data={{ name: 'all', children: [{ value: 1 }] }} />,
+  ];
+  expectTypeOf(elements).toBeArray();
+  expectTypeOf<PieChartProps<Row[]>>().toEqualTypeOf<CorePieChartProps<Row[]> & HostProps>();
+  expectTypeOf<TreemapChartProps>().toEqualTypeOf<CoreTreemapChartProps & HostProps>();
 });
 
 test('types: Plot takes the core options plus the host props and needs marks; the props types are exported', () => {

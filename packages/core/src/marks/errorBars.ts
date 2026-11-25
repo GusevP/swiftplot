@@ -35,8 +35,27 @@ export function errorBars(o: ErrorBarsOptions): Mark {
   // `at` is the position the bar stands on; `from` and `to` are its ends along the other axis.
   const [at, from, to] = upright ? [o.x, o.y1, o.y2] : [o.y, o.x1, o.x2];
   const rows = upright ? gpuRows(new WeakMap(), [at], [from, to]) : gpuRows(new WeakMap(), [from, to], [at]);
+  const isWhole = (i: number) => Number.isFinite(at[i]) && Number.isFinite(from[i]) && Number.isFinite(to[i]);
+  let read: { places: Col[]; ends: Col[] } | undefined;
+  const wholeRows = () => {
+    if (read) return read;
+    const copy = (c: Col) => Float64Array.from(at, (_, i) => (isWhole(i) ? c[i]! : Number.NaN));
+    let partial = false;
+    for (let i = 0; i < at.length && !partial; i++)
+      partial = !isWhole(i) && (Number.isFinite(at[i]) || Number.isFinite(from[i]) || Number.isFinite(to[i]));
+    const [places, low, high] = partial ? [copy(at), copy(from), copy(to)] : [at, from, to];
+    return (read = { places: [places], ends: [low, high] });
+  };
   return {
     ...base('errorBars', o, upright ? [at] : [from, to], upright ? [from, to] : [at]),
+    channels: {
+      get x() {
+        return upright ? wholeRows().places : wholeRows().ends;
+      },
+      get y() {
+        return upright ? wholeRows().ends : wholeRows().places;
+      },
+    },
     oneShape: true,
     overhang: Math.max(cap, width / 2),
     prepare({ ctx, dpr, ox, kx, oy, ky }) {
@@ -44,7 +63,7 @@ export function errorBars(o: ErrorBarsOptions): Mark {
       const path = new Path2D();
       for (let i = 0; i < at.length; i++) {
         // Canvas ignores a moveTo with a NaN in it, and the next lineTo would then join two rows.
-        if (!Number.isFinite(at[i]) || !Number.isFinite(from[i]) || !Number.isFinite(to[i])) continue;
+        if (!isWhole(i)) continue;
         // A stem between the two ends, and a cap across each end.
         if (upright) {
           const px = ox + at[i]! * kx;

@@ -39,6 +39,14 @@ describe('llms()', () => {
     expect(guides.length).toBeGreaterThan(0);
     const pages = links.map(l => new URL(l!).pathname);
     for (const id of examples.keys()) expect(pages).toContain(`/examples/${id}`);
+    expect(chartNames).toHaveLength(16);
+    expect(pages).toEqual(
+      expect.arrayContaining([
+        '/reference/radial-bar-chart',
+        '/reference/pie-chart',
+        '/reference/combo-chart',
+      ]),
+    );
     for (const name of [...chartNames, 'plot', 'scales', ...markNames, ...featureNames])
       expect(pages).toContain(referencePath(name));
     for (const g of guides) expect(pages).toContain(`/guides/${g.id}`);

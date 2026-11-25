@@ -1,10 +1,10 @@
 import { describe, expect, test } from 'vitest';
-import { example, type EasyExample, type Example } from '../src/examples/define';
+import { chartNames, example, type EasyExample, type Example } from '../src/examples/define';
 import { examples, unlisted } from '../src/examples/index';
-import { col, feature, fn, mark, type Tree } from '../src/examples/tree';
+import { call, col, feature, fn, mark, type Tree } from '../src/examples/tree';
 import source from '../../packages/core/src/charts/types.ts?raw';
 import { extract, extractApi, type Entry } from '../src/reference/extract';
-import { api, coreFiles, pages } from '../src/reference/index';
+import { api, coreFiles, intros, pages } from '../src/reference/index';
 import { join } from '../src/reference/join';
 import { definitions } from './plot-definitions';
 
@@ -67,8 +67,8 @@ describe('extract()', () => {
       columns: 'NumberColumn<C> | readonly NumberColumn<C>[]',
     });
     expect(types(entry('scatterChart', 'y'))).toEqual({
-      rows: 'NumberKey<R> | Accessor<R>',
-      columns: 'NumberColumn<C>',
+      rows: 'Name<R> | Accessor<R>',
+      columns: 'Name<C>',
     });
     expect(entry('scatterChart', 'y')!.lines[0]!.description).toMatch(/one y field/);
     expect(types(entry('scatterChart', 'r'))).toEqual({
@@ -84,6 +84,108 @@ describe('extract()', () => {
     expect(entry('barChart', 'stack')).toBeDefined();
     expect(entry('scatterChart', 'stack')).toBeUndefined();
     expect(entry('barChart', 'curve')).toBeUndefined();
+  });
+
+  test('every chart takes data first, and has an intro', () => {
+    expect(Object.keys(reference).sort()).toEqual([...chartNames].sort());
+    for (const chart of chartNames) {
+      expect(reference[chart][0]!.name, chart).toBe('data');
+      expect(intros[chart], chart).toMatch(/^Draws|^Counts/);
+    }
+  });
+
+  test.each([
+    [
+      'pieChart',
+      ['rows', 'columns', 'numbers', 'pairs'],
+      ['data', 'label', 'value'],
+      ['inner', 'text', 'sweep'],
+    ],
+    ['funnelChart', ['rows', 'columns', 'numbers', 'pairs'], ['data', 'label', 'value'], ['text', 'fill']],
+    [
+      'radialBarChart',
+      ['rows', 'columns', 'numbers', 'pairs'],
+      ['data', 'label', 'value'],
+      ['max', 'sweep', 'inner'],
+    ],
+    ['radarChart', ['rows', 'columns', 'numbers', 'pairs'], ['data', 'x', 'y'], ['max', 'fill']],
+    [
+      'heatmapChart',
+      ['rows', 'columns'],
+      ['data', 'x', 'y', 'value'],
+      ['color', 'xAxis', 'xAxis.label', 'yAxis', 'yAxis.label'],
+    ],
+    [
+      'histogramChart',
+      ['rows', 'columns', 'numbers'],
+      ['data', 'x'],
+      ['bins', 'xAxis.format', 'yAxis.label'],
+    ],
+    [
+      'boxPlotChart',
+      ['rows', 'columns', 'numbers', 'pairs'],
+      ['data', 'x', 'y'],
+      ['fill', 'xAxis.label', 'yAxis.step'],
+    ],
+    [
+      'candlestickChart',
+      ['rows', 'columns'],
+      ['data', 'x', 'open', 'high', 'low', 'close'],
+      ['up', 'down', 'xAxis.utc', 'zoom'],
+    ],
+    ['sankeyChart', ['rows', 'columns'], ['data', 'source', 'target', 'value'], ['blend', 'text']],
+    [
+      'comboChart',
+      ['rows', 'columns'],
+      ['data', 'x', 'lines', 'bars', 'y2Lines', 'y2Bars'],
+      ['stack', 'y2Axis.scale', 'rules'],
+    ],
+  ] as const)(
+    '%s takes its field props by the shape of its data, and its own props',
+    (chart, shapes, fields, own) => {
+      expect(entry(chart, 'data')!.lines.map(l => l.shape)).toEqual(shapes);
+      expect(reference[chart].filter(e => e.lines[0]!.shape).map(e => e.name)).toEqual(fields);
+      const names = reference[chart].map(e => e.name);
+      expect(names).toEqual(expect.arrayContaining([...own, 'tooltip']));
+    },
+  );
+
+  test.each(['treemapChart', 'sunburstChart'] as const)('%s takes one tree as its data', chart => {
+    expect(types(entry(chart, 'data'))).toEqual({ '': 'Nested | readonly Nested[] | null' });
+    expect(entry(chart, 'shade')).toBeDefined();
+  });
+
+  test('a new chart has its types, descriptions and defaults, its own over the shared ones', () => {
+    expect(types(entry('boxPlotChart', 'x'))).toEqual({
+      rows: 'Name<R> | Accessor<R> | null',
+      columns: 'Name<C> | null',
+    });
+    expect(entry('pieChart', 'inner')!.default).toBe('0');
+    expect(entry('radarChart', 'fill')!.default).toBe('0.15');
+    expect(entry('heatmapChart', 'colors')!.lines[0]!.description).toMatch(/^Not used/);
+    expect(entry('sankeyChart', 'legend')!.default).toBeUndefined();
+  });
+
+  test('leaves out what Omit<> drops, at the top and in a nested axis', () => {
+    const names = reference.histogramChart.map(e => e.name).filter(n => n.startsWith('xAxis'));
+    expect(names).toEqual([
+      'xAxis',
+      'xAxis.label',
+      'xAxis.step',
+      'xAxis.format',
+      'xAxis.fit',
+      'xAxis.domain',
+    ]);
+  });
+
+  test.each([
+    ['PieProps.inner', /\n\s*\/\*\*[^\n]*\*\/(\n\s*inner\?: number;\n\s*\/\*\* Writes each slice)/],
+    ['HistogramNumberProps.data', /\n\s*\/\*\* Numbers to count[^\n]*\*\/(\n\s*data\?:)/],
+    ['TreeProps.data', /\n\s*\/\*\* A root[^\n]*\*\/(\n\s*data\?:)/],
+  ])('%s without a doc comment fails and is named', (where, doc) => {
+    const stripped = source.replace(doc, '$1');
+    expect(stripped).not.toBe(source);
+    expect(() => extract(stripped)).toThrow(`${where} has no doc comment`);
   });
 
   test('a prop without a doc comment fails and is named', () => {
@@ -197,6 +299,35 @@ describe('join()', () => {
     expect(options.get('two')!.map(u => u.entry.name)).toEqual(['xAxis.label']);
   });
 
+  test('a sets switch lists each prop it changes, an option of a prop without its own entry lists the prop, and a node is a value', () => {
+    const several = sample({
+      id: 'several',
+      chart: 'lineChart',
+      props: { fill: call('gradient', [0.4, 0]) },
+      switches: [
+        {
+          id: 'axes',
+          label: 'Axes',
+          kind: 'choice',
+          values: ['x', 'y'],
+          value: 'x',
+          sets: {
+            x: [{ prop: 'brush.axes', value: 'x' }],
+            y: [
+              { prop: 'brush.axes', value: 'y' },
+              { prop: 'yAxis.label', value: 'Y' },
+            ],
+          },
+        },
+      ],
+    });
+    expect(
+      join([several], reference)
+        .get('several')!
+        .map(u => u.entry.name),
+    ).toEqual(['fill', 'brush', 'yAxis.label']);
+  });
+
   test('an axis given as an empty object is listed by its own name', () => {
     const empty = sample({ id: 'empty', props: { xAxis: {} } });
     expect(
@@ -226,11 +357,53 @@ describe('join()', () => {
     const options = join([...examples.values(), ...unlisted, ...definitions], pages, api);
     expect(options.get('line-zoom')!.map(u => u.entry.name)).toEqual(['zoom', 'legend', 'tooltip', 'curve']);
     for (const [id, page, names] of [
-      ['histogram', 'bar', ['x1', 'x2', 'y1', 'y2']],
-      ['box-plot', 'box', ['min', 'q1', 'median', 'q3', 'max']],
-      ['sankey', 'sankey', ['nodes', 'source', 'target', 'value']],
-      ['sunburst', 'sunburst', ['nodes', 'parent', 'value']],
-      ['treemap', 'treemap', ['nodes', 'parent', 'value']],
+      ['pie-donut', 'pieChart', ['inner', 'text']],
+      ['funnel', 'funnelChart', ['legend', 'fill']],
+      ['radial-bars', 'radialBarChart', ['max', 'legend', 'sweep']],
+      ['radar', 'radarChart', ['max', 'legend', 'fill']],
+      ['heatmap', 'heatmapChart', ['x', 'y', 'xAxis.label', 'yAxis.label', 'legend']],
+      ['histogram', 'histogramChart', ['xAxis.label', 'yAxis.label', 'colors', 'bins']],
+      ['box-plot', 'boxPlotChart', ['xAxis.label', 'yAxis.label', 'colors', 'fill']],
+      ['candlesticks', 'candlestickChart', ['xAxis.label', 'colors', 'down']],
+      ['sankey', 'sankeyChart', ['blend']],
+      ['treemap', 'treemapChart', ['shade', 'colors']],
+      ['sunburst', 'sunburstChart', ['shade', 'colors']],
+      ['error-bars', 'scatterChart', ['x', 'errorBars', 'xAxis.label', 'yAxis.label', 'colors']],
+      ['bubbles', 'scatterChart', ['r', 'alpha', 'xAxis.label', 'yAxis.label', 'colors', 'ring']],
+      [
+        'two-y-axes',
+        'comboChart',
+        ['lines', 'y2Bars', 'xAxis.label', 'yAxis.label', 'y2Axis.label', 'colors', 'y2Axis', 'bars'],
+      ],
+      [
+        'line-log',
+        'lineChart',
+        ['xAxis.label', 'xAxis.domain', 'yAxis.label', 'yAxis.scale', 'yAxis.format', 'colors'],
+      ],
+      [
+        'line-annotated',
+        'lineChart',
+        ['rules', 'zones', 'xAxis.label', 'xAxis.domain', 'yAxis.label', 'yAxis.domain', 'colors', 'fill'],
+      ],
+      ['line-brush', 'lineChart', ['y', 'xAxis.label', 'yAxis.label', 'colors', 'brush', 'zoom']],
+      [
+        'line-live',
+        'lineChart',
+        ['xAxis.label', 'xAxis.domain', 'yAxis.label', 'yAxis.domain', 'colors', 'animate'],
+      ],
+      [
+        'strip-plot',
+        'scatterChart',
+        ['x', 'y', 'shape', 'alpha', 'xAxis.label', 'yAxis.label', 'colors', 'r'],
+      ],
+    ] as const)
+      expect(options.get(id)!.map(u => `${u.page}.${u.entry.name}`)).toEqual(names.map(n => `${page}.${n}`));
+    for (const [id, page, names] of [
+      ['test-histogram', 'bar', ['x1', 'x2', 'y1', 'y2']],
+      ['test-box-plot', 'box', ['min', 'q1', 'median', 'q3', 'max']],
+      ['test-sankey', 'sankey', ['nodes', 'source', 'target', 'value']],
+      ['test-sunburst', 'sunburst', ['nodes', 'parent', 'value']],
+      ['test-over-tree', 'treemap', ['nodes', 'parent', 'value']],
     ] as const)
       expect(options.get(id)!.map(u => `${u.page}.${u.entry.name}`)).toEqual(
         expect.arrayContaining(names.map(n => `${page}.${n}`)),
@@ -238,16 +411,16 @@ describe('join()', () => {
   });
 
   test('an option of a union is described by the members the example can be, from the fields it gives', () => {
-    const options = join([...examples.values()], pages, api);
+    const options = join(definitions, pages, api);
     const described = (id: string, path: string) =>
       options
         .get(id)!
         .find(u => `${u.page}.${u.entry.name}` === path)!
         .lines.map(l => l.description);
-    expect(described('two-y-axes', 'bar.x')).toEqual(["The place of each bar's category on a band axis."]);
-    expect(described('two-y-axes', 'bar.y')).toEqual(["Each bar's value."]);
-    expect(described('histogram', 'bar.x1')).toEqual(['One end of each bar along x, in data units.']);
-    expect(described('candlesticks', 'tooltip.mode')).toEqual([
+    expect(described('test-two-axes', 'bar.x')).toEqual(["The place of each bar's category on a band axis."]);
+    expect(described('test-two-axes', 'bar.y')).toEqual(["Each bar's value."]);
+    expect(described('test-histogram', 'bar.x1')).toEqual(['One end of each bar along x, in data units.']);
+    expect(described('test-candlesticks', 'tooltip.mode')).toEqual([
       'Shows what is nearest the pointer, within 20 CSS pixels.',
     ]);
   });

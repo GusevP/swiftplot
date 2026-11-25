@@ -1,12 +1,64 @@
 import { dark, light, plot, type Chart, type Options } from 'swiftplot';
-import { areaChart, barChart, lineChart, plain, scatterChart, type EasyChart } from 'swiftplot/charts';
+import {
+  areaChart,
+  barChart,
+  boxPlotChart,
+  candlestickChart,
+  comboChart,
+  funnelChart,
+  heatmapChart,
+  histogramChart,
+  lineChart,
+  pieChart,
+  plain,
+  radarChart,
+  radialBarChart,
+  sankeyChart,
+  scatterChart,
+  sunburstChart,
+  treemapChart,
+  type EasyChart,
+} from 'swiftplot/charts';
 import { siteColors } from '../codegen/index';
-import { resolve, type ChartName, type Example, type PlotExample, type State } from '../examples/define';
+import {
+  resolve,
+  type ChartName,
+  type EasyExample,
+  type Example,
+  type PlotExample,
+  type State,
+} from '../examples/define';
 import { fixtures } from '../examples/fixtures';
-import { evaluate, isNode, useOf, type Rows, type Tree } from '../examples/tree';
+import {
+  contents,
+  evaluate,
+  evaluateProps,
+  isNode,
+  useOf,
+  type Data,
+  type Rows,
+  type Tree,
+} from '../examples/tree';
 
 type Props = Record<string, unknown>;
-const charts = { lineChart, areaChart, barChart, scatterChart } as unknown as Record<
+const charts = {
+  lineChart,
+  areaChart,
+  barChart,
+  scatterChart,
+  pieChart,
+  funnelChart,
+  radialBarChart,
+  radarChart,
+  heatmapChart,
+  histogramChart,
+  boxPlotChart,
+  candlestickChart,
+  sankeyChart,
+  treemapChart,
+  sunburstChart,
+  comboChart,
+} satisfies Record<ChartName, unknown> as unknown as Record<
   ChartName,
   (el: HTMLElement, props: Props) => EasyChart<Props>
 >;
@@ -36,7 +88,7 @@ function look() {
 
 const PAINT = new Set(['color', 'colors', 'fill', 'stroke', 'up', 'down', 'stops']);
 
-/** The tree in the page's theme: the site's light colours where core takes a colour become the current ones, and `palette` its dark twin. */
+/** The tree or the props in the page's theme: the site's light colours where core takes a colour become the current ones, and `palette` its dark twin. */
 function themed(v: unknown, colors: readonly string[], isDark: boolean, paint = false): unknown {
   if (typeof v === 'string') return paint ? (colors[siteColors.indexOf(v)] ?? v) : v;
   if (Array.isArray(v)) return v.map(x => themed(x, colors, isDark, paint));
@@ -54,6 +106,18 @@ function themed(v: unknown, colors: readonly string[], isDark: boolean, paint = 
 
 export type Mounted = { update(state: State): void; destroy(): void };
 
+/** `next` as an update that resets what `was` had and `next` leaves out. */
+const replacing = (was: object, next: object): Record<string, unknown> => ({
+  ...Object.fromEntries(Object.keys(was).map(key => [key, undefined])),
+  ...next,
+});
+
+function stepping(live: Tree['live'], data: Data, show: (rows: Rows) => void) {
+  if (!live || data.kind === 'json') return undefined;
+  let { rows } = data;
+  return setInterval(() => show((rows = (live.step.impl as (rows: Rows) => Rows)(rows))), live.every);
+}
+
 function mountPlot(el: HTMLElement, definition: PlotExample, state: State, legend: boolean): Mounted {
   const live = definition.tree.live;
   const resolved = (state: State): Tree => {
@@ -61,7 +125,7 @@ function mountPlot(el: HTMLElement, definition: PlotExample, state: State, legen
     return legend || !tree.use ? tree : { ...tree, use: tree.use.filter(f => f.feature !== 'legend') };
   };
   let tree = resolved(state);
-  let data = definition.data;
+  let data: Data = definition.data;
   let chart: Chart;
   let shown: Options;
   let timer: ReturnType<typeof setInterval> | undefined;
@@ -72,20 +136,17 @@ function mountPlot(el: HTMLElement, definition: PlotExample, state: State, legen
   };
   const redraw = () => {
     const next = options();
-    const { use: _, ...partial }: Record<string, unknown> = next;
-    for (const key of Object.keys(shown)) if (!Object.hasOwn(next, key)) partial[key] = undefined;
+    const { use: _, ...partial } = replacing(shown, next);
     shown = next;
     chart.update(partial);
   };
   const start = () => {
     shown = options();
     chart = plot(el, shown);
-    if (live)
-      timer = setInterval(() => {
-        if (data.kind === 'json') return;
-        data = { ...data, rows: (live.step.impl as (rows: Rows) => Rows)(data.rows) };
-        redraw();
-      }, live.every);
+    timer = stepping(live, data, rows => {
+      data = { file: data.file, rows };
+      redraw();
+    });
   };
   const stop = () => {
     clearInterval(timer);
@@ -109,26 +170,50 @@ function mountPlot(el: HTMLElement, definition: PlotExample, state: State, legen
   };
 }
 
+function mountEasy(el: HTMLElement, definition: EasyExample, state: State, legend: boolean): Mounted {
+  let stepped = contents(definition.data);
+  const props = (): Props => {
+    const { data, ...resolved } = resolve(definition, state);
+    const { theme, colors } = look();
+    const painted = themed(resolved, colors, theme === 'dark') as Props;
+    return {
+      ...(!definition.palette && { colors }),
+      ...evaluateProps(painted, definition.data, definition.id),
+      data: definition.live ? stepped : data,
+      theme,
+      ...(!legend && { legend: false }),
+    };
+  };
+  let shown = props();
+  const chart = charts[definition.chart](el, shown);
+  const redraw = () => {
+    const was = shown;
+    shown = props();
+    chart.update(replacing(was, shown));
+  };
+  const timer = stepping(definition.live, definition.data, rows => chart.update({ data: (stepped = rows) }));
+  const watch = new MutationObserver(redraw);
+  watch.observe(root, { attributes: true, attributeFilter: ['data-theme'] });
+  return {
+    update(next) {
+      state = next;
+      redraw();
+    },
+    destroy() {
+      watch.disconnect();
+      clearInterval(timer);
+      chart.destroy();
+    },
+  };
+}
+
 export function mountExample(
   el: HTMLElement,
   definition: Example,
   state: State,
   { legend = true }: { legend?: boolean } = {},
 ): Mounted {
-  if (definition.kind === 'plot') return mountPlot(el, definition, state, legend);
-  const props = (state: State) => ({
-    ...resolve(definition, state),
-    ...look(),
-    ...(!legend && { legend: false }),
-  });
-  const chart = charts[definition.chart](el, props(state));
-  const watch = new MutationObserver(() => chart.update(look()));
-  watch.observe(root, { attributes: true, attributeFilter: ['data-theme'] });
-  return {
-    update: next => chart.update(props(next)),
-    destroy() {
-      watch.disconnect();
-      chart.destroy();
-    },
-  };
+  return definition.kind === 'plot'
+    ? mountPlot(el, definition, state, legend)
+    : mountEasy(el, definition, state, legend);
 }

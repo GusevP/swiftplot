@@ -1,10 +1,15 @@
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
+import type { EasyExample } from '../src/examples/define';
 
 const chart = { update: vi.fn(), destroy: vi.fn() };
 const plot = vi.fn(() => chart);
+const made = vi.fn();
 vi.mock('swiftplot/charts', async original => {
-  const make = () => chart;
-  return { ...(await original()), lineChart: make, areaChart: make, barChart: make, scatterChart: make };
+  const charts = await original<typeof import('swiftplot/charts')>();
+  const makes = Object.keys(charts).flatMap(name =>
+    name.endsWith('Chart') ? [[name, (el: unknown, props: unknown) => (made(name, el, props), chart)]] : [],
+  );
+  return { ...charts, ...Object.fromEntries(makes) };
 });
 vi.mock('swiftplot', async original => ({ ...(await original()), plot }));
 
@@ -45,6 +50,16 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+test('an example of any easy chart mounts that chart', async () => {
+  const { load, mountExample } = await import('../src/charts/mount');
+  const { chartNames } = await import('../src/examples/define');
+  const definition = (await load('area-stacked')) as EasyExample;
+  for (const name of chartNames) {
+    mountExample({} as HTMLElement, { ...definition, chart: name }, {});
+    expect(made).toHaveBeenLastCalledWith(name, {}, expect.anything());
+  }
+});
+
 test('a mounted example follows the theme until destroy, which releases the chart', async () => {
   const { load, mountExample } = await import('../src/charts/mount');
   const mounted = mountExample({} as HTMLElement, await load('area-stacked'), {});
@@ -57,6 +72,120 @@ test('a mounted example follows the theme until destroy, which releases the char
   chart.update.mockClear();
   theme('light');
   expect(chart.update).not.toHaveBeenCalled();
+});
+
+const propsMade = () => made.mock.lastCall![2] as Record<string, unknown>;
+const propsSent = () => chart.update.mock.lastCall![0] as Record<string, unknown>;
+
+test('an easy example gives the chart its nodes evaluated, and the site colours it names in the theme', async () => {
+  const { mountExample } = await import('../src/charts/mount');
+  const { easyLine } = await import('./plot-definitions');
+  vi.stubGlobal('getComputedStyle', () => ({ getPropertyValue: () => '#123456' }));
+  root.dataset.theme = 'dark';
+  mountExample({} as HTMLElement, easyLine, {});
+  expect(propsMade()).toMatchObject({
+    theme: 'dark',
+    colors: ['#123456', '#123456', '#123456'],
+    rules: [{ y: 2, color: '#123456', text: '#9333ea' }],
+    fill: { from: '#123456', to: 0, toward: 'down' },
+  });
+  expect((propsMade().yAxis as { format(v: number): string }).format(1)).toBe('low 1');
+  root.dataset.theme = 'light';
+});
+
+test('a theme toggle re-themes the colours in the props of the current state, and keeps the data', async () => {
+  const { mountExample } = await import('../src/charts/mount');
+  const { easyLine, easyTree } = await import('./plot-definitions');
+  mountExample({} as HTMLElement, easyLine, { fill: 'none' });
+  const { data } = propsMade();
+  vi.stubGlobal('getComputedStyle', () => ({ getPropertyValue: () => '#123456' }));
+  theme('dark');
+  expect(propsSent()).toMatchObject({ theme: 'dark', rules: [{ color: '#123456' }] });
+  expect(propsSent().fill).toBeUndefined();
+  expect(propsSent().data).toBe(data);
+
+  mountExample({} as HTMLElement, easyTree, { colors: 'site' });
+  expect(propsMade().colors).toEqual(['#123456', '#123456', '#123456', '#d97706']);
+  root.dataset.theme = 'light';
+});
+
+test('a palette example is given no colours of the site, and a prop a state leaves out is reset', async () => {
+  const { mountExample } = await import('../src/charts/mount');
+  const { easyTree } = await import('./plot-definitions');
+  const mounted = mountExample({} as HTMLElement, easyTree, {});
+  expect(propsMade()).not.toHaveProperty('colors');
+
+  mounted.update({ colors: 'site' });
+  expect(propsSent().colors).toHaveLength(4);
+  mounted.update({});
+  expect(Object.hasOwn(propsSent(), 'colors') && propsSent().colors === undefined).toBe(true);
+});
+
+test('a data switch replaces the rows of an easy example, as a data prop does from the start', async () => {
+  const { mountExample } = await import('../src/charts/mount');
+  const { example } = await import('../src/examples/define');
+  const { easyLine } = await import('./plot-definitions');
+  const [start, replacement] = [[{ day: '2026-01-01', v: 1 }], [{ day: '2026-01-02', v: 2 }]];
+  const definition = example({
+    ...easyLine,
+    id: 'test-data-switch',
+    switches: [
+      {
+        prop: 'data',
+        label: 'Rows',
+        kind: 'choice',
+        values: ['start', 'other'],
+        value: 'start',
+        puts: { start, other: replacement },
+      },
+    ],
+  });
+  const mounted = mountExample(
+    {} as HTMLElement,
+    { ...definition, props: { data: start }, switches: [] },
+    {},
+  );
+  expect(propsMade().data).toBe(start);
+  mounted.destroy();
+
+  const switched = mountExample({} as HTMLElement, definition, {});
+  expect(propsMade().data).toBe(start);
+  switched.update({ data: 'other' });
+  expect(propsSent().data).toBe(replacement);
+  theme('light');
+  expect(propsSent().data).toBe(replacement);
+});
+
+test('a colors switch overrides the site colours, which come back when it leaves colors out', async () => {
+  const { mountExample } = await import('../src/charts/mount');
+  const { easyLine, easyTree } = await import('./plot-definitions');
+  const { switches } = easyTree;
+  const mounted = mountExample({} as HTMLElement, { ...easyLine, switches }, { colors: 'site' });
+  expect(propsMade().colors).toEqual(['#000000', '#000000', '#000000', '#d97706']);
+  mounted.update({ colors: 'palette' });
+  expect(propsSent().colors).toEqual(['#000000', '#000000', '#000000']);
+  mounted.destroy();
+});
+
+test('a live easy example steps its rows, which a switch change and the theme keep, until destroy', async () => {
+  vi.useFakeTimers();
+  const { mountExample } = await import('../src/charts/mount');
+  const { easyLive } = await import('./plot-definitions');
+  const mounted = mountExample({} as HTMLElement, easyLive, {});
+  const [a, b, c] = propsMade().data as unknown[];
+  vi.advanceTimersByTime(1000);
+  expect(propsSent()).toEqual({ data: [b, c, a] });
+
+  mounted.update({ animate: false });
+  expect(propsSent()).toMatchObject({ animate: false, data: [b, c, a] });
+  theme('light');
+  expect(propsSent()).toMatchObject({ animate: false, data: [b, c, a] });
+  vi.advanceTimersByTime(1000);
+  expect(propsSent()).toEqual({ data: [c, a, b] });
+
+  expect(vi.getTimerCount()).toBe(1);
+  mounted.destroy();
+  expect(vi.getTimerCount()).toBe(0);
 });
 
 test('a plot example remounts for a change to use, and updates for any other change', async () => {
@@ -179,12 +308,12 @@ test('a switch on a feature that is off updates the chart, and turning that feat
 });
 
 test('a plot example mounted without its legend installs no legend, whatever its switch says', async () => {
-  const { load, mountExample } = await import('../src/charts/mount');
-  const radar = await load('radar');
+  const { mountExample } = await import('../src/charts/mount');
+  const { lineDots } = await import('./plot-definitions');
   const used = () => (plot.mock.lastCall as unknown as [unknown, { use: unknown[] }])[1].use;
 
-  mountExample({} as HTMLElement, radar, {});
+  mountExample({} as HTMLElement, lineDots, {});
   expect(used()).toHaveLength(1);
-  mountExample({} as HTMLElement, radar, { legend: true }, { legend: false });
+  mountExample({} as HTMLElement, lineDots, { legend: true }, { legend: false });
   expect(used()).toHaveLength(0);
 });

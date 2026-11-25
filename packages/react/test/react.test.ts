@@ -5,7 +5,7 @@ import { arcs, legend, type Feature } from 'swiftplot';
 import { afterEach, expect, test, vi } from 'vitest';
 
 import { bind } from '../src/bind.js';
-import { LineChart, Plot, ScatterChart } from '../src/index.js';
+import { LineChart, PieChart, Plot, ScatterChart } from '../src/index.js';
 import { failingOnB, fake, host, hover, pixel, render, twoFrames, wheel } from './helpers.js';
 
 type Props = {
@@ -124,6 +124,25 @@ test('bind(lineChart) draws the data, redraws new data, reports and follows the 
   v.rerender(viewed([6, 10]));
   expect(red(pixel(v.el, 50, 50))).toBe(false);
   expect(red(pixel(v.el, 50, 75))).toBe(true);
+});
+
+test('bind(pieChart) draws its parts, redraws new data and follows a prop of its own', () => {
+  const parts = (a: number, b: number) => [
+    { page: 'one', visits: a },
+    { page: 'two', visits: b },
+  ];
+  const props = { width: 100, height: 100, margin: ZERO, colors: ['#ff0000', '#0000ff'], legend: false };
+  const pie = (data: ReturnType<typeof parts>, inner?: number) =>
+    h(PieChart<ReturnType<typeof parts>>, { ...props, data, text: false, inner });
+  const redAt = (el: HTMLElement) => [red(pixel(el, 60, 40)), red(pixel(el, 78, 78)), red(pixel(el, 30, 50))];
+  const r = mount(pie(parts(1, 1)));
+  expect(redAt(r.el)).toEqual([true, true, false]);
+  const next = parts(1, 3);
+  r.rerender(pie(next));
+  expect(redAt(r.el)).toEqual([true, false, false]);
+  r.rerender(pie(next, 0.6));
+  expect(red(pixel(r.el, 60, 40))).toBe(false);
+  expect(red(pixel(r.el, 78, 22))).toBe(true);
 });
 
 test('onClick reaches the chart only while given: the cursor over a point is a pointer with it, not without', () => {

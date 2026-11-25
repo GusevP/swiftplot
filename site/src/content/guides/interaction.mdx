@@ -33,7 +33,7 @@ Enter or Space hides or shows it; `legend({ toggle: false })` turns that off. A 
 ellipsis. The rows of entries stop at what fits in a third of the chart's height, or at `legend({ rows: 2 })`, and the
 rest go behind "+N more".
 
-<GuideExample id="radar" />
+<GuideExample id="guide-plot" />
 
 `hidden: ['API']` leaves out the series a legend lists under that id, which is a mark's `group`, or its `label`.
 `onHiddenChange(hidden)` reports each change the legend makes. An automatic domain fits the series shown; `fit: 'all'`
@@ -51,7 +51,8 @@ shows only with `dim` below 1: `dim: 0.3` draws the other series at that share o
 - `{ mode: 'x', title, value }` shows a row for each labelled line and area at the pointer's x, under a crosshair.
   `title(x)` writes the first line, and `value(y, axis)` each series' value, told whether it is on `y` or `y2`.
 
-The candlesticks below use the nearest mode, writing the date and the closing price.
+The candlesticks below are a `candlestickChart`, which comes with a tooltip in the nearest mode: it writes the date of the
+candle and its four prices.
 
 <GuideExample id="candlesticks" />
 
@@ -78,6 +79,8 @@ rectangle stays until the next press on the plot, a zoom or pan, a resize or cha
 or an update of anything but `pointer` and the callbacks, and `onSelect` then gets `null`. `brush({ zoom: true })`
 instead shows the range brushed and drops the rectangle at once, with no `null` after it. With `zoom()` beside it, a
 plain drag brushes and shift and a drag pans. A brush takes the mouse and a pen only.
+
+The chart below is a `lineChart` with `brush` and `zoom`, which add both features, the brush with `zoom: true`:
 
 <GuideExample id="line-brush" />
 

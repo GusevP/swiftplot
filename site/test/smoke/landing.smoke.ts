@@ -203,7 +203,7 @@ test('every wall tile links to a page that exists', async ({ page }) => {
   );
   for (const href of links) expect((await page.request.get(href)).status(), href).toBe(200);
   expect(links).toContain('/examples/line-zoom?curve=step');
-  expect(links).toContain('/examples/pie-donut?hole=0.6');
+  expect(links).toContain('/examples/pie-donut?inner=0.6');
 
   await page.locator('.wall a', { hasText: 'Stacked bars' }).click();
   await expect(page).toHaveURL(/\/examples\/bar-grouped\?stack=true$/);

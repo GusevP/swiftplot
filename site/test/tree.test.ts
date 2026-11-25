@@ -2,7 +2,6 @@ import { runInNewContext } from 'node:vm';
 import { describe, expect, test } from 'vitest';
 import { bar, bin, fromTree, gradient, line, log, time, treemap, zoom } from 'swiftplot';
 import { example, resolve, type PlotExample } from '../src/examples/define';
-import { examples } from '../src/examples/index';
 import {
   axis,
   call,
@@ -17,9 +16,9 @@ import {
   ref,
   scaled,
   spread,
-  type Rows,
   type Tree,
 } from '../src/examples/tree';
+import { closing, step, tickFormat } from './plot-definitions';
 
 const rows = [
   { day: '2026-11-01', v: 1, w: 4, name: 'a' },
@@ -238,9 +237,9 @@ describe('example() for a plot definition', () => {
       /switch "c" puts a value for "z"/,
     );
     expect(() =>
-      // @ts-expect-error a target the tree does not have
       example({
         ...base,
+        // @ts-expect-error a target the tree does not have
         switches: [{ ...choice, sets: { a: [], b: [{ target: 'nope.color', value: 'red' }] } }],
       }),
     ).toThrow(/in \{"c":"b"\}, "nope.color" names no node/);
@@ -253,7 +252,6 @@ describe('example() for a plot definition', () => {
         ],
       }),
     ).toThrow(/switch "c" has both a target and sets/);
-    // @ts-expect-error a curve core does not have, in one of the puts
     example({
       ...base,
       switches: [
@@ -263,6 +261,7 @@ describe('example() for a plot definition', () => {
             a: [],
             b: [
               { target: 'w.width', value: 2 },
+              // @ts-expect-error a curve core does not have, in one of the puts
               { target: 'w.curve', value: 'wavy' },
             ],
           },
@@ -516,10 +515,10 @@ describe('resolve() for a plot definition', () => {
       value: 'solid',
     } as const;
     example({ ...base, tree: twice, switches: [{ ...paint, puts: { solid: '#333333', fade: '#999999' } }] });
-    // @ts-expect-error a gradient fits the fill but not the colour, where the param also stands
     example({
       ...base,
       tree: twice,
+      // @ts-expect-error a gradient fits the fill but not the colour, where the param also stands
       switches: [{ ...paint, puts: { solid: '#333333', fade: call('gradient', [0.4, 0]) } }],
     });
     const zoomed = {
@@ -608,33 +607,26 @@ test("a function node's source agrees with its function", () => {
 });
 
 test("the candlesticks tooltip's source agrees with its function", () => {
-  const candles = examples.get('candlesticks') as PlotExample;
-  const node = candles.tree.use![0]!.args as { text: { source: string; impl: (...a: unknown[]) => string } };
-  const compiled = runInNewContext(node.text.source) as (...a: unknown[]) => string;
+  const compiled = runInNewContext(closing.source) as typeof closing.impl;
   for (const [x, y] of [
     [Date.UTC(2026, 9, 1), 100],
     [Date.UTC(2026, 9, 30, 12), 97.456],
-  ])
-    expect(compiled('Price', x, y, 0)).toBe(node.text.impl('Price', x, y, 0));
+  ] as const)
+    expect(compiled('Price', x, y)).toBe(closing.impl('Price', x, y));
 });
 
 test("the log scale's tick format and the live updates' step agree with their sources", () => {
-  const logScale = examples.get('line-log') as PlotExample;
-  const format = (logScale.tree.frame!.y!.args as { format: { source: string; impl: (v: number) => string } })
-    .format;
-  const formatted = runInNewContext(format.source) as (v: number) => string;
-  for (const v of [1, 20, 1000, 1_000_000]) expect(formatted(v)).toBe(format.impl(v));
+  const formatted = runInNewContext(tickFormat.source) as typeof tickFormat.impl;
+  for (const v of [1, 20, 1000, 1_000_000]) expect(formatted(v)).toBe(tickFormat.impl(v));
 
-  const { source, impl } = (examples.get('line-live') as PlotExample).tree.live!.step;
-  const step = impl as (rows: Rows) => Rows;
-  const stepped = runInNewContext(source) as typeof step;
+  const stepped = runInNewContext(step.source) as typeof step.impl;
   const feed = [
     { s: 0, v: 5 },
     { s: 1, v: 7 },
     { s: 2, v: 6 },
   ];
-  expect(stepped(feed)).toEqual(step(feed));
-  expect(step(feed)).toEqual([
+  expect(stepped(feed)).toEqual(step.impl(feed));
+  expect(step.impl(feed)).toEqual([
     { s: 1, v: 7 },
     { s: 2, v: 6 },
     { s: 3, v: 5 },

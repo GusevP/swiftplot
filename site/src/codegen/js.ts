@@ -1,8 +1,12 @@
-import { plain as isObject } from 'swiftplot/charts';
+import type { Data, Tree } from '../examples/tree';
 import type { Framework } from '../scripts/preferences';
-import { keyword, number, plain, string, type Token } from './tokens';
+import { indented, keyword, number, plain, string, type Token } from './tokens';
 
-export type Prop = readonly [name: string, value: unknown];
+export type Prop = readonly [name: string, value: unknown, code: Token[]];
+export type Live = NonNullable<Tree['live']>;
+export type From = { kind?: Data['kind']; file: string };
+/** The code of an easy chart beside its props: the `swiftplot` imports they need and the timer that steps its rows. */
+export type Extra = { imports?: ReadonlySet<string>; live?: Live };
 
 const ESCAPES: Record<string, string> = {
   '\\': '\\\\',
@@ -21,20 +25,6 @@ export function literal(value: unknown): Token[] {
   if (typeof value === 'string') return [string(quote(value))];
   if (typeof value === 'number') return [number(String(value))];
   if (typeof value === 'boolean' || value === null) return [keyword(String(value))];
-  const list = (items: Token[][]) => items.flatMap((item, i) => (i ? [plain(', '), ...item] : item));
-  if (Array.isArray(value)) return [plain('['), ...list(value.map(literal)), plain(']')];
-  if (isObject(value))
-    return [
-      plain('{ '),
-      ...list(
-        Object.entries(value).map(([k, v]) => [
-          IDENTIFIER.test(k) ? plain(k) : string(quote(k)),
-          plain(': '),
-          ...literal(v),
-        ]),
-      ),
-      plain(' }'),
-    ];
   throw new Error(`codegen: cannot print ${typeof value}`);
 }
 
@@ -53,22 +43,72 @@ export const importOf = (binding: string, from: string): Token[] => [
   plain(';\n'),
 ];
 
-export const imports = (name: string, from: string, file: string): Token[] => [
-  ...importOf(`{ ${name} }`, from),
-  ...importOf('rows', `./${file}`),
+export const fromSwiftplot = (names: Iterable<string> = []): Token[] => {
+  const list = [...names].sort();
+  return list.length ? importOf(`{ ${list.join(', ')} }`, 'swiftplot') : [];
+};
+
+export const binding = (data: From) => (data.kind === 'json' ? 'data' : 'rows');
+export const dataImport = (data: From | undefined): Token[] =>
+  data ? importOf(binding(data), `./${data.file}`) : [];
+
+const STEP = '(data: typeof rows) => typeof rows';
+export const step = (live: Live, typed: boolean): Token[] => [
+  ...(typed ? [] : [plain(`/** @type {${STEP}} */\n`)]),
+  keyword('const'),
+  plain(` step${typed ? `: ${STEP}` : ''} = ${live.step.source};\n\n`),
 ];
 
-export function js(chart: string, file: string, props: readonly Prop[]): Token[] {
+export const element = [
+  keyword('const'),
+  plain(' el = document.getElementById('),
+  string("'chart'"),
+  plain(');\n'),
+];
+
+/** A module that mounts `chart` once on #chart, with a timer that updates it with `update`. */
+export const liveModule = (live: Live, chart: readonly Token[], update: string): Token[] => [
+  plain('/** @param {HTMLElement} el */\n'),
+  keyword('function'),
+  plain(' mount(el) {\n  '),
+  keyword('let'),
+  plain(' data = rows;\n  '),
+  keyword('const'),
+  plain(' chart = '),
+  ...chart,
+  plain(';\n  '),
+  keyword('const'),
+  plain(` timer = setInterval(() => {\n    data = step(data);\n    chart.update(${update});\n  }, `),
+  ...literal(live.every),
+  plain(');\n  '),
+  keyword('return'),
+  plain(' {\n    destroy() {\n      clearInterval(timer);\n      chart.destroy();\n    },\n  };\n}\n\n'),
+  ...element,
+  keyword('export'),
+  plain(' '),
+  keyword('const'),
+  plain(' chart = el ? mount(el) : undefined;\n'),
+];
+
+export function js(
+  chart: string,
+  data: From | undefined,
+  props: readonly Prop[],
+  { imports, live }: Extra,
+): Token[] {
+  const call: Token[] = [
+    plain(`${chart}(el, {\n`),
+    ...(data ? [plain(`    data${live || data.kind === 'json' ? '' : ': rows'},\n`)] : []),
+    ...props.flatMap(([name, , code]) => [plain(`    ${name}: `), ...indented(code, '    '), plain(',\n')]),
+    plain('  })'),
+  ];
   return [
-    ...imports(chart, packages.js, file),
+    ...importOf(`{ ${chart} }`, packages.js),
+    ...fromSwiftplot(imports),
+    ...dataImport(data),
     plain('\n'),
-    keyword('const'),
-    plain(' el = document.getElementById('),
-    string("'chart'"),
-    plain(');\n'),
-    keyword('if'),
-    plain(` (el) {\n  ${chart}(el, {\n    data: rows,\n`),
-    ...props.flatMap(([name, value]) => [plain(`    ${name}: `), ...literal(value), plain(',\n')]),
-    plain('  });\n}\n'),
+    ...(live
+      ? [...step(live, false), ...liveModule(live, call, '{ data }')]
+      : [...element, keyword('if'), plain(' (el) {\n  '), ...call, plain(';\n}\n')]),
   ];
 }

@@ -14,12 +14,25 @@ const charts: Record<ChartName, string> = {
   areaChart: 'AreaProps',
   barChart: 'BarProps',
   scatterChart: 'ScatterProps',
+  pieChart: 'PieProps',
+  funnelChart: 'FunnelProps',
+  radialBarChart: 'RadialBarProps',
+  radarChart: 'RadarProps',
+  heatmapChart: 'HeatmapProps',
+  histogramChart: 'HistogramProps',
+  boxPlotChart: 'BoxPlotProps',
+  candlestickChart: 'CandlestickProps',
+  sankeyChart: 'SankeyProps',
+  treemapChart: 'TreemapProps',
+  sunburstChart: 'SunburstProps',
+  comboChart: 'ComboProps',
 };
 
 export type Line = { shape?: Shape; mode?: string; type: string; description: string };
 export type Entry = { name: string; default?: string; lines: Line[] };
 
 type Params = ReadonlyMap<string, string[]>;
+type Omitted = ReadonlySet<string>;
 
 export function extract(source: string): Record<ChartName, Entry[]> {
   const file = ts.createSourceFile('types.ts', source, ts.ScriptTarget.Latest, true);
@@ -71,6 +84,7 @@ export function extract(source: string): Record<ChartName, Entry[]> {
       if (params.has(name)) return params.get(name)!;
       if (name === 'Exclude' && args[1]?.join() === 'readonly unknown[]')
         return args[0]!.filter(t => !t.endsWith('[]'));
+      if (name === 'Exclude' && args[1]?.join() === 'NotNumbersOrText<D>') return args[0]!;
       if (name === 'NonNullable') return args[0]!.filter(t => t !== 'null' && t !== 'undefined');
       const decl = aliases.get(name);
       if (decl && ts.isUnionTypeNode(decl.type))
@@ -80,11 +94,26 @@ export function extract(source: string): Record<ChartName, Entry[]> {
     return [node.getText()];
   };
 
-  const extractChart = (chart: string): Entry[] => {
-    const entries = new Map<string, Entry & { decl: ts.PropertySignature }>();
+  /** The types a conditional chooses from by the shape of the data, but for those that check no fields. */
+  const branches = (node: ts.TypeNode): ts.TypeAliasDeclaration[] => {
+    if (ts.isConditionalTypeNode(node)) return [node.trueType, node.falseType].flatMap(branches);
+    const decl = local(node) ?? fail(`cannot walk ${node.getText()}`);
+    if (decl.name.text.startsWith('Loose')) return [];
+    if (!Object.values(shapes).some(s => decl.name.text.endsWith(s)))
+      fail(`${decl.name.text} is of no known shape`);
+    return [decl];
+  };
 
-    const add = (m: ts.PropertySignature, shape: Shape | undefined, prefix: string) => {
+  const extractChart = (chart: string): Entry[] => {
+    const entries = new Map<string, (Entry & { decl: ts.PropertySignature }) | undefined>();
+
+    const add = (m: ts.PropertySignature, shape: Shape | undefined, prefix: string, omitted: Omitted) => {
       const name = prefix + text(m.name);
+      if (omitted.has(name)) {
+        // an omitted prop given another type later keeps its place
+        if (!entries.has(name)) entries.set(name, undefined);
+        return;
+      }
       if (entries.get(name)?.decl === m) return;
       const where = `${ts.findAncestor(m, ts.isTypeAliasDeclaration)?.name.text}.${text(m.name)}`;
       if (!m.type) fail(`${where} has no type`);
@@ -111,33 +140,60 @@ export function extract(source: string): Record<ChartName, Entry[]> {
           lines,
           decl: m,
         });
-      const nested = local(m.type!);
-      if (nested && !nested.typeParameters) walk(nested.type, undefined, `${name}.`);
+      const nested = isOmit(m.type!) ? m.type : local(m.type!);
+      if (nested && (!ts.isTypeAliasDeclaration(nested) || !nested.typeParameters))
+        walk(ts.isTypeAliasDeclaration(nested) ? nested.type : nested, undefined, `${name}.`);
     };
 
-    const walk = (node: ts.TypeNode, shape: Shape | undefined, prefix = ''): void => {
-      if (ts.isIntersectionTypeNode(node)) return node.types.forEach(t => walk(t, shape, prefix));
+    const walk = (
+      node: ts.TypeNode,
+      shape: Shape | undefined,
+      prefix = '',
+      omitted: Omitted = new Set(),
+    ): void => {
+      if (ts.isParenthesizedTypeNode(node)) return walk(node.type, shape, prefix, omitted);
+      if (ts.isIntersectionTypeNode(node)) {
+        const forks = node.types.some(isFork);
+        return node.types.filter(t => !forks || !isData(t)).forEach(t => walk(t, shape, prefix, omitted));
+      }
+      if (ts.isConditionalTypeNode(node)) {
+        const found = branches(node);
+        return Object.entries(shapes).forEach(([s, suffix]) =>
+          found
+            .filter(d => d.name.text.endsWith(suffix))
+            .forEach(d => walk(d.type, s as Shape, prefix, omitted)),
+        );
+      }
       if (ts.isTypeLiteralNode(node))
-        return node.members.forEach(m => ts.isPropertySignature(m) && add(m, shape, prefix));
+        return node.members.forEach(m => ts.isPropertySignature(m) && add(m, shape, prefix, omitted));
+      if (isOmit(node)) {
+        const [from, keys] = node.typeArguments!;
+        const names = render(keys!, undefined, new Map()).map(k => prefix + k.slice(1, -1));
+        return walk(from!, shape, prefix, new Set([...omitted, ...names]));
+      }
       const decl = local(node) ?? fail(`cannot walk ${node.getText()}`);
-      if (decl.name.text === 'Props')
-        return Object.entries(shapes).forEach(([s, a]) => walk(alias(a).type, s as Shape, prefix));
-      walk(decl.type, undefined, prefix);
+      walk(decl.type, undefined, prefix, omitted);
     };
 
     walk(alias(chart).type, undefined);
-    const list: Entry[] = [...entries.values()].map(({ name, default: d, lines }) => ({
-      name,
-      ...(d !== undefined && { default: d }),
-      lines,
-    }));
-    return [...list.filter(e => e.lines[0]!.shape), ...list.filter(e => !e.lines[0]!.shape)];
+    const list: Entry[] = [...entries.values()]
+      .filter(e => e !== undefined)
+      .map(({ name, default: d, lines }) => ({ name, ...(d !== undefined && { default: d }), lines }));
+    const leads = (e: Entry) => e.name === 'data' || !!e.lines[0]!.shape;
+    return [...list.filter(leads), ...list.filter(e => !leads(e))];
   };
 
   return Object.fromEntries(
     Object.entries(charts).map(([chart, name]) => [chart, extractChart(name)]),
   ) as Record<ChartName, Entry[]>;
 }
+
+const isOmit = (node: ts.TypeNode): node is ts.TypeReferenceNode =>
+  ts.isTypeReferenceNode(node) && node.typeName.getText() === 'Omit';
+const isFork = (node: ts.TypeNode): boolean =>
+  ts.isParenthesizedTypeNode(node) ? isFork(node.type) : ts.isConditionalTypeNode(node);
+/** `{ data?: D | null }`, there only to infer D: each branch of the conditional beside it says what its data is. */
+const isData = (node: ts.TypeNode) => node.getText() === '{ data?: D | null }';
 
 const text = (name: ts.PropertyName) =>
   ts.isIdentifier(name) || ts.isStringLiteral(name) ? name.text : name.getText();

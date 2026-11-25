@@ -3,9 +3,9 @@ import type { Theme } from '../theme.js';
 import type { Chart, Feature, Internals, Mark, Options, Span } from '../types.js';
 import { themeOf } from './defaults.js';
 import { source, type Data, type Source } from './source.js';
-import type { Base } from './types.js';
+import type { Axes, Base } from './types.js';
 
-export type ControllerProps = Base & { data?: unknown };
+export type ControllerProps = Base & Pick<Axes, 'view' | 'onViewChange'> & { data?: unknown };
 export type Context = {
   source: Source<never>;
   theme: Theme;

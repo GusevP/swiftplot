@@ -111,7 +111,11 @@ export function treemap(o: TreemapOptions): Mark {
       for (const i of shown) {
         if (!sheets.has(sheetOf(i))) {
           const branch =
-            tint[i]! < 0 ? roots[0]! : roots.length === 1 ? kids[roots[0]!]![tint[i]!]! : roots[tint[i]!]!;
+            tint[i]! < 0
+              ? roots[0]!
+              : roots.length === 1 && n > 1
+                ? kids[roots[0]!]![tint[i]!]!
+                : roots[tint[i]!]!;
           const [x, y, w, h] = room.subarray(branch * 4, branch * 4 + 4);
           const ink = painter(
             ctx,

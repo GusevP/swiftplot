@@ -3538,6 +3538,55 @@ test('rows with a number missing draw nothing and join nothing', () => {
     expect(pixel(el, x, y)[3]).toBe(0);
 });
 
+test('an automatic domain leaves out where and between what an incomplete error bar would stand', () => {
+  const limits = (mark: Mark) => {
+    let chart!: Internals;
+    plot(host(), {
+      ...frame,
+      x: { domain: 'data', label: '' },
+      y: { domain: 'data', label: '' },
+      marks: [mark],
+      use: [c => ((chart = c), { destroy() {} })],
+    });
+    return chart.domain();
+  };
+  const at = [0, 1e6, 10];
+  for (const [from, to] of [
+    [
+      [1, NaN, 2],
+      [2, 3, 4],
+    ],
+    [
+      [1, 1, 2],
+      [2, Infinity, 4],
+    ],
+  ] as const) {
+    expect(limits(errorBars({ x: at, y1: from, y2: to, color: RED }))).toEqual({ x: [0, 10], y: [1, 4] });
+    expect(limits(errorBars({ y: at, x1: from, x2: to, color: RED }))).toEqual({ x: [1, 4], y: [0, 10] });
+  }
+});
+
+test('errorBars reads no more than the first row when made, and keeps the columns it is given when every row is whole or empty', () => {
+  let reads = 0;
+  const counted = (c: number[]) =>
+    new Proxy(c, {
+      get(t, k) {
+        if (Number(k) > 0) reads++;
+        return Reflect.get(t, k) as unknown;
+      },
+    });
+  const at = counted([0, NaN, 10]);
+  const from = counted([1, NaN, 2]);
+  const to = counted([2, NaN, 4]);
+  const upright = errorBars({ x: at, y1: from, y2: to, color: RED });
+  const level = errorBars({ y: at, x1: from, x2: to, color: RED });
+  expect(reads).toBe(0);
+  expect(upright.channels.x[0]).toBe(at);
+  expect(upright.channels.y[0]).toBe(from);
+  expect(upright.channels.y[1]).toBe(to);
+  expect(level.channels.y[0]).toBe(at);
+});
+
 test('an automatic x domain makes room for whole boxes, and hovering one dims the other', () => {
   const el = host();
   let chart!: Internals;
@@ -3603,7 +3652,7 @@ test('values that are not finite do not reach an automatic axis, and huge finite
     marks: [
       errorBars({
         x: [1, Infinity, 3],
-        y1: [9e307, 9e307, NaN],
+        y1: [9e307, 9e307, 9e307],
         y2: [1e308, 1e308, 1e308],
         color: RED,
         width: 4,
@@ -8169,6 +8218,20 @@ test('the nearest tooltip on a stacked bar sits at the top of the bar and names 
   const root = hover(el, 50, Math.round(internals.yPx(12.5)));
   const tip = [...root.querySelectorAll('div')].find(d => d.textContent === 'C 5')!;
   expect(tip.style.transform).toContain(`${internals.yPx(15) + 12}px`);
+});
+
+test('width is the share of x the dodged or stacked bars of one place take together', () => {
+  for (const [way, left, right] of [
+    [{ dodge: 'd' }, 45, 54],
+    [{ stack: 's' }, 45, 54],
+  ] as const) {
+    const el = host();
+    const one = (color: string) =>
+      bar({ x: [5], y: [0.5], width: 1, color, ...way } as Parameters<typeof bar>[0]);
+    plot(el, { ...frame, marks: [one(RED), one(BLUE)] });
+    expect([pixel(el, 43, 95), pixel(el, 57, 95)].map(p => p[3])).toEqual([0, 0]);
+    expect([pixel(el, left, 95), pixel(el, right, 95)].map(p => p[3])).toEqual([255, 255]);
+  }
 });
 
 test('a bar given stack or dodge as undefined is drawn by its own bounds', () => {

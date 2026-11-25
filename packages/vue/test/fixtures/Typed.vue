@@ -5,14 +5,20 @@ import { ref } from 'vue';
 import {
   AreaChart,
   BarChart,
+  CandlestickChart,
   LineChart,
+  PieChart,
   Plot,
   ScatterChart,
+  SunburstChart,
+  TreemapChart,
   type AreaChartProps,
   type BarChartProps,
   type LineChartProps,
+  type PieChartProps,
   type PlotProps,
   type ScatterChartProps,
+  type TreemapChartProps,
 } from '../../src/index.js';
 
 type Row = { date: string; api: number; note: string };
@@ -21,6 +27,7 @@ const columns = { t: new Float64Array(), v: [] as number[] };
 const pairs: [number, number][] = [];
 const view = ref<{ x?: [number, number]; y?: [number, number] }>();
 const hidden = ref<string[]>([]);
+const tree = { name: 'all', children: [{ name: 'a', value: 1 }] };
 const pie = [arcs({ values: [1], colors: ['red'] })];
 const props: [
   LineChartProps<Row[]>,
@@ -28,12 +35,16 @@ const props: [
   BarChartProps<Row[]>,
   ScatterChartProps<Row[]>,
   PlotProps,
+  PieChartProps<Row[]>,
+  TreemapChartProps,
 ] = [
   { x: 'date' },
   { stack: true },
   { stack: true },
   { r: 'api' },
   { marks: pie, 'onUpdate:view': v => v.x },
+  { label: 'note', value: 'api' },
+  { data: tree, shade: 0.5 },
 ];
 const hosts = [
   { marks: pie, id: 'detail' } satisfies Parameters<typeof Plot>[0],
@@ -78,6 +89,22 @@ const hosts = [
   <LineChart x="date" y="api" />
   <!-- @vue-expect-error the core's callback is a listener here -->
   <LineChart :data="rows" :on-view-change="() => {}" />
+  <PieChart :data="rows" label="note" value="api" :inner="0.6" v-model:hidden="hidden" class="c" text />
+  <PieChart :data="rows" :label="d => d.note" :value="d => d.api" @click="(hit, at) => at.x" />
+  <PieChart :data="[1, 2]" />
+  <!-- @vue-expect-error not a field of the rows -->
+  <PieChart :data="rows" label="nope" value="api" />
+  <!-- @vue-expect-error a text field is not a value -->
+  <PieChart :data="rows" label="note" value="date" />
+  <!-- @vue-expect-error a pie has no x -->
+  <PieChart :data="rows" x="note" />
+  <!-- @vue-expect-error a pie has no view -->
+  <PieChart :data="rows" v-model:view="view" />
+  <CandlestickChart :data="rows" open="api" v-model:view="view" zoom />
+  <TreemapChart :data="tree" :shade="0.5" class="c" />
+  <SunburstChart :data="[{ name: 'a', value: 1 }]" text @error="e => e" />
+  <!-- @vue-expect-error rows are not a tree -->
+  <TreemapChart :data="rows" />
   <Plot frame="polar" :marks="pie" :use="[legend()]" v-model:view="view" />
   <!-- @vue-expect-error marks is required -->
   <Plot frame="polar" />

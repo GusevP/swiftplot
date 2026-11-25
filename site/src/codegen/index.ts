@@ -1,9 +1,10 @@
 import { plain as isObject } from 'swiftplot/charts';
 import { resolve, type ChartName, type EasyExample, type Example, type State } from '../examples/define';
+import { contents, isNode } from '../examples/tree';
 import type { Entry } from '../reference/extract';
 import type { Framework } from '../scripts/preferences';
 import { importOf, js, literal, packages, type Prop } from './js';
-import { plotCode } from './plot';
+import { plotCode, printer } from './plot';
 import { react } from './react';
 import { keyword, plain, text, type Token } from './tokens';
 import { setup, vue } from './vue';
@@ -25,10 +26,11 @@ const isDefault = (defaults: Defaults, name: string, value: unknown) =>
 /** The light theme's --c1, --c2 and --c3 in tokens.css; a stylesheet cannot be imported where the smoke tests read the examples. */
 export const siteColors = ['#0891b2', '#2563eb', '#9333ea'];
 
-export function props(definition: EasyExample, state: State, defaults: Defaults): Prop[] {
-  return Object.entries(resolve(definition, state)).flatMap(([name, value]): Prop[] => {
-    if (name === 'data' || isDefault(defaults, name, value)) return [];
-    if (Array.isArray(value) || !isObject(value)) return [[name, value]];
+export function props(definition: EasyExample, state: State, defaults: Defaults) {
+  return Object.entries(resolve(definition, state)).flatMap(([name, value]): [string, unknown][] => {
+    if (name === 'data') return definition.live || value === contents(definition.data) ? [] : [[name, value]];
+    if (isDefault(defaults, name, value)) return [];
+    if (Array.isArray(value) || !isObject(value) || isNode(value)) return [[name, value]];
     const kept = Object.entries(value).filter(([k, v]) => !isDefault(defaults, `${name}.${k}`, v));
     return kept.length || !Object.keys(value).length ? [[name, Object.fromEntries(kept)]] : [];
   });
@@ -56,7 +58,7 @@ function plotSignature(framework: Framework): Token[] {
 export function signature(framework: Framework, chart: ChartName | 'plot'): Token[] {
   if (chart === 'plot') return plotSignature(framework);
   const name = framework === 'js' ? chart : componentOf(chart);
-  if (framework === 'vue') return vue(name, 'rows.json', [['v-bind', 'props']]);
+  if (framework === 'vue') return vue(name, { file: 'rows.json' }, [['v-bind', 'props', []]]);
   const head = [...importOf(`{ ${name} }`, packages[framework]), plain('\n')];
   if (framework === 'react') return [...head, plain(`<${name} data={rows} {...props} />\n`)];
   return [
@@ -68,10 +70,14 @@ export function signature(framework: Framework, chart: ChartName | 'plot'): Toke
 
 export function code(framework: Framework, definition: Example, state: State, defaults: Defaults): Token[] {
   if (definition.kind === 'plot') return plotCode(framework, definition, state);
-  const shown: Prop[] = [...props(definition, state, defaults), ['colors', siteColors]];
-  const { chart, data } = definition;
+  const { chart, data, live, palette } = definition;
+  const shown = props(definition, state, defaults);
+  if (!palette && !shown.some(([name]) => name === 'colors')) shown.push(['colors', siteColors]);
+  const { value: print, imports } = printer(data);
+  const printed = shown.map(([name, value]): Prop => [name, value, print(value)]);
   const component = componentOf(chart);
-  if (framework === 'react') return react(component, data.file, shown);
-  if (framework === 'vue') return vue(component, data.file, shown);
-  return js(chart, data.file, shown);
+  const from = shown.some(([name]) => name === 'data') ? undefined : data;
+  if (framework === 'react') return react(component, from, printed, { imports, live });
+  if (framework === 'vue') return vue(component, from, printed, { imports, live });
+  return js(chart, from, printed, { imports, live });
 }

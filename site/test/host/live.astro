@@ -3,7 +3,7 @@ import ts from 'typescript';
 import { compileScript, parse } from 'vue/compiler-sfc';
 import { code } from '../../src/codegen/index';
 import { text } from '../../src/codegen/tokens';
-import live from '../../src/examples/line-live';
+import { animatedLive as live } from '../plot-definitions';
 
 const commonjs = (source: string, fileName: string) =>
   ts.transpileModule(source, {

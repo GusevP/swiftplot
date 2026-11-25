@@ -106,6 +106,21 @@ test("on marks-and-plot, a switch on one example leaves the other's chart and co
   expect(errors).toEqual([]);
 });
 
+test('every chart on marks-and-plot is a Plot in its React and Vue code, showing what the guide describes', async ({
+  page,
+}) => {
+  await page.goto('/guides/marks-and-plot');
+  const scopes = await page.locator('.doc [data-scope]').all();
+  expect(scopes).toHaveLength(4);
+  for (const fw of ['react', 'vue']) {
+    await page.getByLabel('Framework').selectOption(fw);
+    for (const scope of scopes) await expect.poll(() => codeOf(scope)).toContain('<Plot');
+  }
+  const code = await Promise.all(scopes.map(codeOf));
+  for (const [i, shown] of [["yAxis: 'y2'"], ['rule({', 'zone({'], ['y.col('], ['ticks({']].entries())
+    for (const part of shown) expect(code[i]).toContain(part);
+});
+
 test("on react-and-vue, each wrapper's code is generated: a chart from data, and a Plot keyed by its features", async ({
   page,
 }) => {

@@ -2,8 +2,8 @@ import { seeded } from './seeded';
 
 const noise = seeded(21);
 
-export const days = ['Sun', 'Sat', 'Fri', 'Thu', 'Wed', 'Tue', 'Mon'];
-export const hours = Array.from({ length: 24 }, (_, h) => String(h).padStart(2, '0'));
+const days = ['Sun', 'Sat', 'Fri', 'Thu', 'Wed', 'Tue', 'Mon'];
+const hours = Array.from({ length: 24 }, (_, h) => String(h).padStart(2, '0'));
 
 export const hourly = days.flatMap(day =>
   hours.map((hour, h) => ({

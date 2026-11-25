@@ -6,7 +6,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import * as swiftplot from 'swiftplot';
 import * as vue from 'vue';
 import { contents } from '../../src/examples/tree';
-import live from '../../src/examples/line-live';
+import { animatedLive as live } from '../plot-definitions';
 
 type Framework = 'js' | 'react' | 'vue';
 const sources = JSON.parse(document.body.dataset.sources!) as Record<Framework, string>;

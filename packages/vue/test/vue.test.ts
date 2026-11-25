@@ -4,9 +4,10 @@ import { renderToString } from 'vue/server-renderer';
 import { afterEach, expect, test, vi } from 'vitest';
 
 import { bind, type Declared } from '../src/bind.js';
-import { LineChart, Plot, ScatterChart } from '../src/index.js';
+import { HistogramChart, LineChart, PieChart, Plot, ScatterChart } from '../src/index.js';
 import {
   click,
+  drag,
   entriesOf,
   failingOnB,
   fake,
@@ -175,6 +176,9 @@ test('the declared props must name every chart prop but the callbacks, and nothi
   bind(chart, { data: null, zoom: flag, tooltip: flag, width: null, height: null });
   // @ts-expect-error -- extra is not a chart prop
   bind(chart, { data: null, label: null, zoom: flag, tooltip: flag, width: null, height: null, extra: null });
+  const more = { extra: null };
+  // @ts-expect-error -- nor when it is spread in
+  bind(chart, { ...declared, ...more });
   expect(bind(chart, declared)).toBeTypeOf('object');
 });
 
@@ -547,6 +551,54 @@ test('v-model:pointer follows the hover and setting it shows the tooltip', async
   hover(r.el, 20, 50);
   await nextTick();
   expect(pointer.value!.x).toBeCloseTo(2, 0);
+});
+
+test('bind(pieChart) and bind(histogramChart) draw, redraw new data and follow a prop of their own', async () => {
+  const parts = (a: number, b: number) => [
+    { page: 'one', visits: a },
+    { page: 'two', visits: b },
+  ];
+  const props = { width: 100, height: 100, margin: ZERO, colors: ['#ff0000', '#0000ff'], legend: false };
+  const data = shallowRef(parts(1, 1));
+  const inner = ref<number>();
+  const pie = mount(PieChart, () => ({ ...props, data: data.value, text: false, inner: inner.value }));
+  const redAt = (x: number, y: number) => red(pixel(pie.el, x, y));
+  expect([redAt(60, 40), redAt(78, 78), redAt(30, 50)]).toEqual([true, true, false]);
+  data.value = parts(1, 3);
+  await nextTick();
+  expect([redAt(60, 40), redAt(78, 78)]).toEqual([true, false]);
+  inner.value = 0.6;
+  await nextTick();
+  expect([redAt(60, 40), redAt(78, 22)]).toEqual([false, true]);
+
+  const values = [0, 0.1, 0.2, 10];
+  const bins = ref([0, 10]);
+  const bars = mount(HistogramChart, () => ({ ...props, data: values, bins: bins.value }));
+  expect(red(pixel(bars.el, 75, 90))).toBe(true);
+  bins.value = [0, 5, 9.9, 10];
+  await nextTick();
+  expect(red(pixel(bars.el, 25, 90))).toBe(true);
+  expect(red(pixel(bars.el, 75, 90))).toBe(false);
+});
+
+test('@brush gets the range dragged with a bare brush prop, and rules arrive as a prop', async () => {
+  const onBrush = vi.fn();
+  const r = mount(LineChart, () => ({
+    data: rows(() => 0.5),
+    width: 100,
+    height: 100,
+    ...look,
+    brush: '',
+    rules: [{ y: 0.5, text: 'half' }],
+    onBrush,
+  }));
+  await settle();
+  expect(r.el.textContent).toContain('half');
+  drag(r.el, [20, 50], [60, 50]);
+  expect(onBrush).toHaveBeenCalledTimes(1);
+  const { x } = onBrush.mock.calls[0]![0];
+  expect(x[0]).toBeCloseTo(2, 0);
+  expect(x[1]).toBeCloseTo(6, 0);
 });
 
 test('@click gets the core payload; selected is a plain prop', () => {

@@ -11,4 +11,8 @@ export const string = token('string');
 export const number = token('number');
 export const plain = token('plain');
 
+export const BREAK = plain('\n');
+export const indented = (tokens: readonly Token[], by: string) =>
+  tokens.flatMap(t => (t === BREAK ? [t, plain(by)] : [t]));
+
 export const text = (tokens: readonly Token[]): string => tokens.map(t => t.text).join('');

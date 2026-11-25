@@ -27,6 +27,7 @@ const LISTENERS = {
   onViewChange: 'update:view',
   onHiddenChange: 'update:hidden',
   onPointerChange: 'update:pointer',
+  onBrush: 'brush',
 } as const;
 const HOST_ONLY = new Set<string>([
   'width',
@@ -141,7 +142,10 @@ function sheet(el: HTMLElement) {
   first.observe(parent, { childList: true });
 }
 
-export function bind<P extends Sized>(chart: Mount<P>, declared: Declared<P>): Component {
+export function bind<P extends Sized, T extends Declared<P> = Declared<P>>(
+  chart: Mount<P>,
+  declared: T & Record<Exclude<keyof T, keyof Declared<P>>, never>,
+): Component {
   return defineComponent({
     inheritAttrs: false,
     props: {

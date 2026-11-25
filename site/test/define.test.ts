@@ -1,14 +1,19 @@
 import { describe, expect, test } from 'vitest';
 import {
+  chartNames,
   checkedStates,
   example,
+  fromQuery,
   referencePath,
   registry,
   resolve,
+  switchKey,
   type EasyExample,
   type Example,
+  type Switch,
 } from '../src/examples/define';
-import { live } from './plot-definitions';
+import { call, col, contents, fn, omit } from '../src/examples/tree';
+import { easyCombo, easyLine, easyLive, easyTree, live } from './plot-definitions';
 
 const rows = [
   { day: '2026-11-01', a: 1, b: 2 },
@@ -80,9 +85,45 @@ describe('example()', () => {
     ).toThrow(/live block steps rows/);
   });
 
-  test('rejects a chart that is not one of the four easy charts', () => {
-    expect(() => example({ ...base, chart: 'pieChart' as EasyExample['chart'] })).toThrow(
-      /line-test.*"pieChart"/,
+  test('rejects an easy live block over JSON data, and JSON data JSON cannot carry', () => {
+    expect(() => example({ ...easyLive, data: easyTree.data, switches: [] })).toThrow(
+      /live block steps rows/,
+    );
+    expect(() =>
+      example({ ...easyTree, data: { kind: 'json', file: 'bad.json', value: [Number.NaN] } }),
+    ).toThrow(/value JSON cannot carry/);
+  });
+
+  test('checks the puts of an easy switch as it does those of a plot switch', () => {
+    const [fill] = easyLine.switches;
+    const put = (over: object) => example({ ...easyLine, switches: [{ ...fill, ...over } as Switch] });
+    expect(() => put({ puts: { none: omit } })).toThrow(/switch "fill" puts nothing for its value "faded"/);
+    expect(() => put({ puts: { none: omit, faded: 1, other: 2 } })).toThrow(/puts a value for "other"/);
+    expect(() => put({ sets: { none: [], faded: [] } })).toThrow(/switch "fill" has both a prop and sets/);
+  });
+
+  test('an easy put into a value that is not an object fails, naming the state', () => {
+    expect(() =>
+      example({
+        ...base,
+        props: { xAxis: 'day' },
+        switches: [{ prop: 'xAxis.utc', label: 'UTC', kind: 'boolean', value: true }],
+      }),
+    ).toThrow(/line-test.*in {"xAxis.utc":true}, "xAxis.utc" goes into a value that is not an object/);
+  });
+
+  test.each([col('a'), [{ y: col('a') }], call('bin', [col('a')]), omit])(
+    'an easy prop takes only fn, call and ref nodes',
+    node => {
+      expect(() => example({ ...base, props: { y: node } })).toThrow(/line-test.*node cannot stand/);
+    },
+  );
+
+  test('rejects a chart that is not one of the sixteen easy charts', () => {
+    expect(chartNames).toHaveLength(16);
+    expect(example({ ...base, chart: 'pieChart' }).chart).toBe('pieChart');
+    expect(() => example({ ...base, chart: 'gaugeChart' as EasyExample['chart'] })).toThrow(
+      /line-test.*"gaugeChart"/,
     );
   });
 });
@@ -125,6 +166,35 @@ describe('resolve()', () => {
       xAxis: { utc: true, label: 'Date' },
     });
     expect(nested.props).toEqual({ xAxis: { utc: true } });
+  });
+
+  test('an easy switch gives the prop what its puts name for the UI value, and omit leaves the prop out', () => {
+    expect(resolve(easyLine, {}).fill).toEqual(call('gradient', ['#2563eb', 0]));
+    expect(resolve(easyLine, { fill: 'none' })).not.toHaveProperty('fill');
+    const on = example({
+      ...base,
+      switches: [
+        { prop: 'xAxis.label', label: 'L', kind: 'boolean', value: true, puts: { on: 'Day', off: omit } },
+      ],
+    });
+    expect(resolve(on, {})).toEqual({ data: rows, x: 'day', xAxis: { label: 'Day' } });
+    expect(resolve(on, { 'xAxis.label': false })).toEqual({ data: rows, x: 'day' });
+  });
+
+  test('one easy switch with sets changes two props and leaves a third out', () => {
+    expect(switchKey(easyCombo.switches[0]!)).toBe('y2');
+    expect(resolve(easyCombo, {})).toMatchObject({ y2Bars: 'n', yAxis: { label: 'v' } });
+    const { data: _, ...off } = resolve(easyCombo, { y2: false });
+    expect(off).toEqual({ lines: 'v', bars: 'n', yAxis: { label: 'v and n' } });
+    expect(fromQuery(easyCombo, new URLSearchParams('y2=false'))).toEqual({ y2: false });
+  });
+
+  test('an easy example with JSON data gives the chart that value, and fn nodes stay nodes', () => {
+    expect(resolve(easyTree, {})).toEqual({ data: contents(easyTree.data) });
+    const format = fn('v => v', (v: number) => v);
+    expect(resolve(example({ ...base, props: { yAxis: { format } }, switches: [] }), {})).toMatchObject({
+      yAxis: { format },
+    });
   });
 });
 

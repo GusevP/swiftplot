@@ -26,11 +26,14 @@ type Props = { chart: ChartName; page?: undefined } | { page: string; chart?: un
 
 const { chart, page } = Astro.props;
 
+const zooms = !!chart && reference[chart].some(e => e.name === 'onViewChange');
+const brushes = !!chart && reference[chart].some(e => e.name === 'onBrush');
+
 const returns: Record<Framework, string> = {
   js: 'An object with update(props), which merges the props given into the ones the chart has, destroy(), and chart, the underlying chart of the explicit API.',
   react:
     'A component that renders one div. It also takes className, style, id and onError; there is no ref and no imperative API.',
-  vue: 'A component that renders one div; class, style and id go to it. Changes are events: v-model:view, v-model:hidden, v-model:pointer, @click and @error.',
+  vue: `A component that renders one div; class, style and id go to it. Changes are events: ${zooms ? 'v-model:view, ' : ''}v-model:hidden, v-model:pointer, ${brushes ? '@brush, ' : ''}@click and @error.`,
 };
 
 const errors = chart ? errorsFor(chart) : [];
@@ -41,11 +44,7 @@ const kept: Record<Framework, string> = {
   vue: 'An update that throws leaves the previous chart on screen.',
 };
 
-const using = [...examples.values()].filter(e =>
-  e.kind === 'plot'
-    ? e.tree.marks.some(m => m.mark === page) || !!e.tree.use?.some(f => f.feature === page)
-    : e.chart === chart,
-);
+const using = [...examples.values()].filter(e => e.kind !== 'plot' && e.chart === chart);
 const fns = page === 'scales' ? [...scaleNames, ...helperNames].map(n => api[n]!) : page ? [api[page]!] : [];
 const title = chart ?? (page === 'scales' ? 'Scales and helpers' : page);
 const sections = [
@@ -75,8 +74,8 @@ const errorHeaders = ['Message contains', 'Cause', 'Fix'] as const;
         <h2 id="props">Props</h2>
         <PropsTable entries={reference[chart]} />
         <p data-for="vue">
-          In Vue, onViewChange, onHiddenChange, onPointerChange and onClick are events: v-model:view, v-model:hidden,
-          v-model:pointer and @click.
+          In Vue, {zooms && 'onViewChange, '}onHiddenChange, onPointerChange{brushes && ', onBrush'} and onClick are events: {zooms &&
+            'v-model:view, '}v-model:hidden, v-model:pointer{brushes && ', @brush'} and @click.
         </p>
 
         <h2 id="returns">Returns</h2>

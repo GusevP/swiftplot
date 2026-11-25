@@ -53,10 +53,10 @@ own dark colours, and `paletteDark` where the code uses `palette`.
 `palette` is eight colours for eight series, to be given out in order. The order keeps neighbours apart for
 colour-blind readers, and each colour has a contrast of 3:1 on white.
 
-A treemap or a sunburst gives each root a colour from `colors`, or each child of a single root. The sunburst below has
-four roots and takes `palette`; Colours gives it this site's three colours and an amber instead. The rings under a root
-are lighter steps of its colour, and Shade replaces them with one run from the full colour at the centre to that
-opacity at the rim.
+A treemap or a sunburst gives each root a colour from `colors`, or each child of a single root. The `sunburstChart`
+below has four roots and leaves `colors` out, so it takes `palette`, or `paletteDark` on the dark theme; Colours gives
+it this site's three colours and an amber instead. The rings under a root are lighter steps of its colour, and Shade
+replaces them with one run from the full colour at the centre to that opacity at the rim.
 
 <GuideExample id="sunburst" />
 
@@ -76,7 +76,7 @@ import { area, gradient } from 'swiftplot';
 const marks = [area({ x: day, y: used, color: '#0891b2', label: 'Used', fill: gradient(0.4, 0) })];
 ```
 
-[The annotated line](/examples/line-annotated) fills under its line this way.
+`lineChart` takes the same blend as its `fill` prop, as [the annotated line](/examples/line-annotated) does.
 
 ## Other blends
 
@@ -93,8 +93,9 @@ const marks = [area({ x: day, y: used, color: '#0891b2', label: 'Used', fill: gr
 
 A heatmap colours its cells through a colour scale, `sequential({ stops, domain })`. The values run through the stops,
 which are `#rgb` or `#rrggbb` colours, pale to dark blue when left out, from the smallest value to the largest unless
-`domain` fixes the ends. `legend()` shows the scale as a strip of its colours between the ends of its domain. Create the
-scale once, outside the update, or every update repaints the grid.
+`domain` fixes the ends. `heatmapChart` takes the scale as `color`, and its `legend` shows it as a strip of its colours
+between the ends of its domain; in `plot()` it is the `color` of `heatmap()`, and `legend()` shows the strip. Create the
+scale of a `heatmap()` once, outside the update, or every update repaints the grid; `heatmapChart` compares it by value.
 
 <GuideExample id="heatmap" />
 

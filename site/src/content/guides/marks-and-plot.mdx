@@ -9,8 +9,8 @@ import GuideExample from '../../components/GuideExample.astro';
 ## Easy charts and plot()
 
 The charts in `swiftplot/charts` take rows and work out the rest. `plot()`, from `swiftplot` itself, draws only the
-marks you give it, on the axes you set, with the features you add. Use it for a chart type with no easy version, to
-mix marks on one chart, or to pass large typed arrays straight in.
+marks you give it, on the axes you set, with the features you add. Use it to mix marks in a way
+no easy chart does, for a mark of your own, or to pass large typed arrays straight in.
 
 ```js
 import { line, plot, time, tooltip } from 'swiftplot';
@@ -43,14 +43,14 @@ Several marks can share one chart and its axes. Here bars and a line sit on a ba
 are given `yAxis: 'y2'`, so they are drawn against the second axis on the right. Each axis takes its extent from its
 own marks, and grid lines come from `y` only. Turn the second axis off to see both marks on one scale.
 
-<GuideExample id="two-y-axes" />
+<GuideExample id="guide-two-axes" />
 
 ## Reference lines and zones
 
 `rule()` draws a line across the plot at an x or a y, and `zone()` a band between two values. A rule is always drawn
 over the data and a zone under it, wherever they are in `marks`. Neither widens a domain or counts as a series. The line's `fill` takes a `gradient()`; switch it off to see the plain line.
 
-<GuideExample id="line-annotated" />
+<GuideExample id="guide-annotated" />
 
 ## Axes
 
@@ -59,8 +59,8 @@ over the data and a zone under it, wherever they are in `marks`. Neither widens 
 - `{ domain: 'nice' | 'data' | [lo, hi], label }` is a linear axis. `'nice'` widens the marks' extent to whole
   steps; `'data'` keeps it exact.
 - `time({ label })` takes millisecond timestamps and puts ticks on calendar boundaries, in UTC unless `utc: false`.
-- `log({ label })` is a log axis. Marks take their columns through it, as `y.col(counts)`; see
-  [the log scale example](/examples/line-log).
+- `log({ label })` is a log axis. Marks take their columns through it, as `y.col(counts)`, which makes a value at or
+  below zero a gap.
 - `band({ label, categories })` puts category `i` at `x = i`, owning `i - 0.5` to `i + 0.5`. `bands(n)` gives the bar
   bounds for it.
 - `bare()` places the marks and draws no ticks, grid or label, for a chart inside a card.
@@ -69,10 +69,19 @@ On a linear axis `step` puts ticks on multiples of a value and `format` writes t
 `unit` and `format` instead, `log()` takes `format`, and `band()` and `bare()` take neither. The
 [scales reference](/reference/scales) lists every option.
 
+Here a line is drawn on a log axis; switch the scale to see the same column on a linear one.
+
+<GuideExample id="guide-log" />
+
+And here `ticks()` are drawn on a band y axis: `at` is each row's place in `categories`.
+
+<GuideExample id="guide-ticks" />
+
 ## Charts without axes
 
 `frame: 'polar'` is for marks drawn round a centre: `arcs()` for pies and donuts, `radar()`, `radialBars()` and
-`sunburst()`. `frame: 'blank'` is for `treemap()`, `funnel()` and `sankey()`. Neither frame draws axes.
+`sunburst()`. `frame: 'blank'` is for `treemap()`, `funnel()` and `sankey()`. Neither frame draws axes. Each of these
+marks also has an easy chart, such as [`pieChart`](/reference/pie-chart); this is a donut through `plot()`:
 
 ```js
 plot(el, {
@@ -83,25 +92,28 @@ plot(el, {
 
 ## The marks
 
-| Mark                                                 | Draws                                              | Example                                    |
-| ---------------------------------------------------- | -------------------------------------------------- | ------------------------------------------ |
-| [`line`](/reference/line)                            | a line through points, straight, stepped or smooth | [Annotated line](/examples/line-annotated) |
-| [`area`](/reference/area)                            | an area from zero, or a band between two columns   | [Stacked areas](/examples/area-stacked)    |
-| [`bar`](/reference/bar)                              | bars between explicit bounds, either way up        | [Histogram](/examples/histogram)           |
-| [`dots`](/reference/dots)                            | points, each with its own radius                   | [Bubbles](/examples/bubbles)               |
-| [`ticks`](/reference/ticks)                          | a vertical tick at each point                      | [Strip plot](/examples/strip-plot)         |
-| [`box`](/reference/box)                              | box plots from five numbers                        | [Box plot](/examples/box-plot)             |
-| [`errorBars`](/reference/error-bars)                 | a range at each point                              | [Error bars](/examples/error-bars)         |
-| [`candlestick`](/reference/candlestick)              | a wick and a body for each period                  | [Candlesticks](/examples/candlesticks)     |
-| [`heatmap`](/reference/heatmap)                      | a grid of coloured cells                           | [Heatmap](/examples/heatmap)               |
-| [`arcs`](/reference/arcs)                            | the slices of a pie or a donut                     | [Pie and donut](/examples/pie-donut)       |
-| [`radar`](/reference/radar)                          | series round spokes                                | [Radar](/examples/radar)                   |
-| [`radialBars`](/reference/radial-bars)               | one bar per value, each on its own ring            | [Radial bars](/examples/radial-bars)       |
-| [`funnel`](/reference/funnel)                        | stages as wide as their values                     | [Funnel](/examples/funnel)                 |
-| [`sankey`](/reference/sankey)                        | flows between nodes                                | [Sankey](/examples/sankey)                 |
-| [`treemap`](/reference/treemap)                      | a tree's leaves as nested rectangles               | [Treemap](/examples/treemap)               |
-| [`sunburst`](/reference/sunburst)                    | a tree as rings round a centre                     | [Sunburst](/examples/sunburst)             |
-| [`rule`](/reference/rule), [`zone`](/reference/zone) | a reference line, a band between two values        | [Annotated line](/examples/line-annotated) |
+An example that names its chart is an easy chart, which makes the mark from its data; the others are on
+this page, and give it to `plot()`.
+
+| Mark                                                 | Draws                                              | Example                                                      |
+| ---------------------------------------------------- | -------------------------------------------------- | ------------------------------------------------------------ |
+| [`line`](/reference/line)                            | a line through points, straight, stepped or smooth | [Reference lines and zones](#reference-lines-and-zones)      |
+| [`area`](/reference/area)                            | an area from zero, or a band between two columns   | [Stacked areas](/examples/area-stacked), an `areaChart`      |
+| [`bar`](/reference/bar)                              | bars between explicit bounds, either way up        | [Histogram](/examples/histogram), a `histogramChart`         |
+| [`dots`](/reference/dots)                            | points, each with its own radius                   | [Bubbles](/examples/bubbles), a `scatterChart`               |
+| [`ticks`](/reference/ticks)                          | a vertical tick at each point                      | [Axes](#axes)                                                |
+| [`box`](/reference/box)                              | box plots from five numbers                        | [Box plot](/examples/box-plot), a `boxPlotChart`             |
+| [`errorBars`](/reference/error-bars)                 | a range at each point                              | [Error bars](/examples/error-bars), a `scatterChart`         |
+| [`candlestick`](/reference/candlestick)              | a wick and a body for each period                  | [Candlesticks](/examples/candlesticks), a `candlestickChart` |
+| [`heatmap`](/reference/heatmap)                      | a grid of coloured cells                           | [Heatmap](/examples/heatmap), a `heatmapChart`               |
+| [`arcs`](/reference/arcs)                            | the slices of a pie or a donut                     | [Pie and donut](/examples/pie-donut), a `pieChart`           |
+| [`radar`](/reference/radar)                          | series round spokes                                | [Radar](/examples/radar), a `radarChart`                     |
+| [`radialBars`](/reference/radial-bars)               | one bar per value, each on its own ring            | [Radial bars](/examples/radial-bars), a `radialBarChart`     |
+| [`funnel`](/reference/funnel)                        | stages as wide as their values                     | [Funnel](/examples/funnel), a `funnelChart`                  |
+| [`sankey`](/reference/sankey)                        | flows between nodes                                | [Sankey](/examples/sankey), a `sankeyChart`                  |
+| [`treemap`](/reference/treemap)                      | a tree's leaves as nested rectangles               | [Treemap](/examples/treemap), a `treemapChart`               |
+| [`sunburst`](/reference/sunburst)                    | a tree as rings round a centre                     | [Sunburst](/examples/sunburst), a `sunburstChart`            |
+| [`rule`](/reference/rule), [`zone`](/reference/zone) | a reference line, a band between two values        | [Reference lines and zones](#reference-lines-and-zones)      |
 
 ## Helpers
 

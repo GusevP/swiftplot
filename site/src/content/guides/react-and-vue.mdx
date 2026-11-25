@@ -9,8 +9,8 @@ import GuideExample from '../../components/GuideExample.astro';
 
 ## The components
 
-`@swiftplot/react` (React 18.3 or 19) and `@swiftplot/vue` (Vue 3.4 or later) make components of the charts from data,
-`LineChart`, `AreaChart`, `BarChart` and `ScatterChart`, and `Plot` for `plot()`. Each takes the props of its function,
+`@swiftplot/react` (React 18.3 or 19) and `@swiftplot/vue` (Vue 3.4 or later) make a component of each chart from data,
+such as `LineChart`, `PieChart` and `SankeyChart`, and `Plot` for `plot()`. Each takes the props of its function,
 renders one `div`, creates the chart after mount, sends it only what changed on each render and destroys it on unmount.
 [Getting started](/guides/getting-started) installs them and gives a chart its height.
 
@@ -30,19 +30,19 @@ in Vue, `style` and `id` go to the `div`.
 
 <GuideExample id="bar-grouped" />
 
-Changing `legend`, `tooltip`, `zoom` or `animate` on such a component creates the chart again, and keeps a zoomed window
-and the hidden series, so the switches below need no `key`.
+Changing `legend`, `tooltip`, `zoom`, `animate` or `brush` on such a component creates the chart again, and keeps a
+zoomed window and the hidden series, so the switches below need no `key`.
 
 ## Plot
 
-`Plot` takes every `plot()` option as a prop: the marks, the axes, `use` and the rest. Use it for a chart type with no
-easy version yet, for mixing marks and for large typed-array data. In Vue the code builds the options in
-`<script setup>`, typed `PlotProps` from `@swiftplot/vue`, and binds them with `v-bind`.
+`Plot` takes every `plot()` option as a prop: the marks, the axes, `use` and the rest. Use it to mix marks in a
+way no easy chart does, for a mark of your own, or to pass large typed arrays straight in. In Vue the code builds the
+options in `<script setup>`, typed `PlotProps` from `@swiftplot/vue`, and binds them with `v-bind`.
 
 `use` is read when the chart mounts, as in `plot()`, so to change the features, change the component's `key`. The code
 for the radar below gives `Plot` a key that differs with Legend, so turning the legend off or on mounts a new chart.
 
-<GuideExample id="radar" />
+<GuideExample id="guide-plot" />
 
 `Plot` is light unless its `theme` is given: it does not follow the page as the components of the easy charts do.
 [Themes and colours](/guides/themes-and-colours) has the rest.
@@ -116,5 +116,4 @@ height and is 300 px tall otherwise, but that fallback is applied in the browser
 
 - [Large data](/guides/large-data): when a chart switches to WebGL, and how to pass large columns.
 - [Updates and animation](/guides/updates-and-animation): updating `Plot`, and changing its features.
-- [The lineChart reference](/reference/line-chart): every prop of the easy charts' components, with its type and
-  default.
+- [The reference](/reference): a page for each easy chart, with every prop of its components, its type and default.

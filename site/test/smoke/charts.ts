@@ -167,3 +167,23 @@ export async function hover(page: Page, chart: Locator) {
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 3);
   await page.mouse.move(box.x + box.width / 2 + 4, box.y + box.height / 3);
 }
+
+/** Counts the one-second timers of the live definitions; in dev, Vite's client also runs a timer, to ping its server. */
+export const countIntervals = (page: Page) =>
+  page.addInitScript(() => {
+    const active = new Set<unknown>();
+    const { setInterval: set, clearInterval: clear } = globalThis;
+    globalThis.setInterval = ((...args: Parameters<typeof set>) => {
+      const id = set(...args);
+      if (args[1] === 1000) active.add(id);
+      return id;
+    }) as typeof set;
+    globalThis.clearInterval = (id => {
+      active.delete(id);
+      clear(id);
+    }) as typeof clear;
+    Object.assign(window, { intervals: () => [...active].map(String) });
+  });
+
+export const timers = (page: Page) =>
+  page.evaluate(() => (window as unknown as { intervals(): string[] }).intervals());

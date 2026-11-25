@@ -1,22 +1,5 @@
-import { days, hourly, hours } from './data/hourly';
+import { hourly } from './data/hourly';
 import { example } from './define';
-import { axis, call, col, feature, mark, type Tree } from './tree';
-
-const tree = {
-  frame: {
-    x: axis('x', 'band', { label: 'Hour', categories: hours }),
-    y: axis('y', 'band', { label: '', categories: days }),
-  },
-  marks: [
-    mark('heat', 'heatmap', {
-      values: col('requests'),
-      columns: 24,
-      color: call('sequential', []),
-      label: 'Requests',
-    }),
-  ],
-  use: [feature('legend', 'legend')],
-} satisfies Tree;
 
 export default example({
   id: 'heatmap',
@@ -24,13 +7,14 @@ export default example({
   summary: 'Requests to a service in each hour of a week, busy on weekday afternoons and quiet at night.',
   group: 'Heatmap',
   tags: ['time'],
-  kind: 'plot',
-  tree,
-  data: { kind: 'rows', file: 'hourly.json', rows: hourly },
-  switches: [{ id: 'legend', label: 'Colour legend', target: 'legend.on', kind: 'boolean', value: true }],
+  chart: 'heatmapChart',
+  palette: true,
+  data: { file: 'hourly.json', rows: hourly },
+  props: { x: 'hour', y: 'day', xAxis: { label: 'Hour' }, yAxis: { label: '' } },
+  switches: [{ prop: 'legend', label: 'Colour legend', kind: 'boolean', value: true }],
   notes: [
-    'values is one column read a row of the grid at a time: columns says how many cells a row holds, and row 0 lies at the bottom.',
-    'Cell (c, r) is centred on x = c, y = r, so the grid sits on two band axes that name the hours and the days.',
-    "sequential() runs the values through its stops, pale to dark blue when left out, from the smallest to the largest unless domain fixes the ends; legend() shows that run as a strip beside the mark's label, between the lowest and the highest value.",
+    'Each row of the data is one cell, coloured by the only number column left, requests.',
+    'x and y are named because the first text column would otherwise be x, and here that is day. Their values stand in the order they first appear, y from the bottom up.',
+    'The cells run from pale to dark blue, from the smallest value to the largest, unless color gives another scale. The legend shows that run as a strip between the two.',
   ],
 });

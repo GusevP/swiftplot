@@ -107,6 +107,37 @@ test('the framework select swaps the file name, the code and the install line; C
   await expect(visible.nth(1).locator('code')).toContainText('curve="smooth"');
 });
 
+for (const [id, component] of [
+  ['pie-donut', 'PieChart'],
+  ['funnel', 'FunnelChart'],
+  ['radial-bars', 'RadialBarChart'],
+  ['radar', 'RadarChart'],
+  ['heatmap', 'HeatmapChart'],
+  ['histogram', 'HistogramChart'],
+  ['box-plot', 'BoxPlotChart'],
+  ['candlesticks', 'CandlestickChart'],
+  ['sankey', 'SankeyChart'],
+  ['treemap', 'TreemapChart'],
+  ['sunburst', 'SunburstChart'],
+  ['error-bars', 'ScatterChart'],
+  ['bubbles', 'ScatterChart'],
+  ['two-y-axes', 'ComboChart'],
+  ['line-log', 'LineChart'],
+  ['line-annotated', 'LineChart'],
+  ['line-brush', 'LineChart'],
+  ['line-live', 'LineChart'],
+  ['strip-plot', 'ScatterChart'],
+] as const)
+  test(`the React and Vue code on /examples/${id} is a ${component}`, async ({ page }) => {
+    await page.goto(`/examples/${id}`);
+    for (const fw of ['react', 'vue']) {
+      await page.getByLabel('Framework').selectOption(fw);
+      const code = page.locator('code[data-live]:visible');
+      await expect(code).toContainText(`<${component}`);
+      await expect(code).not.toContainText('<Plot');
+    }
+  });
+
 test('the data downloads as valid JSON with 30 rows', async ({ page }) => {
   await page.goto('/examples/line-zoom');
   const [download] = await Promise.all([
@@ -119,7 +150,7 @@ test('the data downloads as valid JSON with 30 rows', async ({ page }) => {
 });
 
 for (const e of examples.values()) {
-  if (e.kind !== 'plot' || e.data.kind !== 'json') continue;
+  if (e.data.kind !== 'json') continue;
   const { file, value } = e.data;
   test(`/examples/${e.id} serves ${file} as the JSON it draws, and its code imports that file`, async ({
     page,

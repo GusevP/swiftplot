@@ -416,6 +416,18 @@ export function evaluate(tree: Tree, data: Data, id: string): Options {
   };
 }
 
+/** An easy chart's props with their nodes evaluated; the data is not among them. */
+export function evaluateProps(props: Record<string, unknown>, data: Data, id: string) {
+  const check = (v: unknown): void => {
+    if (!plain(v)) return;
+    if (isNode(v) && !['fn', 'call', 'ref'].includes(v.node))
+      throw new Error(`example "${id}": a ${v.node} node cannot stand in an easy chart's props`);
+    Object.values(v).forEach(check);
+  };
+  check(props);
+  return evaluator({ marks: [] }, data, id).value(props) as Record<string, unknown>;
+}
+
 const ids = (tree: Tree) => [
   ...[tree.frame?.x, tree.frame?.y, tree.frame?.y2].filter(a => a !== undefined),
   ...tree.marks,
@@ -434,12 +446,18 @@ export function checkIds(tree: Tree): string | undefined {
   return undefined;
 }
 
-function setIn(at: unknown, path: readonly string[], put: unknown, target: string): unknown {
+export function setIn(
+  at: unknown,
+  path: readonly string[],
+  put: unknown,
+  target: string,
+): Record<string, unknown> {
   if (at !== undefined && (!plain(at) || Array.isArray(at) || isNode(at)))
     throw new Error(`"${target}" goes into a value that is not an object`);
   const [key, ...more] = path as [string, ...string[]];
   const copy: Record<string, unknown> = { ...at };
-  const next = more.length ? setIn(copy[key], more, put, target) : put;
+  const absent = put === omit && copy[key] === undefined;
+  const next = more.length && !absent ? setIn(copy[key], more, put, target) : put;
   if (next === omit) delete copy[key];
   else copy[key] = next;
   return copy;

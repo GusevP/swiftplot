@@ -37,6 +37,7 @@ test('/reference/line-chart has a row, with its anchor and default, for every pr
 test('every reference page loads with no error and draws the examples that use its chart', async ({
   page,
 }) => {
+  test.slow();
   const errors = watch(page);
   for (const chart of chartNames) {
     await page.goto(referencePath(chart));
@@ -98,16 +99,46 @@ test('/reference/plot renders the code in its intro', async ({ page }) => {
   await expect(intro).not.toContainText('`');
 });
 
-test('/reference/arcs lists pie and donut among the examples that use it, and the card opens it', async ({
+test('/reference/pie-chart lists pie and donut among the examples that use it, the card opens it, and /reference/arcs has no such section', async ({
   page,
 }) => {
   await page.goto('/reference/arcs');
+  await expect(page.locator('h1')).toHaveText('arcs');
+  await expect(page.locator('#examples')).toHaveCount(0);
+  await page.goto('/reference/pie-chart');
   const card = page.locator('.cards a[href="/examples/pie-donut"]');
   await expect(card).toContainText('Pie and donut');
   await card.click();
   await expect(page).toHaveURL(/\/examples\/pie-donut\/?$/);
   await expect(page.locator('[data-example] .chart canvas').first()).toBeAttached();
 });
+
+for (const page of [
+  'line',
+  'bar',
+  'ticks',
+  'rule',
+  'zone',
+  'dots',
+  'errorBars',
+  'box',
+  'candlestick',
+  'heatmap',
+  'radar',
+  'radialBars',
+  'funnel',
+  'sankey',
+  'treemap',
+  'sunburst',
+  'brush',
+  'zoom',
+  'animate',
+])
+  test(`${referencePath(page)}, which no example uses, has no section of examples`, async ({ page: tab }) => {
+    await tab.goto(referencePath(page));
+    await expect(tab.locator('h1')).toHaveText(page);
+    await expect(tab.locator('#examples, .cards')).toHaveCount(0);
+  });
 
 test('the framework select swaps the signature, what the chart returns and what a failed update leaves', async ({
   page,
@@ -149,6 +180,17 @@ test('the framework select swaps the signature, what the chart returns and what 
     await expect(paragraphs).toHaveCount(shown);
     await expect(paragraphs.filter({ hasText: returned })).toHaveCount(1);
     await expect(paragraphs.filter({ hasText: errorsTo })).toHaveCount(1);
+  }
+});
+
+test('the Vue event summaries name @brush on the charts that take onBrush', async ({ page }) => {
+  expect(reference.comboChart.some(e => e.name === 'onBrush')).toBe(true);
+  for (const chart of chartNames) {
+    const brushes = reference[chart].some(e => e.name === 'onBrush');
+    await page.goto(referencePath(chart));
+    const summaries = page.locator('p[data-for="vue"]', { hasText: 'v-model:pointer' });
+    await expect(summaries, chart).toHaveCount(2);
+    await expect(summaries.filter({ hasText: '@brush' }), chart).toHaveCount(brushes ? 2 : 0);
   }
 });
 

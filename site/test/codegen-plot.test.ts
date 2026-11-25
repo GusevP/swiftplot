@@ -4,11 +4,8 @@ import { code, signature } from '../src/codegen/index';
 import { kinds, text } from '../src/codegen/tokens';
 import type { Framework } from '../src/scripts/preferences';
 import { example, type PlotExample, type State } from '../src/examples/define';
-import errorBars from '../src/examples/error-bars';
-import lineLog from '../src/examples/line-log';
-import radar from '../src/examples/radar';
 import { col, evaluate, feature, mark, param } from '../src/examples/tree';
-import { histogram, live, mixed, overTree, withHelper } from './plot-definitions';
+import { errorBars, histogram, lineLog, live, mixed, overTree, radar, withHelper } from './plot-definitions';
 
 vi.mock('swiftplot', async original => ({
   ...(await original<object>()),
@@ -421,7 +418,7 @@ test('an array of objects puts one object to a line, indented under its mark', (
 test('a switch with several puts: the error bars lying down', () => {
   expect(show('js', errorBars, { bars: 'lying down' }))
     .toBe(`import { band, dots, errorBars, plot } from 'swiftplot';
-import rows from './doses.json';
+import rows from './test-doses.json';
 
 const low = Float64Array.from(rows, r => r.low);
 const high = Float64Array.from(rows, r => r.high);
@@ -430,10 +427,10 @@ const mean = Float64Array.from(rows, r => r.mean);
 const el = document.getElementById('chart');
 if (el) {
   plot(el, {
-    y: band({ label: 'Caffeine', categories: ['0 mg', '50 mg', '100 mg', '200 mg', '400 mg'] }),
+    y: band({ label: 'Caffeine', categories: ['0 mg', '50 mg', '100 mg'] }),
     marks: [
-      errorBars({ color: '#2563eb', label: 'Spread', y: [0, 1, 2, 3, 4], x1: low, x2: high }),
-      dots({ x: mean, y: [0, 1, 2, 3, 4], r: [4, 4, 4, 4, 4], color: '#0891b2', label: 'Mean' }),
+      errorBars({ color: '#2563eb', label: 'Spread', y: [0, 1, 2], x1: low, x2: high }),
+      dots({ x: mean, y: [0, 1, 2], r: [4, 4, 4], color: '#0891b2', label: 'Mean' }),
     ],
   });
 }
@@ -442,7 +439,7 @@ if (el) {
 
 describe('a column through a log axis', () => {
   const head = (names: string) => `import { ${names} } from 'swiftplot';
-import rows from './growth.json';
+import rows from './test-growth.json';
 `;
   const format = "format: v => v.toLocaleString('en')";
   const consts = (
@@ -463,7 +460,7 @@ ${consts(log)}
 const el = document.getElementById('chart');
 if (el) {
   plot(el, {
-    x: { label: 'Week', domain: [0, 51] },
+    x: { label: 'Week', domain: [0, 2] },
     ${log ? 'y,' : `y: ${y(log)},`}
 ${marks(log, '    ')}  });
 }
@@ -474,7 +471,7 @@ ${consts(log)}
 export function Chart() {
   return (
     <Plot
-      x={{ label: 'Week', domain: [0, 51] }}
+      x={{ label: 'Week', domain: [0, 2] }}
       y={${y(log)}}
       marks={[
         line({ x: week, y: ${log ? 'y.col(users)' : 'users'}, color: '#0891b2', label: 'Users' }),
@@ -486,7 +483,7 @@ export function Chart() {
     expect(show('vue', lineLog, state)).toBe(
       vue(
         `${head(log ? 'line, log' : 'line')}`,
-        `${consts(log)}\nconst options: PlotProps = {\n  x: { label: 'Week', domain: [0, 51] },\n  ${log ? 'y,' : `y: ${y(log)},`}\n${marks(log, '  ')}};\n`,
+        `${consts(log)}\nconst options: PlotProps = {\n  x: { label: 'Week', domain: [0, 2] },\n  ${log ? 'y,' : `y: ${y(log)},`}\n${marks(log, '  ')}};\n`,
       ),
     );
   });

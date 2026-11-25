@@ -124,7 +124,27 @@ for (const [i, mark] of marks.entries()) {
 
 deepStrictEqual(
   Object.keys(charts).sort(),
-  ['areaChart', 'barChart', 'equal', 'lineChart', 'mount', 'plain', 'scatterChart'],
+  [
+    'areaChart',
+    'barChart',
+    'boxPlotChart',
+    'candlestickChart',
+    'comboChart',
+    'equal',
+    'funnelChart',
+    'heatmapChart',
+    'histogramChart',
+    'lineChart',
+    'mount',
+    'pieChart',
+    'plain',
+    'radarChart',
+    'radialBarChart',
+    'sankeyChart',
+    'scatterChart',
+    'sunburstChart',
+    'treemapChart',
+  ],
   'charts exports',
 );
 strictEqual(await import('swiftplot/charts'), charts, 'swiftplot/charts');
@@ -133,6 +153,72 @@ const rows = [
   { date: '2026-11-02', api: 3, web: 4 },
 ];
 strictEqual(charts.lineChart.spec({ data: rows }).marks.length, 2, 'lineChart.spec');
+const parts = [
+  { page: '/', visits: 3 },
+  { page: '/docs', visits: 2 },
+];
+const ratings = [
+  { feature: 'screen', a: 4, b: 2 },
+  { feature: 'camera', a: 3, b: 5 },
+  { feature: 'battery', a: 2, b: 4 },
+];
+const grid = [
+  { day: 'Mon', hour: '08', requests: 4 },
+  { day: 'Mon', hour: '12', requests: 7 },
+  { day: 'Tue', hour: '08', requests: 1 },
+];
+const waits = [
+  { day: 'Mon', minutes: 4 },
+  { day: 'Mon', minutes: 7 },
+  { day: 'Tue', minutes: 5 },
+];
+const prices = [
+  { date: '2026-11-02', open: 1, high: 4, low: 1, close: 3 },
+  { date: '2026-11-03', open: 3, high: 5, low: 2, close: 2 },
+];
+const links = [
+  { from: 'salary', to: 'budget', amount: 5 },
+  { from: 'budget', to: 'rent', amount: 3 },
+];
+const nested = {
+  name: 'all',
+  children: [
+    { name: 'src', value: 3 },
+    { name: 'test', value: 2 },
+  ],
+};
+const specs = {
+  pieChart: charts.pieChart.spec({ data: parts }),
+  funnelChart: charts.funnelChart.spec({ data: parts }),
+  radialBarChart: charts.radialBarChart.spec({ data: parts }),
+  radarChart: charts.radarChart.spec({ data: ratings }),
+  heatmapChart: charts.heatmapChart.spec({ data: grid }),
+  histogramChart: charts.histogramChart.spec({ data: [1, 2, 2, 5] }),
+  boxPlotChart: charts.boxPlotChart.spec({ data: waits }),
+  candlestickChart: charts.candlestickChart.spec({ data: prices }),
+  sankeyChart: charts.sankeyChart.spec({ data: links }),
+  treemapChart: charts.treemapChart.spec({ data: nested }),
+  sunburstChart: charts.sunburstChart.spec({ data: nested }),
+  comboChart: charts.comboChart.spec({ data: rows, bars: 'api', lines: 'web' }),
+};
+deepStrictEqual(
+  Object.fromEntries(Object.entries(specs).map(([name, { marks }]) => [name, marks.length])),
+  {
+    pieChart: 1,
+    funnelChart: 1,
+    radialBarChart: 1,
+    radarChart: 3,
+    heatmapChart: 1,
+    histogramChart: 1,
+    boxPlotChart: 1,
+    candlestickChart: 1,
+    sankeyChart: 1,
+    treemapChart: 1,
+    sunburstChart: 1,
+    comboChart: 2,
+  },
+  'specs',
+);
 
 const reached = new Set();
 const walk = url => {

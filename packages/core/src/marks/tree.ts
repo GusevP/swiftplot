@@ -72,7 +72,7 @@ export function first(list: number[], count: number, before: (a: number, b: numb
 /**
  * What both tree marks lay out. Sizes are shares of the largest value, so that sums of them
  * cannot overflow. `tint` numbers the branches that get a colour each: the roots, or the
- * children of a single root, which itself has -1. Nothing here recurses, so a tree may be as
+ * children of a single root, which itself has -1 unless it is the only node. Nothing here recurses, so a tree may be as
  * deep as it likes. A parent out of range, a node that is its own parent and a cycle throw.
  */
 export function grow({ nodes, parent, value }: TreeColumns, who: string) {
@@ -91,7 +91,7 @@ export function grow({ nodes, parent, value }: TreeColumns, who: string) {
   const depth = new Int32Array(n);
   const tint = new Int32Array(n);
   const order = [...roots];
-  roots.forEach((root, k) => (tint[root] = roots.length === 1 ? -1 : k));
+  roots.forEach((root, k) => (tint[root] = roots.length === 1 && n > 1 ? -1 : k));
   for (let done = 0; done < order.length; done++) {
     const node = order[done]!;
     kids[node]!.forEach((kid, k) => {

@@ -1,7 +1,34 @@
 import { plain } from 'swiftplot/charts';
-import { checkIds, evaluate, put, type Data, type RowsData, type Slots, type Tree } from './tree';
+import {
+  checkIds,
+  contents,
+  evaluate,
+  evaluateProps,
+  put,
+  setIn,
+  type Data,
+  type Slots,
+  type Tree,
+} from './tree';
 
-export const chartNames = ['lineChart', 'areaChart', 'barChart', 'scatterChart'] as const;
+export const chartNames = [
+  'lineChart',
+  'areaChart',
+  'barChart',
+  'scatterChart',
+  'pieChart',
+  'funnelChart',
+  'radialBarChart',
+  'radarChart',
+  'heatmapChart',
+  'histogramChart',
+  'boxPlotChart',
+  'candlestickChart',
+  'sankeyChart',
+  'treemapChart',
+  'sunburstChart',
+  'comboChart',
+] as const;
 export type ChartName = (typeof chartNames)[number];
 
 export const referencePath = (name: string) =>
@@ -18,19 +45,20 @@ export const tagLabels: Readonly<Record<string, string>> = {
   gradient: 'Gradients',
 };
 
-export type Switch = { prop: string; label: string } & (
-  | { kind: 'boolean'; value: boolean }
-  | { kind: 'choice'; values: readonly string[]; value: string }
-);
+type OneTarget =
+  | { kind: 'boolean'; value: boolean; puts?: { on: unknown; off: unknown } }
+  | { kind: 'choice'; values: readonly string[]; value: string; puts?: Readonly<Record<string, unknown>> };
+
+/** What an easy switch gives its prop for each UI value: a literal, a node or `omit`; the UI value itself when left out. Or, with `sets` in place of a prop, the puts each UI value makes. */
+export type Switch =
+  | ({ prop: string; label: string; sets?: never } & OneTarget)
+  | ({ id: string; label: string; prop?: never } & Several<{ prop: string; value: unknown }>);
 
 export type Put = { target: string; value: unknown };
 
 /** What a plot switch puts at its target for each UI value: a literal, a node or `omit`; the UI value itself when left out. Or, with `sets` in place of a target, the puts each UI value makes. */
 export type PlotSwitch = { id: string; label: string } & (
-  | ({ target: string; sets?: never } & (
-      | { kind: 'boolean'; value: boolean; puts?: { on: unknown; off: unknown } }
-      | { kind: 'choice'; values: readonly string[]; value: string; puts?: Readonly<Record<string, unknown>> }
-    ))
+  | ({ target: string; sets?: never } & OneTarget)
   | ({ target?: never } & Several<Put>)
 );
 
@@ -76,8 +104,11 @@ type Page = {
 export type EasyExample = Page & {
   kind?: 'easy';
   chart: ChartName;
-  data: RowsData;
+  data: Data;
   props: Record<string, unknown>;
+  live?: Tree['live'];
+  /** Leaves `colors` to the chart, for one with more categories than the site has colours. */
+  palette?: true;
   switches: readonly Switch[];
 };
 
@@ -94,15 +125,28 @@ export type State = Record<string, unknown>;
 
 const SLUG = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 
-export const switchKey = (s: Switch | PlotSwitch) => ('prop' in s ? s.prop : s.id);
+export const switchKey = (s: Switch | PlotSwitch) =>
+  'prop' in s && s.prop !== undefined ? s.prop : (s as { id: string }).id;
 
-/** The puts a plot switch makes at the UI value `value`. */
-export function putsOf(s: PlotSwitch, value: unknown): readonly Put[] {
+/** The puts a switch makes at the UI value `value`: an easy switch's target is its prop. */
+export function putsOf(s: Switch | PlotSwitch, value: unknown): readonly Put[] {
   const key = typeof value === 'boolean' ? (value ? 'on' : 'off') : String(value);
-  if (s.target === undefined) return (s.sets as Readonly<Record<string, readonly Put[]>>)[key] ?? [];
+  if (s.sets) {
+    const sets: Readonly<Record<string, readonly (Put | { prop: string; value: unknown })[]>> = s.sets;
+    if (!Object.hasOwn(sets, key)) return [];
+    return sets[key]!.map(p => ('prop' in p ? { target: p.prop, value: p.value } : p));
+  }
   const puts: Readonly<Record<string, unknown>> | undefined = s.puts;
-  return [{ target: s.target, value: puts && Object.hasOwn(puts, key) ? puts[key] : value }];
+  const target = 'prop' in s ? s.prop : s.target;
+  return [{ target, value: puts && Object.hasOwn(puts, key) ? puts[key] : value }];
 }
+
+export const targetsOf = (s: Switch | PlotSwitch): string[] =>
+  s.sets
+    ? Object.values(s.sets)
+        .flat()
+        .map(p => ('prop' in p ? p.prop : p.target))
+    : ['prop' in s ? s.prop : s.target];
 
 const settings = (s: Switch | PlotSwitch): unknown[] =>
   s.kind === 'boolean' ? [s.value, !s.value] : [s.value, ...s.values.filter(v => v !== s.value)];
@@ -149,7 +193,8 @@ export function example(input: Example): Example {
     const key = switchKey(s);
     if (seen.has(key)) fail(`duplicate switch "${key}"`);
     seen.add(key);
-    if ('target' in s && 'sets' in s) fail(`switch "${key}" has both a target and sets`);
+    for (const one of ['target', 'prop'])
+      if (one in s && 'sets' in s) fail(`switch "${key}" has both a ${one} and sets`);
     if (s.kind === 'choice' && !s.values.includes(s.value))
       fail(`switch "${key}" starts at "${s.value}", which is not among ${JSON.stringify(s.values)}`);
     const byValue = s.kind !== 'choice' ? undefined : 'sets' in s ? s.sets : 'puts' in s ? s.puts : undefined;
@@ -161,22 +206,28 @@ export function example(input: Example): Example {
         if (!Object.hasOwn(byValue, v)) fail(`switch "${key}" puts nothing for its value "${v}"`);
     }
   }
-  if (input.kind === 'plot') {
-    if (input.data.kind === 'json' && !isJson(input.data.value))
-      fail(`the data in ${input.data.file} holds a value JSON cannot carry`);
-    if (input.tree.live && input.data.kind === 'json') fail('a live block steps rows, not JSON data');
-    const duplicate = checkIds(input.tree);
-    if (duplicate) fail(duplicate);
-    for (const state of checkedStates(input.switches)) {
-      let tree: Tree;
+  if (input.data.kind === 'json') {
+    if (!isJson(input.data.value)) fail(`the data in ${input.data.file} holds a value JSON cannot carry`);
+    if (input.kind === 'plot' ? input.tree.live : input.live) fail('a live block steps rows, not JSON data');
+  }
+  const duplicate = input.kind === 'plot' && checkIds(input.tree);
+  if (duplicate) fail(duplicate);
+  for (const state of checkedStates(input.switches)) {
+    const resolved = <T>(make: () => T): T => {
       try {
-        tree = resolve(input, state);
+        return make();
       } catch (error) {
         return fail(`in ${JSON.stringify(state)}, ${(error as Error).message}`);
       }
+    };
+    if (input.kind === 'plot') {
+      const tree = resolved(() => resolve(input, state));
       const problem = checkIds(tree);
       if (problem) fail(`in ${JSON.stringify(state)}, ${problem}`);
       evaluate(tree, input.data, input.id);
+    } else {
+      const { data: _, ...props } = resolved(() => resolve(input, state));
+      evaluateProps(props, input.data, input.id);
     }
   }
   return input;
@@ -194,29 +245,16 @@ export function registry(examples: readonly Example[]): ReadonlyMap<string, Exam
 export function resolve(definition: EasyExample, state: State): Record<string, unknown>;
 export function resolve(definition: PlotExample, state: State): Tree;
 export function resolve(definition: Example, state: State): Record<string, unknown> | Tree {
+  const puts = definition.switches.flatMap((s: Switch | PlotSwitch) => {
+    const key = switchKey(s);
+    return putsOf(s, Object.hasOwn(state, key) ? state[key] : s.value);
+  });
   if (definition.kind === 'plot')
-    return definition.switches.reduce(
-      (tree, s) =>
-        putsOf(s, Object.hasOwn(state, s.id) ? state[s.id] : s.value).reduce(
-          (t, p) => put(t, p.target, p.value),
-          tree,
-        ),
-      definition.tree,
-    );
-  const props: Record<string, unknown> = { data: definition.data.rows, ...definition.props };
-  for (const s of definition.switches) {
-    const value = Object.hasOwn(state, s.prop) ? state[s.prop] : s.value;
-    const path = s.prop.split('.');
-    const last = path.pop()!;
-    let target = props;
-    for (const key of path) {
-      const copy = { ...(target[key] as Record<string, unknown> | undefined) };
-      target[key] = copy;
-      target = copy;
-    }
-    target[last] = value;
-  }
-  return props;
+    return puts.reduce((tree, p) => put(tree, p.target, p.value), definition.tree);
+  return puts.reduce<Record<string, unknown>>(
+    (props, p) => setIn(props, p.target.split('.'), p.value, p.target),
+    { data: contents(definition.data), ...definition.props },
+  );
 }
 
 export function fromQuery(definition: Example, query: URLSearchParams): State {

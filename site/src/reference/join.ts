@@ -1,5 +1,5 @@
 import { plain } from 'swiftplot/charts';
-import type { EasyExample, Example, PlotExample } from '../examples/define';
+import { targetsOf, type EasyExample, type Example, type PlotExample } from '../examples/define';
 import { evaluator, isNode } from '../examples/tree';
 import type { Entry, Fn, Line } from './extract';
 
@@ -12,12 +12,15 @@ const keys = (args: unknown) => (plain(args) && !isNode(args) ? Object.keys(args
 export const rows = (line: Line) => !line.shape || line.shape === 'rows';
 
 function easyPaths(e: EasyExample, entries: readonly Entry[]): Path[] {
+  const nested = (key: string) => entries.some(r => r.name.startsWith(`${key}.`));
   const paths = Object.entries(e.props).flatMap(([key, value]) =>
-    plain(value) && Object.keys(value).length && entries.some(r => r.name.startsWith(`${key}.`))
-      ? Object.keys(value).map(k => `${key}.${k}`)
-      : [key],
+    keys(value).length && nested(key) ? keys(value).map(k => `${key}.${k}`) : [key],
   );
-  return [...paths, ...e.switches.map(s => s.prop)].map(path => [e.chart, path, rows]);
+  const switched = e.switches.flatMap(targetsOf).map(target => {
+    const [key] = target.split('.') as [string];
+    return nested(key) ? target : key;
+  });
+  return [...paths, ...switched].map(path => [e.chart, path, rows]);
 }
 
 /** `<mark>.<arg>` and `<feature>.<arg>`: the arguments the tree gives, then those its switches target. */
@@ -25,10 +28,7 @@ function plotPaths({ id, tree, data, switches }: PlotExample, api: Api): Path[] 
   const nodes = [...tree.marks, ...(tree.use ?? [])];
   type Node = (typeof nodes)[number];
   const page = (n: Node) => (n.node === 'mark' ? n.mark : n.feature);
-  const targets = switches.flatMap(s =>
-    s.target !== undefined ? [s.target] : Object.values(s.sets).flatMap(puts => puts.map(p => p.target)),
-  );
-  const targeted = targets.flatMap(target => {
+  const targeted = switches.flatMap(targetsOf).flatMap(target => {
     const [node, ...path] = target.split('.');
     const n = nodes.find(n => n.id === node);
     if (!n || !path.length || (n.node === 'feature' && target === `${node}.on`)) return [];
