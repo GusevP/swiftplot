@@ -79,7 +79,8 @@ Every chart takes:
 | `theme` | `'auto' \| 'light' \| 'dark' \| Theme` | `'auto'` (default) follows the page's CSS `color-scheme` |
 | `tooltip` | `boolean` | default on |
 | `legend` | `boolean \| { toggle?, rows? }` | default on with two or more series or named parts; on a heatmap, the strip of its colours. Does nothing on `sankeyChart`, `treemapChart`, `sunburstChart` and on the charts of one series (`histogramChart`, `boxPlotChart`, `candlestickChart`) |
-| `animate` | `boolean \| { duration?, enter? }` | default off |
+| `animate` | `boolean \| { duration?, enter? }` | default on: marks are revealed on the first paint and move or cross-fade when the data changes. `false` draws at once |
+| `dim` | `number \| false` | default `0.3`: the opacity of everything else while one series, or one part of a single series, is pointed at. `false` leaves it |
 | `width`, `height` | `number` (px) | default: follow the container |
 | `margin` | `{ top?, right?, bottom?, left? }` | |
 | `description` | `string` | accessible description |

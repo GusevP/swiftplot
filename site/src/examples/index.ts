@@ -1,9 +1,11 @@
 import areaStacked from './area-stacked';
+import axisTicks from './axis-ticks';
 import barGrouped from './bar-grouped';
 import boxPlot from './box-plot';
 import bubbles from './bubbles';
 import candlesticks from './candlesticks';
-import { registry } from './define';
+import { registry, type Example, type ScriptedExample } from './define';
+import { scripted } from './scripted/index';
 import errorBars from './error-bars';
 import funnel from './funnel';
 import guideAnnotated from './guide-annotated';
@@ -13,6 +15,8 @@ import guidePlot from './guide-plot';
 import guideTicks from './guide-ticks';
 import guideTwoAxes from './guide-two-axes';
 import heatmap from './heatmap';
+import legendRows from './legend-rows';
+import lineGaps from './line-gaps';
 import histogram from './histogram';
 import landingFeatures from './landing-features';
 import lineAnnotated from './line-annotated';
@@ -38,6 +42,9 @@ export const examples = registry([
   lineLongData,
   lineAnnotated,
   lineLog,
+  lineGaps,
+  axisTicks,
+  legendRows,
   lineBrush,
   lineLive,
   twoYAxes,
@@ -59,6 +66,10 @@ export const examples = registry([
   heatmap,
   candlesticks,
 ]);
+
+export { scripted };
+/** Every example the site lists, in the order it lists them. */
+export const listed: readonly (Example | ScriptedExample)[] = [...examples.values(), ...scripted];
 
 export const unlisted = [
   landingFeatures,

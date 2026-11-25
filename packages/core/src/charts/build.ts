@@ -45,13 +45,19 @@ export const on = <T extends object>(v: boolean | T | undefined): T | false =>
   v === true ? ({} as T) : v || false;
 
 export const sizeOf = (p: Base) =>
-  defined({ width: p.width, height: p.height, margin: p.margin, description: p.description });
+  defined({
+    width: p.width,
+    height: p.height,
+    margin: p.margin,
+    description: p.description,
+    dim: p.dim === false ? 1 : (p.dim ?? 0.3),
+  });
 
 export const featuresOf = (p: Base & Pick<Axes, 'zoom'>, listed: number) => ({
   tooltip: p.tooltip !== false,
   legend: p.legend !== false && listed >= 2 && (typeof p.legend === 'object' ? p.legend : {}),
   zoom: on(p.zoom),
-  animate: on(p.animate),
+  animate: on(p.animate ?? true),
 });
 
 export const install = (f: ReturnType<typeof featuresOf>, tip: TooltipOptions): Feature[] =>

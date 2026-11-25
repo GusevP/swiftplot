@@ -344,11 +344,13 @@ test('each feature switch changes what it should, and the code with it', async (
   await expect(entries).toHaveCount(0);
   expect(await shown()).toContain('legend: false');
 
+  await pixelsOverFrames(page, 'Animation');
+  expect(await shown()).toContain('animate: false');
   const atOnce = await pixelsOverFrames(page, 'Tooltip');
   expect(new Set(atOnce.slice(2)).size).toBe(1);
   const revealed = await pixelsOverFrames(page, 'Animation');
   expect(Math.min(...revealed)).toBeLessThan(Math.max(...revealed) * 0.8);
-  expect(await shown()).toContain('animate: true');
+  expect(await shown()).not.toContain('animate');
 
   expect(errors).toEqual([]);
 });

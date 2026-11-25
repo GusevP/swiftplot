@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { examples } from '../../src/examples/index';
+import { listed } from '../../src/examples/index';
 import { countWebgl, expectChartDrawn, liveWebgl, peakWebgl, watch } from './charts';
 
 const cards = '.cards a';
@@ -13,7 +13,7 @@ test('/examples marks Examples in the top bar, and every card draws its chart in
 
   await page.goto('/examples');
   await expect(page.locator('nav[aria-label="Main"] [aria-current="page"]')).toHaveText(['Examples']);
-  await expect(page.locator(cards)).toHaveCount(examples.size);
+  await expect(page.locator(cards)).toHaveCount(listed.length);
   for (const chart of await page.locator(`${cards} .chart`).all()) await expectChartDrawn(page, chart);
   expect(await peakWebgl(page)).toBeGreaterThanOrEqual(1);
   expect(await peakWebgl(page)).toBeLessThanOrEqual(8);
@@ -62,7 +62,7 @@ test('a filter hides the cards without its tag and the groups left empty', async
   await expect(page.locator('.group:visible h2')).toHaveText(['Area', 'Bar']);
 
   await page.getByRole('button', { name: 'All', exact: true }).click();
-  await expect(page.locator(`${cards}:visible`)).toHaveCount(examples.size);
+  await expect(page.locator(`${cards}:visible`)).toHaveCount(listed.length);
   await expect(page.getByRole('button', { name: 'Stacked', exact: true })).toHaveAttribute(
     'aria-pressed',
     'false',
@@ -77,11 +77,11 @@ test('every card links to its example page, which loads with no error', async ({
   page.on('pageerror', error => errors.push(error.message));
   await page.goto('/examples');
   const links = await page.locator(cards).evaluateAll(as => as.map(a => a.getAttribute('href')!));
-  expect(links).toHaveLength(examples.size);
+  expect(links).toHaveLength(listed.length);
   for (const href of links) {
     expect(href).toMatch(/^\/examples\/[a-z-]+$/);
     expect((await page.goto(href))?.status(), href).toBe(200);
-    await expect(page.locator('[data-example] .chart canvas').first()).toBeAttached();
+    await expect(page.locator(':is([data-example], [data-scripted]) .chart canvas').first()).toBeAttached();
   }
   expect(errors).toEqual([]);
 });

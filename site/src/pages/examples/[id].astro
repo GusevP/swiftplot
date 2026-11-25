@@ -5,36 +5,43 @@ import ExampleData from '../../components/ExampleData.astro';
 import Install from '../../components/Install.astro';
 import Pager from '../../components/Pager.astro';
 import Prose from '../../components/Prose.astro';
-import { defaults } from '../../codegen/index';
-import { referencePath, registry, type Example } from '../../examples/define';
+import Code from '../../components/Code.astro';
+import { defaults, frameworks } from '../../codegen/index';
+import { tokenize } from '../../codegen/tokens';
+import { scriptedCode } from '../../examples/scripted/code';
+import { referencePath, registry, type Example, type ScriptedExample } from '../../examples/define';
 import { fixtures } from '../../examples/fixtures';
-import { examples } from '../../examples/index';
+import { examples, listed, scripted } from '../../examples/index';
 import Docs from '../../layouts/Docs.astro';
 import { api, pages, reference } from '../../reference/index';
 import { join, rows } from '../../reference/join';
 
 export function getStaticPaths() {
-  return [...registry([...examples.values(), ...fixtures]).values()].map(definition => ({
+  return [...registry([...examples.values(), ...fixtures]).values(), ...scripted].map(definition => ({
     params: { id: definition.id },
     props: { definition },
   }));
 }
 
 interface Props {
-  definition: Example;
+  definition: Example | ScriptedExample;
 }
 
-const { definition } = Astro.props;
-const entries = definition.kind === 'plot' ? [] : reference[definition.chart];
+const { definition: shown } = Astro.props;
+const hand = shown.kind === 'scripted' ? shown : undefined;
+const definition = shown.kind === 'scripted' ? undefined : shown;
+const entries = !definition || definition.kind === 'plot' ? [] : reference[definition.chart];
 const chartDefaults = defaults(entries);
-const options = [
-  ...(definition.kind === 'plot'
-    ? []
-    : entries.filter(e => e.name === 'data').map(entry => ({ page: definition.chart, entry, lines: entry.lines.filter(rows) }))),
-  ...join([definition], pages, api).get(definition.id)!,
-];
+const options = !definition
+  ? []
+  : [
+      ...(definition.kind === 'plot'
+        ? []
+        : entries.filter(e => e.name === 'data').map(entry => ({ page: definition.chart, entry, lines: entry.lines.filter(rows) }))),
+      ...join([definition], pages, api).get(definition.id)!,
+    ];
 
-const all = [...examples.values()];
+const all = listed;
 const groups = [...new Set(all.map(e => e.group))];
 const sidebar = [
   ...groups.map(group => ({
@@ -43,36 +50,50 @@ const sidebar = [
   })),
   { label: 'More', links: [{ href: '/examples', label: 'All examples' }] },
 ];
-const siblings = all.filter(e => e.group === definition.group);
-const at = siblings.indexOf(definition);
+const siblings = all.filter(e => e.group === shown.group);
+const at = siblings.indexOf(shown);
 const previous = siblings[at - 1];
 const next = siblings[at + 1];
 
 const sections = [
   { id: 'code', label: 'Code' },
-  ...(definition.notes.length ? [{ id: 'notes', label: 'Notes' }] : []),
+  ...(shown.notes.length ? [{ id: 'notes', label: 'Notes' }] : []),
   ...(options.length ? [{ id: 'options', label: 'Options used' }] : []),
-  { id: 'data', label: 'Data' },
+  ...(definition ? [{ id: 'data', label: 'Data' }] : []),
 ];
 ---
 
-<Docs title={`${definition.title} · swiftplot`} sidebar={sidebar} sections={sections}>
-  <h1>{definition.title}</h1>
-  <p class="intro">{definition.summary}</p>
+<Docs title={`${shown.title} · swiftplot`} sidebar={sidebar} sections={sections}>
+  <h1>{shown.title}</h1>
+  <p class="intro">{shown.summary}</p>
   <div data-scope>
-    <ExampleDemo definition={definition} defaults={chartDefaults} />
+    {
+      definition ? (
+        <ExampleDemo definition={definition} defaults={chartDefaults} />
+      ) : (
+        <div class="demo" data-scripted={shown.id}>
+          <div class="chart" />
+        </div>
+      )
+    }
 
     <h2 id="code">Code</h2>
     <Install />
-    <ExampleCode definition={definition} defaults={chartDefaults} live />
+    {definition && <ExampleCode definition={definition} defaults={chartDefaults} live />}
+    {
+      hand &&
+        (Object.keys(frameworks) as (keyof typeof frameworks)[]).map(fw => (
+          <Code label={frameworks[fw].file} tokens={tokenize(scriptedCode[hand.id]![fw])} for={fw} />
+        ))
+    }
   </div>
 
   {
-    definition.notes.length > 0 && (
+    shown.notes.length > 0 && (
       <>
         <h2 id="notes">Notes</h2>
         <ul>
-          {definition.notes.map(n => (
+          {shown.notes.map(n => (
             <li>{n}</li>
           ))}
         </ul>
@@ -92,7 +113,7 @@ const sections = [
                 <tr>
                   <td>
                     <a href={`${referencePath(page)}#${e.name}`}>
-                      <code>{definition.kind === 'plot' ? `${page}.${e.name}` : e.name}</code>
+                      <code>{definition?.kind === 'plot' ? `${page}.${e.name}` : e.name}</code>
                     </a>
                   </td>
                   <td><Prose text={[...new Set(lines.map(l => l.description))].join(' ')} /></td>
@@ -105,11 +126,24 @@ const sections = [
     )
   }
 
-  <h2 id="data">Data</h2>
-  <ExampleData data={definition.data} />
+  {
+    definition && (
+      <>
+        <h2 id="data">Data</h2>
+        <ExampleData data={definition.data} />
+      </>
+    )
+  }
 
   <Pager
     previous={previous && { href: `/examples/${previous.id}`, title: previous.title }}
     next={next && { href: `/examples/${next.id}`, title: next.title }}
   />
 </Docs>
+
+<script>
+  import { loadScripted } from '../../charts/mount';
+
+  for (const demo of document.querySelectorAll<HTMLElement>('[data-scripted]'))
+    void loadScripted(demo.dataset.scripted!).then(mount => mount(demo.querySelector<HTMLElement>('.chart')!));
+</script>

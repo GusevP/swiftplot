@@ -81,6 +81,7 @@ const base = {
   tooltip: bool,
   legend: flag,
   animate: flag,
+  dim: { type: [Number, Boolean], default: undefined },
   width: null,
   height: null,
   margin: null,

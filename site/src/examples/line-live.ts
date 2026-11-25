@@ -28,7 +28,7 @@ export default example({
   switches: [{ prop: 'animate', label: 'Animate', kind: 'boolean', value: true }],
   notes: [
     'A timer gives the chart new rows every second, and stops when the chart goes away.',
-    'animate moves or cross-fades the marks between updates; without it each update shows at once.',
+    'A chart animates unless told not to: it moves or cross-fades the marks between updates, and with animate: false each update shows at once.',
     "xAxis takes domain: 'data', so the axis ends at the oldest and the newest reading rather than at whole steps.",
     'step drops the oldest reading and adds it again a minute later, so the readings repeat every minute.',
     'The readings are made up for this page.',

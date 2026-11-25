@@ -207,6 +207,29 @@ function mountEasy(el: HTMLElement, definition: EasyExample, state: State, legen
   };
 }
 
+const scripts = import.meta.glob<{ mount(el: HTMLElement): { destroy(): void } }>(
+  '../examples/scripted/*/chart.js',
+);
+
+/** A hand-written example: the mount of its chart.js, made again when the theme changes, as its charts follow the page's. */
+export async function loadScripted(id: string): Promise<(el: HTMLElement) => { destroy(): void }> {
+  const script = await scripts[`../examples/scripted/${id}/chart.js`]!();
+  return el => {
+    let made = script.mount(el);
+    const watch = new MutationObserver(() => {
+      made.destroy();
+      made = script.mount(el);
+    });
+    watch.observe(root, { attributes: true, attributeFilter: ['data-theme'] });
+    return {
+      destroy() {
+        watch.disconnect();
+        made.destroy();
+      },
+    };
+  };
+}
+
 export function mountExample(
   el: HTMLElement,
   definition: Example,

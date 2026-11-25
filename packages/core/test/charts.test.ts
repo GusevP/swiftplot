@@ -1539,7 +1539,9 @@ test("theme 'auto' follows a media change with the theme and its palette, and de
   expect(media.listeners.size).toBe(0);
 });
 
-const BOX = { width: 100, height: 100, margin: ZERO };
+const SIZE = { width: 100, height: 100, margin: ZERO };
+// Drawn at once: these tests read pixels straight after the chart is made.
+const BOX = { ...SIZE, animate: false };
 const days = <T extends object>(n: number, f: (i: number) => T) =>
   Array.from({ length: n }, (_, i) => ({ date: `2024-01-${String(i + 1).padStart(2, '0')}`, ...f(i) }));
 const tipRows = (el: HTMLElement) => {
@@ -1572,6 +1574,16 @@ const builds_ = <D extends Input | undefined = undefined>(
   return { el, c, seen };
 };
 const optionsOf = (m: Mark) => m.options as { x: Col; y: Col; color: string; curve?: string; join?: boolean };
+
+test('an easy chart animates and dims the rest on hover unless told not to', () => {
+  const data = days(5, () => ({ api: 0.5, web: 0.25 }));
+  const lively = lineChart.spec({ data });
+  const still = lineChart.spec({ data, animate: false, dim: false });
+  expect(lively.dim).toBe(0.3);
+  expect(still.dim).toBe(1);
+  expect(lineChart.spec({ data, dim: 0.6 }).dim).toBe(0.6);
+  expect(lively.use!.length).toBe(still.use!.length + 1);
+});
 
 test('lineChart guesses the fields and draws two lines with a legend and an x tooltip', () => {
   const el = host();
@@ -1852,7 +1864,7 @@ test('areaChart fills one y from zero, and two y overlap at half alpha', () => {
 
 test('areaChart stack: true lays the second on the first, hiding the first re-lays it, and the tooltip shows own values', () => {
   const el = host();
-  const props = { data: days(5, () => ({ a: 0.25, b: 0.5 })), width: 100, height: 200, margin: ZERO };
+  const props = { data: days(5, () => ({ a: 0.25, b: 0.5 })), ...BOX, height: 200 };
   areaChart(el, { ...props, stack: true, colors: [RED, BLUE], yAxis: { domain: [0, 1] } });
   const before = columnOf(el, 50);
   const [a, b] = [tall(before, RED), tall(before, BLUE)];
@@ -3892,7 +3904,7 @@ test.each(partCharts)(
     expect(partOf(chart.spec(props)).colors).toEqual(palette.slice(0, 2));
     expect(partOf(chart.spec({ ...props, theme: 'dark' })).colors).toEqual(paletteDark.slice(0, 2));
     expect(partOf(chart.spec({ ...props, colors: [RED] })).colors).toEqual([RED, RED]);
-    const given = { ...BOX, description: 'visits', hidden: ['visits'] };
+    const given = { ...SIZE, description: 'visits', hidden: ['visits'] };
     expect(chart.spec({ ...props, ...given })).toMatchObject(given);
   },
 );
@@ -4154,7 +4166,7 @@ test('radarChart passes max and fill to the mark, colours wrap, and the chart pr
   ]);
   const onDark = radarOf(radarChart.spec({ data: ratings(), theme: 'dark' }));
   expect(onDark.shapes.map(s => s.color)).toEqual(paletteDark.slice(0, 2));
-  const given = { ...BOX, description: 'phones', hidden: ['a'] };
+  const given = { ...SIZE, description: 'phones', hidden: ['a'] };
   expect(radarChart.spec({ ...props, ...given })).toMatchObject(given);
 });
 
@@ -4170,7 +4182,14 @@ test('radarChart lists two or more shapes in a legend unless it is false, and hi
 
   const el = host();
   const onHiddenChange = vi.fn();
-  radarChart(el, { data: ratings(), width: 300, height: 300, colors: [RED, BLUE], onHiddenChange });
+  radarChart(el, {
+    data: ratings(),
+    width: 300,
+    height: 300,
+    animate: false,
+    colors: [RED, BLUE],
+    onHiddenChange,
+  });
   expect(shows(el, RED)).toBe(true);
   hideFirst(el);
   expect(onHiddenChange).toHaveBeenCalledWith(['a']);
@@ -4464,13 +4483,13 @@ test('heatmapChart colours by the scale given and shows its strip unless legend 
   expect(gridOf(heatmapChart.spec(props)).color).toBe(color);
   expect(gridOf(heatmapChart.spec({ data: loads() })).color).toBeUndefined();
   const el = host();
-  heatmapChart(el, { ...props, width: 300, height: 300 });
+  heatmapChart(el, { ...props, width: 300, height: 300, animate: false });
   expect([shows(el, RED), shows(el, BLUE)]).toEqual([true, true]);
   expect(legendOf(el)).toBe('requests 14');
   const bare = host();
   heatmapChart(bare, { ...props, width: 300, height: 300, legend: false });
   expect(legendOf(bare)).toBe('');
-  const given = { ...BOX, description: 'load', hidden: ['requests'] };
+  const given = { ...SIZE, description: 'load', hidden: ['requests'] };
   expect(heatmapChart.spec({ ...props, ...given })).toMatchObject(given);
 });
 
@@ -5855,7 +5874,7 @@ test('comboChart bars of an unsorted x with gaps are clicked, selected and hover
     }
     const [plain, picked] = [host(), host()];
     comboChart(plain, { ...props, stack });
-    comboChart(picked, { ...props, stack, selected: [{ id: 'v', rows: [1] }] });
+    comboChart(picked, { ...props, stack, dim: false, selected: [{ id: 'v', rows: [1] }] });
     const differs = (from: number) =>
       [...Array(33).keys()].some(i => !near(pixel(plain, from + i, 95), pixel(picked, from + i, 95)));
     expect([0, 33, 66].map(differs)).toEqual([false, false, true]);
@@ -5882,7 +5901,7 @@ test('comboChart bars on a text x with a gap are clicked and selected by their r
       click(el, px, 95);
       expect(onClick.mock.lastCall![0]).toMatchObject({ row });
     }
-    comboChart(picked, { ...props, stack, selected: [{ id: 'v', rows: [1] }] });
+    comboChart(picked, { ...props, stack, dim: false, selected: [{ id: 'v', rows: [1] }] });
     const differs = (from: number) =>
       [...Array(50).keys()].some(i => !near(pixel(el, from + i, 95), pixel(picked, from + i, 95)));
     expect([0, 50].map(differs)).toEqual([true, false]);

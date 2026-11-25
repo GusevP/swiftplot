@@ -14,7 +14,7 @@ export default example({
     { prop: 'tooltip', label: 'Tooltip', kind: 'boolean', value: true },
     { prop: 'legend', label: 'Legend', kind: 'boolean', value: true },
     { prop: 'zoom', label: 'Zoom and pan', kind: 'boolean', value: false },
-    { prop: 'animate', label: 'Animation', kind: 'boolean', value: false },
+    { prop: 'animate', label: 'Animation', kind: 'boolean', value: true },
   ],
   notes: [],
 });

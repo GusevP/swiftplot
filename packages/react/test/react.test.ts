@@ -22,7 +22,13 @@ type Row = { x: number; a: number };
 const red = (p: number[]) => p[0]! > 200 && p[1]! < 120 && p[2]! < 120;
 const ZERO = { top: 0, right: 0, bottom: 0, left: 0 };
 const rows = (f: (x: number) => number): Row[] => Array.from({ length: 11 }, (_, x) => ({ x, a: f(x) }));
-const look = { colors: ['#ff0000'], yAxis: { domain: [0, 1] as [number, number] }, margin: ZERO };
+// Drawn at once: these tests read pixels straight after the chart is made.
+const look = {
+  colors: ['#ff0000'],
+  yAxis: { domain: [0, 1] as [number, number] },
+  margin: ZERO,
+  animate: false,
+};
 const canvasOf = (el: HTMLElement) => el.querySelector('canvas')!;
 const heightOf = (el: HTMLElement) => [el.clientHeight, canvasOf(el).style.height];
 
@@ -131,7 +137,14 @@ test('bind(pieChart) draws its parts, redraws new data and follows a prop of its
     { page: 'one', visits: a },
     { page: 'two', visits: b },
   ];
-  const props = { width: 100, height: 100, margin: ZERO, colors: ['#ff0000', '#0000ff'], legend: false };
+  const props = {
+    width: 100,
+    height: 100,
+    margin: ZERO,
+    colors: ['#ff0000', '#0000ff'],
+    legend: false,
+    animate: false,
+  };
   const pie = (data: ReturnType<typeof parts>, inner?: number) =>
     h(PieChart<ReturnType<typeof parts>>, { ...props, data, text: false, inner });
   const redAt = (el: HTMLElement) => [red(pixel(el, 60, 40)), red(pixel(el, 78, 78)), red(pixel(el, 30, 50))];

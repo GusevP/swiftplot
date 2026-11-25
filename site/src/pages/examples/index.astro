@@ -1,10 +1,10 @@
 ---
 import Cards from '../../components/Cards.astro';
 import { tagLabels } from '../../examples/define';
-import { examples } from '../../examples/index';
+import { listed } from '../../examples/index';
 import Docs from '../../layouts/Docs.astro';
 
-const all = [...examples.values()];
+const all = listed;
 const slug = (group: string) => group.toLowerCase().replaceAll(' ', '-');
 const groups = Array.from(Map.groupBy(all, e => e.group), ([label, cards]) => ({ id: slug(label), label, cards }));
 const tags = [...new Set(all.flatMap(e => e.tags))];

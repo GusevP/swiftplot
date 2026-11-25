@@ -1,6 +1,6 @@
 import root from '../../llms.txt?raw';
 import { chartNames, referencePath } from './examples/define';
-import { examples } from './examples/index';
+import { listed } from './examples/index';
 import { featureNames, markNames } from './examples/tree';
 import { api, intros, scalesIntro } from './reference/index';
 
@@ -27,7 +27,7 @@ export function llms(site: URL, guides: readonly Guide[]): string {
     ]),
     section(
       'Examples',
-      [...examples.values()].map(e => link(e.title, `/examples/${e.id}`, e.summary)),
+      listed.map(e => link(e.title, `/examples/${e.id}`, e.summary)),
     ),
     section('Optional', [link('Changelog', '/changelog', 'what changed in each version')]),
   ].join('\n');

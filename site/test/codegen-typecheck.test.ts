@@ -13,7 +13,8 @@ import {
   type Example,
   type State,
 } from '../src/examples/define';
-import { examples, unlisted } from '../src/examples/index';
+import { examples, scripted, unlisted } from '../src/examples/index';
+import { scriptedCode } from '../src/examples/scripted/code';
 import { contents } from '../src/examples/tree';
 import { reference } from '../src/reference/index';
 import type { Framework } from '../src/scripts/preferences';
@@ -71,6 +72,9 @@ test(
     mkdirSync(root);
     for (const e of [...examples.values(), ...unlisted, ...definitions])
       checkedStates(e.switches).forEach((state, i) => write(e, `${e.id}--${i}`, state));
+    for (const s of scripted)
+      for (const [fw, extension] of Object.entries(extensions) as [Framework, string][])
+        put(`scripted--${s.id}${extension}`, scriptedCode[s.id]![fw]);
     for (const chart of [...chartNames, 'plot'] as const)
       put(`signature--${chart}.vue`, text(signature('vue', chart)));
     put('rows.json', JSON.stringify([{ name: 'a', day: '2026-11-01', value: 1 }]));

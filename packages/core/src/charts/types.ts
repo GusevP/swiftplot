@@ -135,8 +135,10 @@ export type Base = {
   tooltip?: boolean;
   /** The legend, which hides and shows series, or its options; shown with two or more series. @default true */
   legend?: boolean | LegendOptions;
-  /** Animation, or its options. @default false */
+  /** Animation, or its options: marks are revealed on the first paint and move or cross-fade when the data changes. @default true */
   animate?: boolean | AnimateOptions;
+  /** The opacity of everything else while one series, or one part of a single series, is pointed at; `false` leaves it as it is. @default 0.3 */
+  dim?: number | false;
   /** Width in CSS pixels; the chart follows its container when it is left out. */
   width?: number;
   /** Height in CSS pixels; the chart follows its container when it is left out. */

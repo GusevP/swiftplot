@@ -694,14 +694,13 @@ if (el) {
       expect(source).toContain('r.s + rows.length');
       expect(source).toContain('setInterval');
       expect(source).toContain('clearInterval(timer)');
-      expect(source.includes('animate')).toBe(on);
+      expect(source.includes('animate')).toBe(!on);
     }
     expect(print('line-live')[0]).toContain(`  const chart = lineChart(el, {
     data,
     xAxis: { label: 'Seconds', domain: 'data' },
     yAxis: { label: 'Reading', domain: [0, 100] },
     colors: ['#0891b2'],
-    animate: true,
   });`);
 
     expect(print('strip-plot')).toEqual([

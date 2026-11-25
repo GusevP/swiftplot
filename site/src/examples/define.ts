@@ -42,6 +42,7 @@ export const tagLabels: Readonly<Record<string, string>> = {
   zoom: 'Zoom',
   large: 'Large data',
   share: 'Part of a whole',
+  click: 'Clicks and the pointer',
   gradient: 'Gradients',
 };
 
@@ -120,6 +121,9 @@ export type PlotExample = Page & {
 };
 
 export type Example = EasyExample | PlotExample;
+
+/** An example written by hand, where state and handlers need it: the page shows each of its files as it is and runs chart.js. */
+export type ScriptedExample = Page & { kind: 'scripted' };
 
 export type State = Record<string, unknown>;
 

@@ -60,20 +60,21 @@ chart.destroy();
 
 - **Defaults:**
 
-  | Thing               | Default                                                                   | Override                               |
-  | ------------------- | ------------------------------------------------------------------------- | -------------------------------------- |
-  | Axis labels         | the field's name; none for the row index, an accessor or several y fields | `xAxis.label`, `yAxis.label`           |
-  | Colours             | `palette` in order, `paletteDark` on the dark theme                       | `colors`                               |
-  | Tooltip             | on; text in the y axis format, else two decimals at most                  | `tooltip: false`                       |
-  | Legend              | on with two or more series or named parts; a heatmap's strip of colours   | `legend: false` or `legend()` options  |
-  | Zoom                | off                                                                       | `zoom: true` or `zoom()` options       |
-  | Animation           | off                                                                       | `animate: true` or `animate()` options |
-  | Theme               | follows the page                                                          | `theme: 'light' \| 'dark' \| Theme`    |
-  | Size                | follows the container                                                     | `width`, `height`, `margin`            |
-  | Several y on areas  | overlapping, half transparent                                             | `stack: true`                          |
-  | Several y on bars   | side by side                                                              | `stack: true`                          |
-  | Line and area shape | straight, with gaps                                                       | `curve`, `join`                        |
-  | Scatter radius      | 4 px                                                                      | `r`: a number or a field               |
+  | Thing               | Default                                                                   | Override                                |
+  | ------------------- | ------------------------------------------------------------------------- | --------------------------------------- |
+  | Axis labels         | the field's name; none for the row index, an accessor or several y fields | `xAxis.label`, `yAxis.label`            |
+  | Colours             | `palette` in order, `paletteDark` on the dark theme                       | `colors`                                |
+  | Tooltip             | on; text in the y axis format, else two decimals at most                  | `tooltip: false`                        |
+  | Legend              | on with two or more series or named parts; a heatmap's strip of colours   | `legend: false` or `legend()` options   |
+  | Zoom                | off                                                                       | `zoom: true` or `zoom()` options        |
+  | Animation           | on: a reveal on the first paint, a move or a cross-fade on new data       | `animate: false` or `animate()` options |
+  | Hover               | everything else fades to 0.3 while one series or part is pointed at       | `dim: false` or another opacity         |
+  | Theme               | follows the page                                                          | `theme: 'light' \| 'dark' \| Theme`     |
+  | Size                | follows the container                                                     | `width`, `height`, `margin`             |
+  | Several y on areas  | overlapping, half transparent                                             | `stack: true`                           |
+  | Several y on bars   | side by side                                                              | `stack: true`                           |
+  | Line and area shape | straight, with gaps                                                       | `curve`, `join`                         |
+  | Scatter radius      | 4 px                                                                      | `r`: a number or a field                |
 
 - **Marks added to a chart:** line, area, bar, scatter and combo charts take `rules` (`{ x }` or `{ y }`, with `text`, `dashed` and `color`), `zones` (`{ x: [from, to] }` or `{ y: [from, to] }`, with `text` and `color`) and `brush` (`true` or `{ axes }`; with `zoom` its release shows the range), whose range goes to `onBrush`. `errorBars: { low, high, cap, width }` on line, bar and scatter charts names two fields that are values on the y axis, not distances from y, for a chart of one unstacked `y`. A line takes `fill` (`true` or a gradient) and a scatter `alpha`, `ring` and `shape: 'tick'`.
 - **Stacking** counts a missing value as zero, so a stacked area has no gap where an unstacked one would. Long series are stacked over the union of their x values.

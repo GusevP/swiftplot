@@ -16,3 +16,23 @@ export const indented = (tokens: readonly Token[], by: string) =>
   tokens.flatMap(t => (t === BREAK ? [t, plain(by)] : [t]));
 
 export const text = (tokens: readonly Token[]): string => tokens.map(t => t.text).join('');
+
+const WORDS = new Set(
+  'import from export const let function return if else new typeof null undefined true false default for of'.split(
+    ' ',
+  ),
+);
+const PIECE =
+  /'(?:[^'\\\n]|\\.)*'|"(?:[^"\\\n]|\\.)*"|`(?:[^`\\]|\\.)*`|\b\d+(?:\.\d+)?\b|[A-Za-z_$][\w$]*|[\s\S]/g;
+
+/** Hand-written source as tokens: its strings, numbers and keywords are told apart, the rest is plain. */
+export const tokenize = (source: string): Token[] =>
+  [...source.matchAll(PIECE)].map(([piece]) =>
+    /^['"`]/.test(piece)
+      ? string(piece)
+      : /^\d/.test(piece)
+        ? number(piece)
+        : WORDS.has(piece)
+          ? keyword(piece)
+          : plain(piece),
+  );
