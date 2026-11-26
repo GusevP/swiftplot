@@ -142,8 +142,8 @@ const fromRows = examples.get('line-from-rows')!;
         <div class="plot"><div id="first-draw"></div></div>
         <ul>
           <li>
-            <b>Axis text is DOM, not canvas text.</b>In uPlot, the fastest other library in chart-bench with the CPU
-            slowed 4×, drawing the axes cost 17 to 21 ms at that speed at every data size.
+            <b>Axis text is DOM, not canvas text.</b>Labels are HTML placed over the chart, so a redraw never measures or draws
+            text on the canvas.
           </li>
           <li>
             <b>One min and max per pixel column.</b>A million points become a path the width of the chart.
