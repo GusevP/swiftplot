@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.5.1 - 2026-11-26
+
 - The packages name https://swiftplot.dev as their homepage and carry keywords for the npm search.
 
 ## 0.5.0 - 2026-11-25
