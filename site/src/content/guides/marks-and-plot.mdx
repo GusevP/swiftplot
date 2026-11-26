@@ -28,20 +28,32 @@ bundled. `use` takes the features, such as a legend or a tooltip; [Interaction](
 React and Vue, `Plot` takes the same options as props, except that in Vue the `on…Change` callbacks are `update:`
 events. The code beside each chart on this page is written for the framework you pick.
 
+Two functions of `swiftplot/charts` lead from one to the other. `lineChart.spec({ data: rows, x: 'date', y: ['api', 'web'] })`,
+and the same on every easy chart, returns the `plot()` options the chart would use, as a start to build on. It needs
+no element and runs in Node; with the `'auto'` theme it gives no theme and the light palette. `mount(el, options)`
+takes the `plot()` options and returns `{ update(options), destroy(), overlay, chart }`, as an easy chart does: an
+update sends the core only the options that changed, comparing marks by key, type and options and `theme` by identity,
+and leaves `view`, `hidden`, `selected` and `pointer` alone unless given. `use` is read once, and `theme` is
+`light` unless given. `equal(a, b)`, which `mount` compares with, takes plain objects and arrays by value, cycles
+included, and anything else, such as typed arrays, functions and `Date`s, by identity; `plain(v)` tells whether `v` is
+a plain object or array.
+
 ## Columns
 
 A mark takes columns, not rows: `x`, `y` and the like are typed arrays or plain number arrays, one set per mark.
 `Float64Array.from(rows, r => r.value)` makes a column from rows, and `Map.groupBy(rows, r => r.series)` splits rows
 into series, one mark each.
 
-A line or an area needs `x` finite and ascending. A `y` that is `NaN` or infinite leaves a gap, and `join: true` draws
-straight across it instead.
+A line or an area needs `x` finite and ascending. A `y` that is `NaN` or infinite leaves a gap: nothing is joined
+across it, and a lone point between two gaps draws nothing. `join: true` draws straight across it instead.
+`curve: 'smooth'` curves through the points without overshooting them.
 
 ## Mix marks
 
 Several marks can share one chart and its axes. Here bars and a line sit on a band axis of months. The bars
 are given `yAxis: 'y2'`, so they are drawn against the second axis on the right. Each axis takes its extent from its
-own marks, and grid lines come from `y` only. Turn the second axis off to see both marks on one scale.
+own marks, and grid lines come from `y` only. Bars or areas stacked under one id on the two axes are two stacks,
+and dodged bars share their slots whichever axis they are on. Turn the second axis off to see both marks on one scale.
 
 <GuideExample id="guide-two-axes" />
 
@@ -121,14 +133,19 @@ Some data needs shaping before a mark takes it. These plain functions do it:
 
 - `bin(values, 20)` counts values into 20 bins, as `bar({ ...bin(values, 20), color })`.
 - `stack([a, b, c])` gives each series the `y1` and `y2` of its layer. To stack series that a legend can hide, give
-  each `area` or `bar` the same `stack` id instead.
-- `fiveNumbers(groups)` gives the columns a `box` takes.
+  each `area` or `bar` the same `stack` id instead: the chart does not restack layers given as `y1` and `y2`, so with
+  `stack()` call it again in `onHiddenChange` on the series still shown. Either way negative values stack downwards;
+  with an id a tooltip and `onClick` report a layer's own value.
+- `fiveNumbers(groups)` gives the columns a `box` takes. The whiskers go to the minimum and the maximum: leave
+  outliers out and draw them with `dots`.
 - `fromTree(tree)` and `fromLinks(links)` turn nested objects and a list of links into the columns of a treemap,
   a sunburst or a sankey.
 - `gradient(0.4, 0)` is a fill that fades from 0.4 opacity to none; `sequential({ stops })` is a heatmap's colour
   scale.
 
 A mark of your own is an object with the `Mark` shape from the package's types.
+
+The package imports in Node, where the marks and helpers such as `bin()` and `stack()` run; `plot()` needs a browser.
 
 ## Where to go next
 

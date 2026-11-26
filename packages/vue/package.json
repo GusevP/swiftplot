@@ -2,12 +2,25 @@
   "name": "@swiftplot/vue",
   "version": "0.5.0",
   "description": "Vue components for swiftplot charts",
+  "keywords": [
+    "chart",
+    "charts",
+    "plot",
+    "canvas",
+    "webgl",
+    "visualization",
+    "dataviz",
+    "timeseries",
+    "typescript",
+    "vue"
+  ],
   "license": "MIT",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/GusevP/swiftplot.git",
     "directory": "packages/vue"
   },
+  "homepage": "https://swiftplot.dev",
   "type": "module",
   "sideEffects": false,
   "exports": {

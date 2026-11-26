@@ -1,0 +1,90 @@
+---
+import Docs from '../layouts/Docs.astro';
+import { source } from '../data/measured';
+
+const counts = { date: '26 November 2026', unit: '1,493', library: '980', smoke: '376' };
+const intro =
+  'How swiftplot was built, why it will be kept up, what stage it is at, what it does not do yet and what 1.0 needs.';
+const sections = [
+  { id: 'how-it-was-built', label: 'How it was built' },
+  { id: 'why-it-will-be-kept-up', label: 'Why it will be kept up' },
+  { id: 'stage', label: 'Stage' },
+  { id: 'what-it-does-not-do-yet', label: 'What it does not do yet' },
+  { id: 'what-1-0-needs', label: 'What 1.0 needs' },
+];
+const sidebar = [
+  {
+    label: 'Also',
+    links: [
+      { href: '/guides/getting-started', label: 'Getting started' },
+      { href: '/examples', label: 'Examples' },
+      { href: '/reference', label: 'Reference' },
+      { href: '/changelog', label: 'Changelog' },
+    ],
+  },
+];
+---
+
+<Docs title="Status · swiftplot" description={intro} sidebar={sidebar} sections={sections}>
+  <h1>Status</h1>
+  <p class="intro">{intro}</p>
+
+  <h2 id="how-it-was-built">How it was built</h2>
+  <p>
+    swiftplot was written with AI coding tools, directed and reviewed by its author. What stands behind it is what
+    can be checked:
+  </p>
+  <ul>
+    <li>
+      {counts.unit} tests, {counts.library} of them for the library and its React and Vue wrappers, the rest for this
+      site and the release scripts.
+    </li>
+    <li>
+      {counts.smoke} browser tests that load the built site in Chromium and check that its charts draw, that nothing
+      logs an error and that its internal links resolve.
+    </li>
+    <li>
+      <a href="https://github.com/gusevp/chart-bench">chart-bench</a>, a benchmark that draws the same charts with
+      several libraries in the same browser. The README has <a href={source}>the tables and the method</a>.
+    </li>
+    <li>
+      A survey of the issue trackers of other chart libraries, for the problems their users report again and again,
+      which the design was checked against.
+    </li>
+  </ul>
+  <p>The counts are from the test runners on {counts.date}. Both suites run on every pull request.</p>
+
+  <h2 id="why-it-will-be-kept-up">Why it will be kept up</h2>
+  <p>
+    swiftplot began because the chart library in a product I work on stopped releasing. That product now draws its
+    charts with swiftplot, so I depend on it the same way you would: a bug you hit is one my users hit too, and I fix
+    it for my own sake. I read every issue. If I ever stop working on it, I will say so here and in the README rather
+    than go quiet.
+  </p>
+
+  <h2 id="stage">Stage</h2>
+  <p>
+    swiftplot is at 0.x. The API may change from one release to the next, and every change is in the{' '}
+    <a href="/changelog">changelog</a>.
+  </p>
+
+  <h2 id="what-it-does-not-do-yet">What it does not do yet</h2>
+  <ul>
+    <li>
+      <b>No export to PNG.</b> Axis text is DOM, not canvas text, so an export has to draw the text onto the canvas
+      first.
+    </li>
+    <li>
+      <b>The data is not exposed to assistive technology.</b> A chart is an image with a text label, set by its
+      <code>description</code> option; a screen reader cannot read the values.
+    </li>
+  </ul>
+
+  <h2 id="what-1-0-needs">What 1.0 needs</h2>
+  <ul>
+    <li>Three minor releases in a row with no breaking change to the API.</li>
+    <li>Export to PNG, with the axis text drawn in.</li>
+    <li>Charts a screen reader can read: the values, not only a label.</li>
+    <li>Used in production by someone other than me.</li>
+  </ul>
+</Docs>

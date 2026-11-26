@@ -2,13 +2,24 @@
   "name": "swiftplot",
   "version": "0.5.0",
   "description": "Small, fast charts on Canvas 2D and WebGL2",
+  "keywords": [
+    "chart",
+    "charts",
+    "plot",
+    "canvas",
+    "webgl",
+    "visualization",
+    "dataviz",
+    "timeseries",
+    "typescript"
+  ],
   "license": "MIT",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/GusevP/swiftplot.git",
     "directory": "packages/core"
   },
-  "homepage": "https://github.com/GusevP/swiftplot#readme",
+  "homepage": "https://swiftplot.dev",
   "bugs": {
     "url": "https://github.com/GusevP/swiftplot/issues"
   },

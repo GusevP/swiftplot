@@ -6,14 +6,15 @@ import '../styles/docs.css';
 
 interface Props {
   title: string;
+  description?: string;
   sidebar: readonly Group[];
   sections?: readonly Section[];
 }
 
-const { title, sidebar, sections } = Astro.props;
+const { title, description, sidebar, sections } = Astro.props;
 ---
 
-<Base title={title}>
+<Base title={title} description={description}>
   <div class:list={['docs', { wide: !sections }]}>
     <Sidebar groups={sidebar} />
     <main class="doc" data-pagefind-body><slot /></main>

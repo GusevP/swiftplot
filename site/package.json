@@ -7,7 +7,8 @@
     "build": "astro build && pagefind --site dist --exclude-selectors \"[data-for]\"",
     "typecheck": "astro check",
     "test": "vitest run",
-    "test:smoke": "playwright test"
+    "test:smoke": "playwright test",
+    "size": "node scripts/size.mjs"
   },
   "dependencies": {
     "@astrojs/mdx": "8.1.6",
@@ -27,6 +28,7 @@
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
     "typescript": "~5.9.3",
+    "vite": "8.3.8",
     "vitest": "^5.1.1",
     "vue": "^3.5.46",
     "vue-tsc": "^3.3.14"

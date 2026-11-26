@@ -204,15 +204,22 @@ the console. `sequential()` takes hex stops only, and a custom mark's own `addCo
 lineChart(el, { data: [{ date: '2026-11-01', service: 'api', value: 120 }], series: 'service' });
 ```
 
-A value is a number, a `Date`, an ISO 8601 string (`2026-11-01`, `2026-11-01T10:00`, with `Z` or an
-offset after a time) or other text. `null`, `undefined`, `''` and `NaN` are missing: a missing y is a
-gap, a row with a missing x is dropped.
+A value is a number, a `Date`, an ISO 8601 string (`2026-11-01`, `2026-11-01T10:00` or with a space,
+optional seconds and fraction, and `Z` or an offset after a time) or other text. `null`, `undefined`, `''`,
+`NaN` and infinite numbers are missing: a missing y is a gap, a row with a missing x is dropped.
 
+- **A field's first value that is not missing decides its kind.** Later values of another kind, an invalid
+  `Date` and an impossible date (`2026-13-40`, `T24:00`) are missing. A field of booleans or objects cannot
+  be plotted.
 - **Numbers held as text are not numbers.** `{ amount: "12.5" }` is text. Convert first:
   `rows.map(r => ({ ...r, amount: Number(r.amount) }))`.
 - **Dates without a time zone are read as UTC.** `xAxis: { utc: false }` reads and shows local time.
 - Only ISO date strings are dates. `"11/01/2026"` and `"Nov 1"` are text: parse them to `Date`.
 - Millisecond timestamps are numbers, so they get a number axis. Pass `Date` objects for a time axis.
+
+Line and area charts, and combos on dates or numbers, sort rows by x (stably); bar and scatter charts, and
+combos on text, keep the given order. Stacking counts a missing value as zero, and long series are stacked over
+the union of their x values.
 
 A part or a spoke with a missing name is kept, unnamed; a heatmap, box plot or sankey row with a missing place is
 dropped. A heatmap puts text in order of first appearance, dates and numbers ascending.
@@ -233,7 +240,8 @@ without children counts by its `value`.
 
 ### How fields are guessed, and how to be explicit
 
-When `x` and `y` are not given, fields are taken in order:
+When `x` and `y` are not given, fields are taken in field order (the keys of the first 100 rows, or of the
+columns object):
 
 - `x`: the first date field, else the first text field, else the first number field (when `y` is
   named or another number field is left), else the row index.

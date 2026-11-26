@@ -30,7 +30,7 @@ const sidebar = [
 const sections = headings.filter(h => h.depth === 2).map(h => ({ id: h.slug, label: h.text }));
 ---
 
-<Docs title={`${guide.data.title} · swiftplot`} sidebar={sidebar} sections={sections}>
+<Docs title={`${guide.data.title} · swiftplot`} description={guide.data.summary} sidebar={sidebar} sections={sections}>
   <h1>{guide.data.title}</h1>
   <p class="intro">{guide.data.summary}</p>
   <Content />

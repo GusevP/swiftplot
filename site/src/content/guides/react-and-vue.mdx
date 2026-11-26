@@ -141,15 +141,28 @@ import rows from './points.json';
 
 [Your own markers and tooltip](/examples/overlay-tooltip) is a full example in each framework.
 
+## Size
+
+`width` and `height`, in pixels, size the `div`, and `style` wins over them. The chart measures the `div` and follows
+whatever resizes it: a class, a parent, a media query. With no height from `height`, `style` or CSS, the `div` fills a
+parent that has a height and is 300 px tall otherwise, so a class added later wins, in a cascade layer such as
+Tailwind's or not.
+
+The fallback is a `<style>` kept first in the document's head, or in the shadow root, and inserted only for a chart
+with no height. Under a Content Security Policy that blocks inline styles, give every chart a height: `height`, `style`
+or CSS. A chart mounted in a detached element falls back once the element is attached.
+
 ## Errors
 
 A missing field, or an accessor or formatter that throws, goes to `onError` in React or `@error` in Vue, and the last
 good chart stays. Without a handler the error is thrown to the nearest error boundary in React, or to Vue's own error
 handling, `onErrorCaptured` and `app.config.errorHandler`.
 
-A failed render is tried again when a chart prop other than a callback changes. A failure is reported once, until its
-message, the data's length or another prop that is not a function changes, so inline props, data rebuilt during render
-and a handler that sets state cannot loop.
+A failed render is tried again when a chart prop other than a callback changes; a changed callback still reaches the
+last good chart. A failure is reported once, until its message, the data's length (each column's, for an object of
+columns) or another prop that is not a function changes, so inline props, data rebuilt during render and a handler that
+sets state cannot loop, unless the message itself changes on every attempt. Rows are never read for this, so new data of
+the same length that fails with the same message is not reported again.
 
 ## Server rendering
 

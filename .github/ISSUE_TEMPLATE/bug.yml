@@ -1,0 +1,40 @@
+name: Bug report
+description: Something swiftplot draws or does wrong
+labels: [bug]
+body:
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: The swiftplot version, and the wrapper's if you use one.
+      placeholder: swiftplot 0.5.0, @swiftplot/react 0.5.0
+    validations:
+      required: true
+  - type: input
+    id: browser
+    attributes:
+      label: Browser
+      description: Browser, its version and the operating system.
+      placeholder: Chrome 142 on macOS 15
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: >-
+        The smallest page that shows the bug: a StackBlitz or CodePen link, or one HTML file with the data inline.
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: What happened
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true

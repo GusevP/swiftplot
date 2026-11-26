@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
-import { integrity, npmPublish, REGISTRY } from './npm-publish.mjs';
+import { integrity, npmPublish, REGISTRY, shasum } from './npm-publish.mjs';
 import { fakeNpm, tar } from './testing.mjs';
 
 const STEMS = {
@@ -19,6 +19,7 @@ function setup(t, version = '0.1.0') {
   const files = join(dir, 'files');
   mkdirSync(files);
   const sri = {};
+  const sha = {};
   for (const [name, stem] of Object.entries(STEMS)) {
     const peers = name === 'swiftplot' ? {} : { peerDependencies: { swiftplot: `^${version}` } };
     const bytes = tar({
@@ -29,6 +30,7 @@ function setup(t, version = '0.1.0') {
       'package/dist/index.d.ts': 'export declare const name: string;\n',
     });
     sri[name] = integrity(bytes);
+    sha[name] = shasum(bytes);
     writeFileSync(join(files, `${stem}-${version}.tgz`), bytes);
   }
   const receipts = join(dir, '.release', version, 'npm.json');
@@ -54,9 +56,23 @@ function setup(t, version = '0.1.0') {
     mkdirSync(join(receipts, '..'), { recursive: true });
     writeFileSync(receipts, JSON.stringify({ version, packages }));
   };
-  return { dir, files, sri, receipts, state, printed, publish, publishes, receipt, writeReceipt, version };
+  return {
+    dir,
+    files,
+    sri,
+    sha,
+    receipts,
+    state,
+    printed,
+    publish,
+    publishes,
+    receipt,
+    writeReceipt,
+    version,
+  };
 }
 
+const FLAGS = `--registry ${REGISTRY} --@swiftplot:registry=${REGISTRY}`;
 const key = (name, version = '0.1.0') => `${name}@${version}`;
 
 test('publishes the three tarballs in order, by path, public, to the named registry', async t => {
@@ -109,20 +125,104 @@ test('a version npm shows with another integrity stops, even with a matching rec
   assert.deepEqual(s.publishes(), []);
 });
 
-test('a receipt for a version npm does not show holds it back with the approve-or-clear message', async t => {
-  for (const state of ['started', 'finished']) {
-    await t.test(state, t => {
+test('a receipt for a version npm does not show is not published again, and npm stage list says why', async t => {
+  const unknown = {
+    code: 1,
+    stdout: '{"error":{"code":"EUNKNOWNCOMMAND","summary":"","detail":""}}',
+    stderr: 'Unknown command: "stage"',
+  };
+  for (const [what, state, given, status, said] of [
+    [
+      'staged',
+      'started',
+      { staged: true },
+      'staged',
+      'is staged on npm (id id-swiftplot@0.1.0, pending) and waits for approval: run npm stage approve id-swiftplot@0.1.0 FLAGS',
+    ],
+    [
+      'staged with other bytes',
+      'finished',
+      { staged: true, shasum: 'f'.repeat(40) },
+      'staged, other bytes',
+      `is staged on npm with other bytes (id id-swiftplot@0.1.0, shasum ${'f'.repeat(40)}, not SHA): reject it (npm stage reject id-swiftplot@0.1.0 FLAGS), then remove "swiftplot" from RECEIPTS and run again`,
+    ],
+    [
+      'staged without a shasum',
+      'started',
+      { staged: true, shasum: null },
+      'staged, unchecked',
+      'is staged on npm (id id-swiftplot@0.1.0), and npm stage list gave no shasum to check its bytes against: approve it (npm stage approve id-swiftplot@0.1.0 FLAGS) only if npm stage view id-swiftplot@0.1.0 FLAGS shows shasum SHA, otherwise reject it (npm stage reject id-swiftplot@0.1.0 FLAGS), then remove "swiftplot" from RECEIPTS and run again',
+    ],
+    [
+      'none staged, started',
+      'started',
+      {},
+      'missing',
+      'is neither public nor staged on npm, so its upload most likely failed; it may still be processing if it was sent in the last few minutes, otherwise remove "swiftplot" from RECEIPTS and run again',
+    ],
+    [
+      'none staged, finished',
+      'finished',
+      {},
+      'not visible',
+      'was accepted by npm and is not visible yet: run again in a few minutes; if it has been more than a few minutes, or you rejected its staged copy, remove "swiftplot" from RECEIPTS and run again',
+    ],
+    [
+      'only another version staged',
+      'finished',
+      {
+        npmStage: {
+          code: 0,
+          stdout: JSON.stringify([
+            {
+              id: 'id-rc',
+              packageName: 'swiftplot',
+              version: '0.1.0-rc.0',
+              status: 'pending',
+              shasum: 'f'.repeat(40),
+            },
+          ]),
+          stderr: '',
+        },
+      },
+      'not visible',
+      'was accepted by npm and is not visible yet: run again in a few minutes; if it has been more than a few minutes, or you rejected its staged copy, remove "swiftplot" from RECEIPTS and run again',
+    ],
+    [
+      'npm stage unknown',
+      'finished',
+      { npmStage: unknown },
+      'unknown',
+      'is not public, and the script could not ask npm whether it is staged (npm stage needs npm 11.15 or later and a current login; npm printed: {"error":{"code":"EUNKNOWNCOMMAND","summary":"","detail":""}}\nUnknown command: "stage"). Keep RECEIPTS, update npm or run npm login, then run again',
+    ],
+  ]) {
+    await t.test(what, t => {
       const s = setup(t);
       s.writeReceipt({ swiftplot: { state, integrity: s.sri.swiftplot } });
-      const status = s.publish();
-      assert.equal(status.swiftplot, 'waiting');
+      if (given.staged)
+        s.state.npm = {
+          [key('swiftplot')]: {
+            integrity: s.sri.swiftplot,
+            shasum: given.shasum === undefined ? s.sha.swiftplot : given.shasum,
+            public: false,
+          },
+        };
+      s.state.npmStage = given.npmStage;
+      assert.equal(s.publish().swiftplot, status);
       assert.deepEqual(s.publishes(), ['./swiftplot-react-0.1.0.tgz', './swiftplot-vue-0.1.0.tgz']);
-      const out = s.printed.join('\n');
-      assert.match(out, /swiftplot@0\.1\.0 was published before and is not public/);
-      assert.match(out, /waiting for approval on npmjs\.com/);
-      assert.ok(out.includes(`remove "swiftplot" from ${s.receipts}`));
+      const line = `npm: swiftplot@0.1.0 ${said.replaceAll('RECEIPTS', s.receipts).replaceAll('SHA', s.sha.swiftplot).replaceAll('FLAGS', FLAGS)}`;
+      assert.equal(s.printed[0], line);
+      assert.equal(s.printed.at(-3), line);
     });
   }
+});
+
+test('npm stage list failing, as with an expired login, is reported as could not ask', t => {
+  const s = setup(t);
+  s.writeReceipt({ swiftplot: { state: 'started', integrity: s.sri.swiftplot } });
+  s.state.npmStage = { code: 1, stdout: '{"error":{"code":"E401"}}', stderr: '' };
+  assert.equal(s.publish().swiftplot, 'unknown');
+  assert.match(s.printed[0], /could not ask npm whether it is staged .*E401/);
 });
 
 test('a receipt that is not valid stops before any publish', async t => {
@@ -155,13 +255,13 @@ test('a publish whose response was lost after npm accepted it is not sent again'
   const s = setup(t);
   s.state.staged = true;
   s.state.npmFail = args => (args[1] === './swiftplot-0.1.0.tgz' ? 'after' : undefined);
-  assert.throws(
-    s.publish,
-    /npm publish of swiftplot-0\.1\.0\.tgz failed, but npm may have taken it anyway; its receipt stays "started"/,
-  );
+  const staged = `npm: swiftplot@0.1.0 is staged on npm (id id-swiftplot@0.1.0, pending) and waits for approval: run npm stage approve id-swiftplot@0.1.0 ${FLAGS}`;
+  assert.throws(s.publish, {
+    message: `npm publish of swiftplot-0.1.0.tgz failed; its receipt stays "started", so running again will not publish it twice. ${staged}`,
+  });
   assert.ok(s.state.npm[key('swiftplot')]);
   assert.deepEqual(s.printed.slice(-3), [
-    'npm: swiftplot@0.1.0 was sent, but npm did not confirm it: check npmjs.com before removing its receipt',
+    staged,
     'npm: @swiftplot/react@0.1.0 was not checked',
     'npm: @swiftplot/vue@0.1.0 was not checked',
   ]);
@@ -169,12 +269,15 @@ test('a publish whose response was lost after npm accepted it is not sent again'
 
   s.state.npmFail = undefined;
   s.state.npmCalls = [];
-  assert.deepEqual(s.publish(), {
-    swiftplot: 'waiting',
-    '@swiftplot/react': 'waiting',
-    '@swiftplot/vue': 'waiting',
-  });
+  assert.deepEqual(s.publish(), Object.fromEntries(NAMES.map(name => [name, 'staged'])));
   assert.deepEqual(s.publishes(), ['./swiftplot-react-0.1.0.tgz', './swiftplot-vue-0.1.0.tgz']);
+});
+
+test('a publish that exits non-zero but shows on npm as ours counts as public', t => {
+  const s = setup(t);
+  s.state.npmFail = args => (args[1] === './swiftplot-0.1.0.tgz' ? 'after' : undefined);
+  assert.deepEqual(s.publish(), Object.fromEntries(NAMES.map(name => [name, 'public'])));
+  assert.deepEqual(s.receipt().packages.swiftplot, { state: 'started', integrity: s.sri.swiftplot });
 });
 
 test('a rejected publish leaves a started receipt and says how to clear it', t => {
@@ -192,7 +295,7 @@ test('after core succeeds and React fails, the next runs skip core and go on wit
   assert.deepEqual(s.publishes(), ['./swiftplot-0.1.0.tgz', './swiftplot-react-0.1.0.tgz']);
   assert.deepEqual(s.printed.slice(-3), [
     'npm: swiftplot@0.1.0 is public',
-    'npm: @swiftplot/react@0.1.0 was sent, but npm did not confirm it: check npmjs.com before removing its receipt',
+    `npm: @swiftplot/react@0.1.0 is neither public nor staged on npm, so its upload most likely failed; it may still be processing if it was sent in the last few minutes, otherwise remove "@swiftplot/react" from ${s.receipts} and run again`,
     'npm: @swiftplot/vue@0.1.0 was not checked',
   ]);
 
@@ -278,11 +381,25 @@ test('a second run of the same version while one is publishing stops before read
   assert.ok(existsSync(lock));
 });
 
-test('a staged publish is reported as waiting', t => {
+test('a staged publish is reported as staged, with its id', t => {
   const s = setup(t);
   s.state.staged = true;
-  assert.deepEqual(s.publish(), Object.fromEntries(NAMES.map(name => [name, 'waiting'])));
-  assert.match(s.printed.join('\n'), /npm: @swiftplot\/vue@0\.1\.0 is waiting/);
+  assert.deepEqual(s.publish(), Object.fromEntries(NAMES.map(name => [name, 'staged'])));
+  assert.match(
+    s.printed.at(-1),
+    /npm: @swiftplot\/vue@0\.1\.0 is staged on npm \(id id-@swiftplot\/vue@0\.1\.0, pending\)/,
+  );
+});
+
+test('a publish npm accepted that is neither public nor staged yet is reported as not visible', t => {
+  const s = setup(t);
+  s.state.staged = true;
+  s.state.npmStage = { code: 0, stdout: '[]', stderr: '' };
+  assert.deepEqual(s.publish(), Object.fromEntries(NAMES.map(name => [name, 'not visible'])));
+  assert.equal(
+    s.printed.at(-1),
+    `npm: @swiftplot/vue@0.1.0 was accepted by npm and is not visible yet: run again in a few minutes; if it has been more than a few minutes, or you rejected its staged copy, remove "@swiftplot/vue" from ${s.receipts} and run again`,
+  );
 });
 
 test('an answer from npm view that is neither an integrity nor E404 stops', t => {
@@ -302,7 +419,7 @@ test('an answer from npm view that is neither an integrity nor E404 stops', t =>
             ? { code: 1, stdout: '{"error":{"code":"E401"}}', stderr: '' }
             : npm(args, options),
       }),
-    /npm view swiftplot@0\.1\.0 gave no integrity and no E404/,
+    /npm view swiftplot@0\.1\.0 gave no integrity and no E404 \(exit 1\); npm printed:\n\{"error":\{"code":"E401"\}\}$/,
   );
   assert.equal(existsSync(s.receipts), false);
 });
@@ -333,7 +450,7 @@ test('a package npm view fails on, or the run never reached, is reported as not 
   assert.throws(() => publishWith(3), /npm view @swiftplot\/react@0\.1\.0 gave no integrity/);
   assert.deepEqual(s.printed.slice(-3), [
     'npm: swiftplot@0.1.0 is public',
-    'npm: @swiftplot/react@0.1.0 is waiting (for approval on npmjs.com, or not visible yet)',
+    'npm: @swiftplot/react@0.1.0 was sent, and the script stopped before npm showed it: run again to find out where it is',
     'npm: @swiftplot/vue@0.1.0 was not checked',
   ]);
 

@@ -1,9 +1,10 @@
 import { readFileSync } from 'node:fs';
 import { expect, test } from 'vitest';
-import { firstDraw, pan, shipped } from '../src/data/measured';
+import sizes from '../scripts/size/sizes.json';
+import { firstDraw, pan } from '../src/data/measured';
 
 const readme = readFileSync(new URL('../../README.md', import.meta.url), 'utf8');
-const measured = readme.slice(readme.indexOf('## Measured'), readme.indexOf('## Develop'));
+const measured = readme.slice(readme.indexOf('## Measured'), readme.indexOf('## Licence'));
 
 const tableAfter = (intro: string) => {
   const lines = measured.slice(measured.indexOf(intro)).split('\n');
@@ -17,6 +18,7 @@ const tableAfter = (intro: string) => {
   );
   return {
     intro: lines[0]!,
+    rows,
     cell: (row: string, column: string) => rows.find(r => r[0] === row)?.[head!.indexOf(column)],
   };
 };
@@ -33,6 +35,8 @@ test("each first draw is the README's script time for swiftplot", () => {
   for (const c of firstDraw.cases) expect(table.cell(c.row, 'swiftplot'), c.row).toBe(c.ms.toFixed(1));
 });
 
-test('the shipped size is the gzip swiftplot adds to the benchmark page', () => {
-  expect(measured).toContain(`swiftplot adds ${shipped.kb} KB`);
+test('the size table is sizes.json, one row per entry', () => {
+  const table = tableAfter('Gzip size of the minified bundle');
+  expect(table.rows).toHaveLength(Object.keys(sizes).length);
+  for (const [entry, kb] of Object.entries(sizes)) expect(table.cell(entry, 'KB'), entry).toBe(kb.toFixed(1));
 });

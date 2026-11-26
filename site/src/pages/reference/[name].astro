@@ -47,6 +47,7 @@ const kept: Record<Framework, string> = {
 const using = [...examples.values()].filter(e => e.kind !== 'plot' && e.chart === chart);
 const fns = page === 'scales' ? [...scaleNames, ...helperNames].map(n => api[n]!) : page ? [api[page]!] : [];
 const title = chart ?? (page === 'scales' ? 'Scales and helpers' : page);
+const intro = chart ? intros[chart] : page === 'scales' ? scalesIntro : fns[0]!.intro;
 const sections = [
   ...(chart
     ? [
@@ -63,12 +64,12 @@ const fws = Object.keys(frameworks) as Framework[];
 const errorHeaders = ['Message contains', 'Cause', 'Fix'] as const;
 ---
 
-<Docs title={`${title} · swiftplot`} sidebar={sidebar} sections={sections}>
+<Docs title={`${title} · swiftplot`} description={intro.replaceAll('`', '')} sidebar={sidebar} sections={sections}>
   {
     chart ? (
       <>
         <h1>{chart}</h1>
-        <p class="intro"><Prose text={intros[chart]} /></p>
+        <p class="intro"><Prose text={intro} /></p>
         {fws.map(fw => <Code label={packages[fw]} tokens={signature(fw, chart)} for={fw} />)}
 
         <h2 id="props">Props</h2>
@@ -115,7 +116,7 @@ const errorHeaders = ['Message contains', 'Cause', 'Fix'] as const;
     ) : (
       <>
         <h1>{title}</h1>
-        <p class="intro"><Prose text={page === 'scales' ? scalesIntro : fns[0]!.intro} /></p>
+        <p class="intro"><Prose text={intro} /></p>
         {
           page === 'scales' ? (
             fns.map(f => (

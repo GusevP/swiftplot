@@ -9,7 +9,7 @@ is no `type` prop, no `datasets` and no child components.
 ## Docs
 
 - [Guide for AI coding assistants](https://raw.githubusercontent.com/GusevP/swiftplot/main/llms-full.txt): which API to pick, every prop of the easy charts, data shapes, errors and their fixes, React and Vue usage, the explicit API and every mark, mistakes to avoid
-- [README](https://raw.githubusercontent.com/GusevP/swiftplot/main/README.md): the full reference for both APIs
+- [Reference](https://swiftplot.dev/reference): every prop of each easy chart and every option of plot(), each mark, each feature and the scales
 
 ## Optional
 

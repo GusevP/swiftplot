@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- The packages name https://swiftplot.dev as their homepage and carry keywords for the npm search.
+
 ## 0.5.0 - 2026-11-25
 
 - `onLayout(layout)` reports a chart's geometry, with conversions between values and pixels, and `onHover(hover)` the pointer in CSS pixels and what is under it, on `plot()` and every easy chart; `@layout` and `@hover` in Vue.

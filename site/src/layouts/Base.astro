@@ -7,10 +7,16 @@ import '../styles/base.css';
 
 interface Props {
   title: string;
+  description?: string;
   onStage?: boolean;
 }
 
-const { title, onStage } = Astro.props;
+const {
+  title,
+  description = 'Fast charts from one line of code. A small charting library for the browser.',
+  onStage,
+} = Astro.props;
+const canonical = new URL(pagePath(Astro.url), Astro.site);
 ---
 
 <html lang="en">
@@ -18,7 +24,15 @@ const { title, onStage } = Astro.props;
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{title}</title>
-    <link rel="canonical" href={new URL(pagePath(Astro.url), Astro.site)} />
+    <meta name="description" content={description} />
+    <link rel="canonical" href={canonical} />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="swiftplot" />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:url" content={canonical} />
+    <meta property="og:image" content={new URL('/og.png', Astro.site)} />
+    <meta name="twitter:card" content="summary_large_image" />
     <link rel="icon" href="/icon.svg" type="image/svg+xml" />
     <link rel="preload" href="/fonts/figtree-normal.woff2" as="font" type="font/woff2" crossorigin />
     <script is:inline set:html={headScript} />

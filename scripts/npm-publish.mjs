@@ -13,6 +13,7 @@ const STATES = ['started', 'finished'];
 export const npm = (env = process.env, platform = process.platform) =>
   command('npm', ['node_modules/npm/bin/npm-cli.js'], { env, platform });
 export const integrity = bytes => `sha512-${createHash('sha512').update(bytes).digest('base64')}`;
+export const shasum = bytes => createHash('sha1').update(bytes).digest('hex');
 
 function readReceipts(path, version) {
   if (!existsSync(path)) return {};
@@ -39,6 +40,12 @@ function writeReceipts(path, version, packages) {
   renameSync(temp, path);
 }
 
+const said = out =>
+  [out.stdout, out.stderr]
+    .map(text => text?.trim())
+    .filter(Boolean)
+    .join('\n') || 'nothing';
+
 function published({ run, npmCommand, cwd, name, version }) {
   const [bin, ...prefix] = npmCommand;
   const out = run(
@@ -56,7 +63,21 @@ function published({ run, npmCommand, cwd, name, version }) {
   }
   if (out.code === 0 && typeof body === 'string' && SRI.test(body)) return body;
   if (out.code !== 0 && body?.error?.code === 'E404') return null;
-  throw new Error(`npm view ${name}@${version} gave no integrity and no E404 (exit ${out.code})`);
+  throw new Error(
+    `npm view ${name}@${version} gave no integrity and no E404 (exit ${out.code}); npm printed:\n${said(out)}`,
+  );
+}
+
+function staged({ run, npmCommand, cwd, name, version }) {
+  const [bin, ...prefix] = npmCommand;
+  const out = run(bin, [...prefix, 'stage', 'list', name, '--json', ...REGISTRY_ARGS], { cwd });
+  if (out.code !== 0) return { error: said(out) };
+  try {
+    const items = JSON.parse(out.stdout);
+    if (Array.isArray(items))
+      return { item: items.find(item => item?.packageName === name && item?.version === version) ?? null };
+  } catch {}
+  return { error: said(out) };
 }
 
 export function npmPublish({ dir, run, version, prerelease, files, print, npmCommand = npm() }) {
@@ -82,17 +103,54 @@ export function npmPublish({ dir, run, version, prerelease, files, print, npmCom
 
 function publishLocked({ run, version, prerelease, files, print, npmCommand, held, path }) {
   const receipts = readReceipts(path, version);
-  const clear = name =>
-    `it is probably waiting for approval on npmjs.com (staged publishing); if it was rejected, remove "${name}" from ${path} and run again`;
+  const again = name => `remove "${name}" from ${path} and run again`;
+  const stage = (...args) => ['npm stage', ...args, ...REGISTRY_ARGS].join(' ');
   const view = name => published({ run, npmCommand, cwd: files, name, version });
   const status = Object.fromEntries(PACKAGES.map(name => [name, 'not checked']));
+  const notes = {};
+  const settle = (name, state, sha) => {
+    const { item, error } = staged({ run, npmCommand, cwd: files, name, version });
+    if (item && !item.shasum)
+      [status[name], notes[name]] = [
+        'staged, unchecked',
+        `is staged on npm (id ${item.id}), and npm stage list gave no shasum to check its bytes against: approve it (${stage('approve', item.id)}) only if ${stage('view', item.id)} shows shasum ${sha}, otherwise reject it (${stage('reject', item.id)}), then ${again(name)}`,
+      ];
+    else if (item && item.shasum !== sha)
+      [status[name], notes[name]] = [
+        'staged, other bytes',
+        `is staged on npm with other bytes (id ${item.id}, shasum ${item.shasum}, not ${sha}): reject it (${stage('reject', item.id)}), then ${again(name)}`,
+      ];
+    else if (item)
+      [status[name], notes[name]] = [
+        'staged',
+        `is staged on npm (id ${item.id}${item.status ? `, ${item.status}` : ''}) and waits for approval: run ${stage('approve', item.id)}`,
+      ];
+    else if (item === null && state === 'started')
+      [status[name], notes[name]] = [
+        'missing',
+        `is neither public nor staged on npm, so its upload most likely failed; it may still be processing if it was sent in the last few minutes, otherwise ${again(name)}`,
+      ];
+    else if (item === null)
+      [status[name], notes[name]] = [
+        'not visible',
+        `was accepted by npm and is not visible yet: run again in a few minutes; if it has been more than a few minutes, or you rejected its staged copy, ${again(name)}`,
+      ];
+    else
+      [status[name], notes[name]] = [
+        'unknown',
+        `is not public, and the script could not ask npm whether it is staged (npm stage needs npm 11.15 or later and a current login; npm printed: ${error}). Keep ${path}, update npm or run npm login, then run again`,
+      ];
+    return `npm: ${name}@${version} ${notes[name]}`;
+  };
   const differs = (name, file, shown, ours) =>
     new Error(`npm has ${name}@${version} with another integrity (${shown}), not that of ${file} (${ours})`);
 
   try {
     for (const name of PACKAGES) {
       const file = held.files[name];
-      const ours = integrity(readFileSync(join(files, file)));
+      const bytes = readFileSync(join(files, file));
+      const ours = integrity(bytes);
+      const sha = shasum(bytes);
       const shown = view(name);
       if (shown === ours) {
         status[name] = 'public';
@@ -101,10 +159,11 @@ function publishLocked({ run, version, prerelease, files, print, npmCommand, hel
       if (shown) throw differs(name, file, shown, ours);
       const receipt = receipts[name];
       if (receipt && receipt.integrity !== ours)
-        throw new Error(`${path} records a publish of other bytes for ${name}; ${clear(name)}`);
+        throw new Error(
+          `${path} records a publish of other bytes for ${name}; reject any staged copy of it (${stage('list', name)}), then ${again(name)}`,
+        );
       if (receipt) {
-        status[name] = 'waiting';
-        print(`npm: ${name}@${version} was published before and is not public: ${clear(name)}.`);
+        print(settle(name, receipt.state, sha));
         continue;
       }
       status[name] = 'not published';
@@ -128,26 +187,30 @@ function publishLocked({ run, version, prerelease, files, print, npmCommand, hel
         ],
         { cwd: files, stdio: 'inherit' },
       );
+      if (out.code === 0) {
+        receipts[name] = { state: 'finished', integrity: ours };
+        writeReceipts(path, version, receipts);
+      }
+      const after = view(name);
+      if (after === ours) {
+        status[name] = 'public';
+        continue;
+      }
+      if (after) throw differs(name, file, after, ours);
+      const line = settle(name, receipts[name].state, sha);
       if (out.code !== 0)
         throw new Error(
-          `npm publish of ${file} failed, but npm may have taken it anyway; its receipt stays "started", so running again will not publish it twice. Check npmjs.com: if it is waiting for approval, approve it; if npm has no publish of it, remove "${name}" from ${path} and run again`,
+          `npm publish of ${file} failed; its receipt stays "started", so running again will not publish it twice. ${line}`,
         );
-      receipts[name] = { state: 'finished', integrity: ours };
-      writeReceipts(path, version, receipts);
-      status[name] = 'waiting';
-      const after = view(name);
-      if (after === ours) status[name] = 'public';
-      else if (after) throw differs(name, file, after, ours);
     }
   } finally {
     const words = {
       public: 'is public',
-      waiting: 'is waiting (for approval on npmjs.com, or not visible yet)',
-      unconfirmed: 'was sent, but npm did not confirm it: check npmjs.com before removing its receipt',
+      unconfirmed: 'was sent, and the script stopped before npm showed it: run again to find out where it is',
       'not published': 'is not published',
       'not checked': 'was not checked',
     };
-    for (const name of PACKAGES) print(`npm: ${name}@${version} ${words[status[name]]}`);
+    for (const name of PACKAGES) print(`npm: ${name}@${version} ${notes[name] ?? words[status[name]]}`);
   }
   return status;
 }

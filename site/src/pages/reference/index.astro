@@ -1,14 +1,14 @@
 ---
 import Docs from '../../layouts/Docs.astro';
 import { sidebar } from '../../reference/index';
+
+const intro =
+  'The props, return value and errors of each chart that draws from data, and the options of plot(), each mark, each feature and the scales of the explicit API.';
 ---
 
-<Docs title="Reference · swiftplot" sidebar={sidebar}>
+<Docs title="Reference · swiftplot" description={intro} sidebar={sidebar}>
   <h1>Reference</h1>
-  <p class="intro">
-    The props, return value and errors of each chart that draws from data, and the options of plot(), each mark, each
-    feature and the scales of the explicit API.
-  </p>
+  <p class="intro">{intro}</p>
   {
     sidebar.map(g => (
       <>

@@ -4,6 +4,7 @@ import { tagLabels } from '../../examples/define';
 import { listed } from '../../examples/index';
 import Docs from '../../layouts/Docs.astro';
 
+const intro = 'Every example is one page: the chart, switches for its options, and the code for your framework.';
 const all = listed;
 const slug = (group: string) => group.toLowerCase().replaceAll(' ', '-');
 const groups = Array.from(Map.groupBy(all, e => e.group), ([label, cards]) => ({ id: slug(label), label, cards }));
@@ -14,9 +15,9 @@ const sidebar = [
 ];
 ---
 
-<Docs title="Examples · swiftplot" sidebar={sidebar}>
+<Docs title="Examples · swiftplot" description={intro} sidebar={sidebar}>
   <h1>Examples</h1>
-  <p class="intro">Every example is one page: the chart, switches for its options, and the code for your framework.</p>
+  <p class="intro">{intro}</p>
   <div class="chips" role="group" aria-label="Filter">
     <button type="button" aria-pressed="true">All</button>
     {

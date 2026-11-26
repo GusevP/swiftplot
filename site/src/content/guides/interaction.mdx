@@ -53,12 +53,13 @@ shows only with `dim` below 1: `dim: 0.3` draws the other series at that share o
   `title(x)` writes the first line, and `value(y, axis)` each series' value, told whether it is on `y` or `y2`.
 
 The candlesticks below are a `candlestickChart`, which comes with a tooltip in the nearest mode: it writes the date of the
-candle and its four prices.
+candle and its four prices. A pointer anywhere on a candle hits it, and a nearest tooltip in `plot()` gets its row, to
+read the four values from your own columns.
 
 <GuideExample id="candlesticks" />
 
 On a touch screen a tap shows the tooltip. It stays after the finger lifts, until a tap elsewhere or the chart's next
-update or resize.
+update or resize. A pen behaves as a mouse.
 
 ## Zoom and pan
 
@@ -68,6 +69,14 @@ or a double tap shows the whole domain again. On a touch screen two fingers pinc
 - `axes: 'y'` or `'xy'` zooms other axes than x.
 - `wheel: 'plain'` zooms on a plain wheel, and `wheel: false` not on the wheel at all.
 - `drag: 'shift'` pans only with shift held.
+
+A mouse drag with `axes: 'xy'` pans x alone until it has moved 8 px up or down, so panning level keeps a y axis
+with `fit: 'window'` fitting. Panning up or down, or zooming y, gives both y axes a window of their own, which stops the
+fitting. Two fingers on a touch screen have no such threshold.
+
+Over the plot a ctrl or cmd wheel never reaches the page unless `wheel: false`, and with `wheel: 'plain'` a plain wheel
+reaches it only when the view cannot move further. Without `zoom()` the chart adds no listener that keeps the page from
+scrolling; with it the chart takes `touch-action: pan-x pan-y`, so one finger still scrolls the page.
 
 The window shown is the `view` option, `{ x?: [lo, hi], y?: [lo, hi], y2?: [lo, hi] }` in axis values.
 `onViewChange(view)` reports it after a gesture, never after `update()`. With `fit: 'window'` on the y axis, y fits
@@ -153,7 +162,10 @@ feature creates the chart again. [Your own markers and tooltip](/examples/overla
 
 Either callback may set the options that draw the chart without looping: data or marks made anew with equal values report
 nothing. An axis's `to` and `from` must stay the same functions, though. `onLayout` compares them by identity, so an axis
-that makes them in each update, set from `onLayout`, would report without end. `log()` already keeps them.
+that makes them in each update, set from `onLayout`, would report without end. `log()` already keeps them. Data
+written in place and passed as a new view or array is compared by a copy of the hovered mark's, which for a list over
+1,000 values is a sample: a write to a row neither hovered nor sampled reports nothing. New data in a new array is
+compared whole.
 
 The overlay lets the pointer through. A child you give `pointer-events: auto`, such as a button, takes it:
 

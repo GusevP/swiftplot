@@ -1,0 +1,38 @@
+import {
+  areaChart,
+  barChart,
+  boxPlotChart,
+  candlestickChart,
+  comboChart,
+  funnelChart,
+  heatmapChart,
+  histogramChart,
+  lineChart,
+  pieChart,
+  radarChart,
+  radialBarChart,
+  sankeyChart,
+  scatterChart,
+  sunburstChart,
+  treemapChart,
+} from 'swiftplot/charts';
+
+for (const chart of [
+  areaChart,
+  barChart,
+  boxPlotChart,
+  candlestickChart,
+  comboChart,
+  funnelChart,
+  heatmapChart,
+  histogramChart,
+  lineChart,
+  pieChart,
+  radarChart,
+  radialBarChart,
+  sankeyChart,
+  scatterChart,
+  sunburstChart,
+  treemapChart,
+])
+  chart(document.body, { data: [] });

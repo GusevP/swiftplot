@@ -226,6 +226,8 @@ export function million(el: HTMLElement, count: HTMLElement, sizes: readonly HTM
 export function firstDrawChart(el: HTMLElement): void {
   const { cases } = firstDraw;
   const [x1, x2] = bands(cases.length);
+  const frame = 1000 / 60;
+  const top = Math.ceil(Math.max(frame, ...cases.map(c => c.ms)) / 5) * 5;
   const series = (chart: string, colour: string, label: string) =>
     bar({
       x1: x1.filter((_, i) => cases[i]!.chart === chart),
@@ -241,12 +243,12 @@ export function firstDrawChart(el: HTMLElement): void {
       marks: [
         series('line', c[0]!, 'Line'),
         series('scatter', c[2]!, 'Scatter'),
-        rule({ y: 1000 / 60, color: c[4]!, dashed: true, text: 'One frame at 60 Hz' }),
+        rule({ y: frame, color: c[4]!, dashed: true, text: 'One frame at 60 Hz' }),
       ],
     }),
     {
       x: band({ label: 'First draw, by chart and total points', categories: cases.map(c => c.label) }),
-      y: { domain: [0, 20], label: 'Milliseconds' },
+      y: { domain: [0, top], label: 'Milliseconds' },
       use: [
         legend(),
         tooltip({

@@ -131,7 +131,7 @@ const fromRows = examples.get('line-from-rows')!;
         <div><b>{ms(pan.ms)}</b><span>of script time for one pan step of a million-point line, zoomed out</span></div>
         <div><b>{ms(scatter.ms)}</b><span>of script time to draw a 100,000-point scatter, GPU work not included</span></div>
         <div>
-          <b>{shipped.kb} KB</b><span>gzip that swiftplot adds to the benchmark page, tooltip and animation included</span>
+          <b>{shipped.kb} KB</b><span>gzip for a line chart drawn with plot() and line() alone</span>
         </div>
       </div>
       <p class="fine">
@@ -142,8 +142,8 @@ const fromRows = examples.get('line-from-rows')!;
         <div class="plot"><div id="first-draw"></div></div>
         <ul>
           <li>
-            <b>Axis text is DOM, not canvas text.</b>In uPlot, the fastest library we profiled, drawing the axes
-            cost 17 to 21 ms at 4× CPU slowdown at every data size.
+            <b>Axis text is DOM, not canvas text.</b>In uPlot, the fastest other library in chart-bench with the CPU
+            slowed 4×, drawing the axes cost 17 to 21 ms at that speed at every data size.
           </li>
           <li>
             <b>One min and max per pixel column.</b>A million points become a path the width of the chart.
@@ -232,6 +232,7 @@ const fromRows = examples.get('line-from-rows')!;
         <a href="/examples">Examples</a>
         <a href="/guides/getting-started">Guides</a>
         <a href="/reference">Reference</a>
+        <a href="/status">Status</a>
         <a href="https://github.com/GusevP/swiftplot">GitHub</a>
         <span>MIT licence</span>
       </nav>

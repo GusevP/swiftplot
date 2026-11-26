@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
 import { gzipSync } from 'node:zlib';
 import { entries, sha256 } from './check-tarballs.mjs';
-import { integrity, REGISTRY } from './npm-publish.mjs';
+import { integrity, REGISTRY, shasum } from './npm-publish.mjs';
 import { run } from './prepare.mjs';
 
 export function sh(cwd, ...args) {
@@ -187,8 +187,9 @@ export function fakeGh(state, now = () => 0) {
   };
 }
 
-// state.npm maps name@version to { integrity, public }; a publish is public unless state.staged.
+// state.npm maps name@version to { integrity, shasum, public }; a publish is public unless state.staged.
 // state.npmFail(args) may return 'before' (rejected) or 'after' (accepted, the response was lost).
+// state.npmStage, when set, is the answer to every npm stage list.
 export function fakeNpm(state) {
   state.npm ??= {};
   state.npmCalls ??= [];
@@ -205,6 +206,21 @@ export function fakeNpm(state) {
         ? { code: 0, stdout: `${JSON.stringify(entry.integrity)}\n`, stderr: '' }
         : { code: 1, stdout: JSON.stringify({ error: { code: 'E404' } }), stderr: 'npm error code E404' };
     }
+    if (verb === 'stage') {
+      assert.equal(spec, 'list');
+      assert.equal(args[3], '--json');
+      if (state.npmStage) return state.npmStage;
+      const items = Object.entries(state.npm)
+        .filter(([key, entry]) => !entry.public && key.startsWith(`${args[2]}@`))
+        .map(([key, entry]) => ({
+          id: `id-${key}`,
+          packageName: args[2],
+          version: key.slice(args[2].length + 1),
+          status: 'pending',
+          shasum: entry.shasum,
+        }));
+      return { code: 0, stdout: JSON.stringify(items), stderr: '' };
+    }
     assert.equal(verb, 'publish');
     assert.equal(stdio, 'inherit');
     const fail = state.npmFail?.(args);
@@ -213,7 +229,7 @@ export function fakeNpm(state) {
     const { name, version } = JSON.parse(entries(bytes).get('package/package.json').toString('utf8'));
     const key = `${name}@${version}`;
     if (state.npm[key]) return { code: 1, stdout: '', stderr: '' };
-    state.npm[key] = { integrity: integrity(bytes), public: !state.staged, bytes };
+    state.npm[key] = { integrity: integrity(bytes), shasum: shasum(bytes), public: !state.staged, bytes };
     return { code: fail === 'after' ? 1 : 0, stdout: '', stderr: '' };
   };
 }

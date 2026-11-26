@@ -47,6 +47,7 @@ jobs:
       - run: pnpm format:check
       - run: pnpm test
       - run: pnpm build
+      - run: pnpm size && git diff --exit-code site/scripts/size/sizes.json
       - run: pnpm test:import
       - run: pnpm test:smoke
 
