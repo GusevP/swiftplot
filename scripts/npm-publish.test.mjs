@@ -89,6 +89,7 @@ test('publishes the three tarballs in order, by path, public, to the named regis
           '--access',
           'public',
           '--dry-run=false',
+          '--logs-max=50',
           '--registry',
           REGISTRY,
           `--@swiftplot:registry=${REGISTRY}`,
@@ -131,6 +132,7 @@ test('a receipt for a version npm does not show is not published again, and npm 
     stdout: '{"error":{"code":"EUNKNOWNCOMMAND","summary":"","detail":""}}',
     stderr: 'Unknown command: "stage"',
   };
+  const blocking = ['missing', 'unknown', 'staged, unchecked', 'staged, other bytes'];
   for (const [what, state, given, status, said] of [
     [
       'staged',
@@ -208,11 +210,23 @@ test('a receipt for a version npm does not show is not published again, and npm 
           },
         };
       s.state.npmStage = given.npmStage;
-      assert.equal(s.publish().swiftplot, status);
-      assert.deepEqual(s.publishes(), ['./swiftplot-react-0.1.0.tgz', './swiftplot-vue-0.1.0.tgz']);
+      const result = s.publish();
+      assert.equal(result.swiftplot, status);
+      const held = blocking.includes(status);
+      assert.deepEqual(
+        s.publishes(),
+        held ? [] : ['./swiftplot-react-0.1.0.tgz', './swiftplot-vue-0.1.0.tgz'],
+      );
       const line = `npm: swiftplot@0.1.0 ${said.replaceAll('RECEIPTS', s.receipts).replaceAll('SHA', s.sha.swiftplot).replaceAll('FLAGS', FLAGS)}`;
       assert.equal(s.printed[0], line);
       assert.equal(s.printed.at(-3), line);
+      if (held) {
+        assert.equal(result['@swiftplot/react'], 'held');
+        assert.equal(
+          s.printed.at(-1),
+          'npm: @swiftplot/vue@0.1.0 was not published, as swiftplot@0.1.0 is not on npm',
+        );
+      }
     });
   }
 });
@@ -459,4 +473,23 @@ test('a package npm view fails on, or the run never reached, is reported as not 
     s.printed.slice(-3),
     NAMES.map(name => `npm: ${name}@0.1.0 was not checked`),
   );
+});
+
+test('an integrity npm view wraps in a list counts as that integrity', t => {
+  const s = setup(t);
+  const npm = fakeNpm(s.state);
+  const run = (command, args, options) => {
+    const out = npm(args, options);
+    return args[0] === 'view' && out.code === 0 ? { ...out, stdout: `[${out.stdout.trim()}]` } : out;
+  };
+  const status = npmPublish({
+    dir: s.dir,
+    version: '0.1.0',
+    prerelease: false,
+    files: s.files,
+    print: () => {},
+    npmCommand: ['npm'],
+    run,
+  });
+  assert.deepEqual(status, Object.fromEntries(NAMES.map(name => [name, 'public'])));
 });

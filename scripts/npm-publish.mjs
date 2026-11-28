@@ -9,6 +9,8 @@ export const REGISTRY = 'https://registry.npmjs.org/';
 const REGISTRY_ARGS = ['--registry', REGISTRY, `--@swiftplot:registry=${REGISTRY}`];
 const SRI = /^sha512-[A-Za-z0-9+/]{86}==$/;
 const STATES = ['started', 'finished'];
+// A wrapper published while its core is in one of these states cannot be installed, so it waits.
+const BLOCKING = ['missing', 'unknown', 'staged, unchecked', 'staged, other bytes'];
 
 export const npm = (env = process.env, platform = process.platform) =>
   command('npm', ['node_modules/npm/bin/npm-cli.js'], { env, platform });
@@ -61,6 +63,8 @@ function published({ run, npmCommand, cwd, name, version }) {
   } catch {
     body = undefined;
   }
+  // npm view sometimes wraps the one value it found in a list.
+  if (Array.isArray(body) && body.length === 1) [body] = body;
   if (out.code === 0 && typeof body === 'string' && SRI.test(body)) return body;
   if (out.code !== 0 && body?.error?.code === 'E404') return null;
   throw new Error(
@@ -164,6 +168,13 @@ function publishLocked({ run, version, prerelease, files, print, npmCommand, hel
         );
       if (receipt) {
         print(settle(name, receipt.state, sha));
+        if (name === 'swiftplot' && BLOCKING.includes(status[name])) {
+          for (const later of PACKAGES.slice(PACKAGES.indexOf(name) + 1)) {
+            status[later] = 'held';
+            notes[later] = `was not published, as ${name}@${version} is not on npm`;
+          }
+          break;
+        }
         continue;
       }
       status[name] = 'not published';
@@ -182,6 +193,8 @@ function publishLocked({ run, version, prerelease, files, print, npmCommand, hel
           'public',
           // An inherited dry-run=true would exit 0 without publishing and leave a "finished" receipt.
           '--dry-run=false',
+          // npm keeps 10 logs by default, and the checks around a failed publish push its log out.
+          '--logs-max=50',
           ...REGISTRY_ARGS,
           ...(prerelease ? ['--tag', 'next'] : []),
         ],
