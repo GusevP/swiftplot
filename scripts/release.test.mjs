@@ -40,7 +40,7 @@ function repo(t, { version = '0.1.0', changelog, isPrivate } = {}) {
     const files = {
       'package.json': `${JSON.stringify({ name: 'workspace', private: true, repository: { url: `git+${URL_OF_REPO}` } })}\n`,
       'pnpm-lock.yaml':
-        "lockfileVersion: '9.0'\n\npackages:\n\n  react@19.0.0:\n    resolution: {}\n\n  react-dom@19.0.0:\n    resolution: {}\n\n  vue@3.5.0:\n    resolution: {}\n",
+        "lockfileVersion: '9.0'\n\nimporters:\n\n  packages/react:\n    devDependencies:\n      react:\n        specifier: ^19.0.0\n        version: 19.0.0\n      react-dom:\n        specifier: ^19.0.0\n        version: 19.0.0(react@19.0.0)\n\n  packages/vue:\n    devDependencies:\n      vue:\n        specifier: ^3.5.0\n        version: 3.5.0\n\npackages:\n\n  react@19.0.0:\n    resolution: {}\n\n  react-dom@19.0.0:\n    resolution: {}\n\n  vue@3.5.0:\n    resolution: {}\n",
       '.gitignore': 'dist\n.release/\n',
       'README.md': 'readme\n',
       LICENSE: 'MIT\n',

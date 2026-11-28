@@ -181,25 +181,41 @@ test('SHA256SUMS lists every tarball, and verify catches a changed byte, a missi
   assert.throws(() => verify(dir), /extra\.tgz is not listed/);
 });
 
-test('lockedVersion reads the one locked version of a package', () => {
+test("lockedVersion reads the version a workspace package locks, beside a floor suite's older one", () => {
   const lockfile = [
+    'importers:',
+    '',
+    '  packages/react:',
+    '    devDependencies:',
+    '      react:',
+    '        specifier: ^19.3.1',
+    '        version: 19.3.1',
+    '      react-dom:',
+    '        specifier: ^19.3.1',
+    '        version: 19.3.1(react@19.3.1)',
+    '',
+    '  packages/vue:',
+    '    devDependencies:',
+    '      vue:',
+    '        specifier: ^3.5.46',
+    '        version: 3.5.46(typescript@5.9.3)',
+    '',
+    '  tests/react-18:',
+    '    devDependencies:',
+    '      react:',
+    '        specifier: 18.3.0',
+    '        version: 18.3.0',
+    '',
     'packages:',
-    '  react-dom@19.3.1:',
+    '  react@18.3.0:',
     '  react@19.3.1:',
-    '  vue@3.5.46:',
-    'snapshots:',
-    '  react-dom@19.3.1(react@19.3.1):',
-    '  react@19.3.1: {}',
-    '  vue@3.5.46(typescript@5.9.3):',
   ].join('\n');
-  assert.equal(lockedVersion(lockfile, 'react'), '19.3.1');
-  assert.equal(lockedVersion(lockfile, 'react-dom'), '19.3.1');
-  assert.equal(lockedVersion(lockfile, 'vue'), '3.5.46');
-  assert.throws(
-    () => lockedVersion(`${lockfile}\n  vue@3.4.0:`, 'vue'),
-    /one version of vue.*3\.5\.46, 3\.4\.0/,
-  );
-  assert.throws(() => lockedVersion(lockfile, 'svelte'), /found none/);
+  assert.equal(lockedVersion(lockfile, 'packages/react', 'react'), '19.3.1');
+  assert.equal(lockedVersion(lockfile, 'packages/react', 'react-dom'), '19.3.1');
+  assert.equal(lockedVersion(lockfile, 'packages/vue', 'vue'), '3.5.46');
+  assert.equal(lockedVersion(lockfile, 'tests/react-18', 'react'), '18.3.0');
+  assert.throws(() => lockedVersion(lockfile, 'packages/vue', 'svelte'), /svelte for packages\/vue.*none/);
+  assert.throws(() => lockedVersion(lockfile, 'packages/svelte', 'svelte'), /found none/);
 });
 
 for (const [what, size, problem] of [

@@ -141,21 +141,25 @@ export function verify(dir) {
   if (problems.length) throw new Error(`${SUMS} in ${dir} does not hold:\n  ${problems.join('\n  ')}`);
 }
 
-export function lockedVersion(lockfile, name) {
-  const found = new Set(
-    [...lockfile.matchAll(new RegExp(`^  ${name}@([^:(\\s]+)[:(]`, 'gm'))].map(m => m[1]),
-  );
-  if (found.size !== 1 || !isVersion([...found][0]))
+/** The version of name that the workspace package at importer is tested with; the floor suites lock older ones. */
+export function lockedVersion(lockfile, importer, name) {
+  const block = lockfile.split(/^(?=  \S)/m).find(b => b.startsWith(`  ${importer}:\n`)) ?? '';
+  const version = block.match(new RegExp(`^      ${name}:\\n.*\\n        version: ([^(\\s]+)`, 'm'))?.[1];
+  if (!version || !isVersion(version))
     throw new Error(
-      `expected one version of ${name} in pnpm-lock.yaml, found ${[...found].join(', ') || 'none'}`,
+      `expected a version of ${name} for ${importer} in pnpm-lock.yaml, found ${version ?? 'none'}`,
     );
-  return [...found][0];
+  return version;
 }
 
 export function smoke({ dir, source, run }) {
   const { version, files } = check(dir);
   const lockfile = readFileSync(join(source, 'pnpm-lock.yaml'), 'utf8');
-  const peers = ['react', 'react-dom', 'vue'].map(name => `${name}@${lockedVersion(lockfile, name)}`);
+  const peers = [
+    ['packages/react', 'react'],
+    ['packages/react', 'react-dom'],
+    ['packages/vue', 'vue'],
+  ].map(([importer, name]) => `${name}@${lockedVersion(lockfile, importer, name)}`);
   const fixture = mkdtempSync(join(tmpdir(), 'swiftplot-tarballs-'));
   const call = (command, args) => {
     const out = run(command, args, { cwd: fixture });
