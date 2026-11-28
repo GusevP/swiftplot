@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.5.2 - 2026-11-28
+
 - `@swiftplot/react` and `@swiftplot/vue` bundle only the charts an app imports: `LineChart` alone takes 39.3 KB gzipped from React's package where it took 56.2, and 39.8 from Vue's where it took 57.2.
 - A chart whose element is in another window, such as a popup, Document Picture-in-Picture or an iframe, works in that window: a drag ends on its release there, resizes and density changes are seen, frames come from it and do not stop when the opener's tab is hidden, and `'auto'` themes read its colour scheme. So does a component of `@swiftplot/react` or `@swiftplot/vue` rendered there through a portal or a teleport. `Internals` has `doc` and `win`.
 
