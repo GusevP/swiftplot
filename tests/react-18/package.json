@@ -1,0 +1,18 @@
+{
+  "name": "swiftplot-react-18",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "react": "18.3.0",
+    "react-dom": "18.3.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.2",
+    "@vitest/browser-playwright": "^5.1.1",
+    "playwright": "^1.65.1",
+    "vitest": "^5.1.1"
+  }
+}

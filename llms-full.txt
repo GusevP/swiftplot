@@ -610,6 +610,13 @@ update rules: it sends the chart only what changed.
 - Passing `tooltip`, `legend` or `zoom` props to `<Plot>` or `plot()`: there they are functions
   listed in `use`. Only the easy charts take them as props.
 - Expecting `use` to change after the chart is created: on `<Plot>` change the component's `key`.
+- Moving the element of a live chart to another window (a popup, Picture-in-Picture, an iframe). A chart
+  works in the window its element is in, read once when it is made: destroy it, move the element and
+  make it again. A React or Vue component rendered there through a portal or a teleport needs
+  nothing of this: it is mounted in that window. A Vue `<Teleport>` whose `to` or `disabled` changes
+  moves its chart to another document without remounting it. `to` for another window is an element,
+  not a string, so key the Teleport on an id the app keeps for each window or target, such as
+  `:key="disabled ? 'inline' : targetId"`.
 - Calling `plot()` or an easy chart on the server. Importing is safe; drawing needs a browser.
 - Stacking on a log axis, or `bar({ x, y })` on a log axis (give both ends).
 - Inventing props. If a prop is not in this file or the package's types, it does not exist.

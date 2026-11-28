@@ -1,9 +1,14 @@
-import { act, type ReactNode } from 'react';
+import * as React from 'react';
+import type { ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 
 import { host } from '../../core/test/helpers.js';
 
 export * from '../../core/test/helpers.js';
+
+// React 18.3.0, the peer floor, exports act only as unstable_act; act itself came in 18.3.1.
+export const act: typeof React.act =
+  React.act ?? (React as unknown as { unstable_act: typeof React.act }).unstable_act;
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 

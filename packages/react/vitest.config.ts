@@ -17,6 +17,7 @@ export default defineConfig({
   },
   test: {
     include: ['test/**/*.test.{ts,tsx}'],
+    exclude: ['test/production.test.ts'],
     browser: {
       enabled: true,
       headless: true,

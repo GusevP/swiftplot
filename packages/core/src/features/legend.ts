@@ -36,12 +36,12 @@ export type LegendOptions = {
  */
 export function legend({ toggle = true, rows: cap }: LegendOptions = {}): Feature {
   return chart => {
-    const { root } = chart;
+    const { root, doc } = chart;
     const toggles = (e: Entry) => toggle && !e.part;
     const off = (e: Entry) => e.id !== undefined && chart.hidden().includes(e.id);
     const box = chart.layer('div', `color:${chart.theme().text}`);
     const shown = new Map<HTMLElement, Entry>();
-    const cut = new ResizeObserver(seen => {
+    const cut = new chart.win.ResizeObserver(seen => {
       for (const { target: t } of seen) {
         if (t.scrollWidth > t.clientWidth) t.setAttribute('title', t.textContent!);
         else t.removeAttribute('title');
@@ -121,20 +121,20 @@ export function legend({ toggle = true, rows: cap }: LegendOptions = {}): Featur
       const key = JSON.stringify([rows, unlisted, strips]);
       if (key !== built) {
         built = key;
-        const doc = root.getRootNode() as Document | ShadowRoot;
-        const focused = [...shown].find(([item]) => item.contains(doc.activeElement))?.[1].id;
+        const tree = root.getRootNode() as Document | ShadowRoot;
+        const focused = [...shown].find(([item]) => item.contains(tree.activeElement))?.[1].id;
         shown.clear();
         cut.disconnect();
         box.replaceChildren(
           ...rows.map((row, r) => {
-            const line = document.createElement('div');
+            const line = doc.createElement('div');
             line.style.cssText = `display:flex;gap:${GAP}px;height:${ROW}px;align-items:center;white-space:nowrap;overflow:hidden`;
             const capped = r === rows.length - 1 && unlisted.length > 0;
             for (const e of row) {
-              const item = line.appendChild(document.createElement('span'));
+              const item = line.appendChild(doc.createElement('span'));
               // Only the entries take the pointer: the rest of the strip stays the chart's.
               item.style.cssText = `pointer-events:auto;${capped ? 'flex:0 1 auto;min-width:0' : 'flex:none;max-width:100%'};overflow:hidden;text-overflow:ellipsis`;
-              const swatch = item.appendChild(document.createElement('span'));
+              const swatch = item.appendChild(doc.createElement('span'));
               swatch.style.cssText =
                 'display:inline-block;width:10px;height:10px;margin-right:6px;border-radius:2px';
               swatch.style.backgroundColor = e.color;
@@ -147,7 +147,7 @@ export function legend({ toggle = true, rows: cap }: LegendOptions = {}): Featur
               if (e.group !== undefined || e.part || toggles(e)) shown.set(item, e);
             }
             if (capped) {
-              const item = line.appendChild(document.createElement('span'));
+              const item = line.appendChild(doc.createElement('span'));
               item.style.cssText = 'pointer-events:auto;flex:none';
               item.textContent = more(unlisted.length);
               item.title = unlisted.join(', ');
@@ -155,9 +155,9 @@ export function legend({ toggle = true, rows: cap }: LegendOptions = {}): Featur
             return line;
           }),
           ...strips.map(s => {
-            const line = document.createElement('div');
+            const line = doc.createElement('div');
             line.style.cssText = `display:flex;gap:6px;height:${ROW}px;align-items:center;white-space:nowrap;overflow:hidden`;
-            const strip = document.createElement('span');
+            const strip = doc.createElement('span');
             strip.style.cssText = 'display:inline-block;width:120px;height:10px;border-radius:2px';
             strip.style.backgroundImage = `linear-gradient(to right,${s.colors.join()})`;
             line.append(...(s.label ? [s.label, ' '] : []), s.ends[0]!, strip, s.ends[1]!);
@@ -227,14 +227,14 @@ export function legend({ toggle = true, rows: cap }: LegendOptions = {}): Featur
     host.addEventListener('pointermove', move, true);
     root.addEventListener('pointerleave', lift);
     root.addEventListener('pointercancel', leave);
-    document.addEventListener('pointerdown', leave, true);
+    doc.addEventListener('pointerdown', leave, true);
 
     return {
       // The entries may have moved under a pointer at rest, so what it is over is looked up again.
       update() {
         box.style.color = chart.theme().text;
-        const doc = root.isConnected && (root.getRootNode() as Document | ShadowRoot);
-        if (at && !over(doc ? doc.elementFromPoint(...at) : null)) at = undefined;
+        const tree = root.isConnected && (root.getRootNode() as Document | ShadowRoot);
+        if (at && !over(tree ? tree.elementFromPoint(...at) : null)) at = undefined;
       },
       letGo: () => held && leave(),
       destroy() {
@@ -242,7 +242,7 @@ export function legend({ toggle = true, rows: cap }: LegendOptions = {}): Featur
         host.removeEventListener('pointermove', move, true);
         root.removeEventListener('pointerleave', lift);
         root.removeEventListener('pointercancel', leave);
-        document.removeEventListener('pointerdown', leave, true);
+        doc.removeEventListener('pointerdown', leave, true);
         cut.disconnect();
         box.remove();
       },

@@ -9,14 +9,18 @@ import {
   provide,
   ref,
   shallowRef,
+  Suspense,
+  Teleport,
+  version,
   type Component,
 } from 'vue';
 import { renderToString } from 'vue/server-renderer';
-import { afterEach, expect, test, vi } from 'vitest';
+import { afterEach, expect, onTestFinished, test, vi } from 'vitest';
 
 import { bind, type Declared } from '../src/bind.js';
 import { HistogramChart, LineChart, PieChart, Plot, ScatterChart } from '../src/index.js';
 import {
+  callsWith,
   click,
   drag,
   entriesOf,
@@ -26,6 +30,7 @@ import {
   hover,
   middleOf,
   nextFrame,
+  other,
   pixel,
   render,
   tipOf,
@@ -44,14 +49,14 @@ type Props = {
 type Row = { x: number; a: number };
 
 const flag = { type: [Boolean, Object], default: undefined };
-const declared: Declared<Props> = {
+const declared = (): Declared<Props> => ({
   data: null,
   label: null,
   zoom: flag,
   tooltip: { type: Boolean, default: undefined },
   width: null,
   height: null,
-};
+});
 /** The red line covers the pixel at least mostly (its edges are blended with the background). */
 const red = (p: number[]) => p[0]! > 200 && p[1]! < 120 && p[2]! < 120;
 const ZERO = { top: 0, right: 0, bottom: 0, left: 0 };
@@ -74,6 +79,10 @@ const mount = (C: Component, props: () => Record<string, unknown>, container?: H
 };
 afterEach(() => {
   for (const unmount of mounted.splice(0)) unmount();
+});
+
+test.runIf(import.meta.env.VITE_PEER)('runs on the vue the config names', () => {
+  expect(version).toBe(import.meta.env.VITE_PEER);
 });
 
 test('bind(fake) renders one div, creates the chart on it after mount and destroys it on unmount', () => {
@@ -186,12 +195,20 @@ test('a bare zoom attribute zooms the real chart and an absent tooltip still sho
 test('the declared props must name every chart prop but the callbacks, and nothing else', () => {
   const { mount: chart } = fake<Props & { onClick?: () => void }>();
   // @ts-expect-error -- label is missing
-  bind(chart, { data: null, zoom: flag, tooltip: flag, width: null, height: null });
-  // @ts-expect-error -- extra is not a chart prop
-  bind(chart, { data: null, label: null, zoom: flag, tooltip: flag, width: null, height: null, extra: null });
+  bind(chart, () => ({ data: null, zoom: flag, tooltip: flag, width: null, height: null }));
+  bind(chart, () => ({
+    data: null,
+    label: null,
+    zoom: flag,
+    tooltip: flag,
+    width: null,
+    height: null,
+    // @ts-expect-error -- extra is not a chart prop
+    extra: null,
+  }));
   const more = { extra: null };
   // @ts-expect-error -- nor when it is spread in
-  bind(chart, { ...declared, ...more });
+  bind(chart, () => ({ ...declared(), ...more }));
   expect(bind(chart, declared)).toBeTypeOf('object');
 });
 
@@ -297,6 +314,49 @@ test('a host in a shadow root, or mounted detached and attached later to the pag
   shadow().append(containers[1]!);
   await twoFrames();
   for (const d of detached) expect(heightOf(d.el)).toEqual([300, '300px']);
+});
+
+const LAYERED = 'style[data-swiftplot-fallback-layer]';
+
+test("a chart teleported to another window's document mounts there and falls back through that window", async () => {
+  onTestFinished(() => {
+    vi.restoreAllMocks();
+  });
+  const { view, doc, el } = await other();
+  const styles = document.querySelectorAll(LAYERED).length;
+  const [ourStyle, theirStyle] = [vi.spyOn(view, 'getComputedStyle'), vi.spyOn(window, 'getComputedStyle')];
+  const ourWatch = vi.spyOn(view.MutationObserver.prototype, 'observe');
+  const theirWatch = vi.spyOn(window.MutationObserver.prototype, 'observe');
+  const r = render(() => h(Teleport, { to: el }, [h(LineChart as Component, { data: rows(() => 0.5) })]));
+  const chart = el.firstElementChild as HTMLElement;
+  expect([chart.ownerDocument, canvases(chart)]).toEqual([doc, 1]);
+  expect(heightOf(chart)).toEqual([100, '100px']);
+  expect(doc.head.querySelectorAll(LAYERED)).toHaveLength(1);
+  expect([callsWith(ourStyle, chart) > 0, callsWith(theirStyle, chart)]).toEqual([true, 0]);
+  expect([callsWith(ourWatch, doc.head) > 0, callsWith(theirWatch, doc.head)]).toEqual([true, 0]);
+  r.unmount();
+  expect([el.children.length, r.container.children.length]).toEqual([0, 0]);
+  expect(document.querySelectorAll(LAYERED)).toHaveLength(styles);
+});
+
+test('a detached host in this window and one in another each fall back once attached, through an observer of its own window', async () => {
+  onTestFinished(() => {
+    vi.restoreAllMocks();
+  });
+  const { view, doc } = await other();
+  const ours = vi.spyOn(view.ResizeObserver.prototype, 'observe');
+  const theirs = vi.spyOn(window.ResizeObserver.prototype, 'observe');
+  const Chart = bind(fake<Props>().mount, declared);
+  const [here, there] = [document.createElement('div'), doc.createElement('div')];
+  const [a, b] = [mount(Chart, () => ({}), here).el, mount(Chart, () => ({}), there).el];
+  expect([callsWith(theirs, a), callsWith(ours, a), callsWith(ours, b), callsWith(theirs, b)]).toEqual([
+    1, 0, 1, 0,
+  ]);
+  document.body.append(here);
+  doc.body.append(there);
+  await twoFrames();
+  expect([a.clientHeight, b.clientHeight]).toEqual([300, 300]);
+  here.remove();
 });
 
 const TAILWIND = '@layer theme, base, components, utilities;';
@@ -632,7 +692,10 @@ test('@click gets the core payload; selected is a plain prop', () => {
 
   const { mount: chart, calls } = fake<Props & { selected?: unknown }>();
   const selected = [{ id: 'a', rows: [1] }];
-  mount(bind(chart, { ...declared, selected: null }), () => ({ selected }));
+  mount(
+    bind(chart, () => ({ ...declared(), selected: null })),
+    () => ({ selected }),
+  );
   expect(calls.create[0]!.props).toStrictEqual({ selected });
 });
 
@@ -720,6 +783,27 @@ test('with no @error the failure reaches app.config.errorHandler', async () => {
   expect(errors[0]).toBeInstanceOf(Error);
 });
 
+test('a chart in a Suspense boundary unmounted while still pending reports no error', async () => {
+  const errors: unknown[] = [];
+  const Pending = defineComponent({
+    async setup() {
+      await new Promise(() => {});
+      return () => null;
+    },
+  });
+  const app = createApp({
+    render: () =>
+      h(Suspense, null, {
+        default: () => h('div', [h(LineChart<Row[]>, { data: rows(() => 0.5) }), h(Pending)]),
+      }),
+  });
+  app.config.errorHandler = e => void errors.push(e);
+  app.mount(host());
+  await nextTick();
+  app.unmount();
+  expect(errors).toEqual([]);
+});
+
 test('a listener that throws or rejects reaches app.config.errorHandler and the merged listeners after it still run', async () => {
   const errors: unknown[] = [];
   const after = vi.fn();
@@ -796,7 +880,7 @@ test('no loop: data and typed arrays rebuilt from the same rows on every render 
     () => {
       throw new Error('bad');
     },
-    { ...declared, column: null },
+    () => ({ ...declared(), column: null }),
   );
   let renders = 0;
   mount(Chart, () => {

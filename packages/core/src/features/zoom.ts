@@ -26,7 +26,7 @@ const TAP_MS = 500;
 export function zoom(z: ZoomOptions = {}): Feature {
   const sides = (['x', 'y'] as const).filter(k => (z.axes ?? 'x').includes(k));
   return chart => {
-    const { root, drag } = chart;
+    const { root, drag, doc, win } = chart;
     const locate = (e: MouseEvent) => where(chart, e);
     if (z.drag !== false) drag.pan = z.drag === 'pan' ? 'plain' : 'shift';
     let pending: Window | null | undefined;
@@ -40,7 +40,7 @@ export function zoom(z: ZoomOptions = {}): Feature {
     };
     const ask = (want: Window | null) => {
       pending = want;
-      frame ||= requestAnimationFrame(flush);
+      frame ||= win.requestAnimationFrame(flush);
     };
 
     const wheel = (e: WheelEvent) => {
@@ -83,10 +83,10 @@ export function zoom(z: ZoomOptions = {}): Feature {
       const { px, py, over, w, h } = locate(e);
       if (!over) return;
       from = { id: e.pointerId, x: px, y: py, view: shown(), w, h };
-      document.addEventListener('pointermove', move, true);
-      document.addEventListener('pointerup', up, true);
-      document.addEventListener('pointercancel', up, true);
-      document.addEventListener('selectstart', unselect, true);
+      doc.addEventListener('pointermove', move, true);
+      doc.addEventListener('pointerup', up, true);
+      doc.addEventListener('pointercancel', up, true);
+      doc.addEventListener('selectstart', unselect, true);
     };
     const move = (e: PointerEvent) => {
       if (!from || e.pointerId !== from.id) return;
@@ -118,10 +118,10 @@ export function zoom(z: ZoomOptions = {}): Feature {
     };
     const end = () => {
       from = undefined;
-      document.removeEventListener('pointermove', move, true);
-      document.removeEventListener('pointerup', up, true);
-      document.removeEventListener('pointercancel', up, true);
-      document.removeEventListener('selectstart', unselect, true);
+      doc.removeEventListener('pointermove', move, true);
+      doc.removeEventListener('pointerup', up, true);
+      doc.removeEventListener('pointercancel', up, true);
+      doc.removeEventListener('selectstart', unselect, true);
     };
     const up = (e: PointerEvent) => {
       if (e.pointerId !== from?.id) return;
@@ -130,7 +130,7 @@ export function zoom(z: ZoomOptions = {}): Feature {
     };
     const settle = () => (settling = release(chart));
     const engage = () => {
-      clearTimeout(settling);
+      win.clearTimeout(settling);
       drag.active = true;
     };
     const whole = () => ask(sides.length === 2 ? null : { [sides[0]!]: undefined });
@@ -155,9 +155,9 @@ export function zoom(z: ZoomOptions = {}): Feature {
       const { px, py, at, over } = locate(e);
       if (!over || touches.size >= 2) return;
       if (!touches.size) {
-        document.addEventListener('pointermove', touchMove, true);
-        document.addEventListener('pointerup', touchUp, true);
-        document.addEventListener('pointercancel', touchCancel, true);
+        doc.addEventListener('pointermove', touchMove, true);
+        doc.addEventListener('pointerup', touchUp, true);
+        doc.addEventListener('pointercancel', touchCancel, true);
       }
       touches.set(e.pointerId, { px, py, at });
       if (touches.size === 2) {
@@ -200,9 +200,9 @@ export function zoom(z: ZoomOptions = {}): Feature {
       touches.clear();
       pinch = tap = undefined;
       again = false;
-      document.removeEventListener('pointermove', touchMove, true);
-      document.removeEventListener('pointerup', touchUp, true);
-      document.removeEventListener('pointercancel', touchCancel, true);
+      doc.removeEventListener('pointermove', touchMove, true);
+      doc.removeEventListener('pointerup', touchUp, true);
+      doc.removeEventListener('pointercancel', touchCancel, true);
       if (drag.active) settle();
     };
     const touchUp = (e: PointerEvent) => {
@@ -235,8 +235,8 @@ export function zoom(z: ZoomOptions = {}): Feature {
         touchEnd();
         root.style.touchAction = touchAction;
         root.removeEventListener('pointerdown', touchDown, true);
-        cancelAnimationFrame(frame);
-        clearTimeout(settling);
+        win.cancelAnimationFrame(frame);
+        win.clearTimeout(settling);
         drag.pan = drag.active = false;
         root.removeEventListener('wheel', wheel);
         root.removeEventListener('pointerdown', down);

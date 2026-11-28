@@ -1,21 +1,38 @@
 import {
-  act,
   Component,
   createElement as h,
   createRef,
   Fragment,
+  lazy,
   StrictMode,
+  Suspense,
   useState,
+  type FunctionComponent,
   type ReactNode,
+  version,
 } from 'react';
+import { createPortal, version as domVersion } from 'react-dom';
 import { hydrateRoot, type Root } from 'react-dom/client';
 import { renderToString } from 'react-dom/server';
 import { arcs, dots, legend, zoom, type Feature, type Hover, type Layout } from 'swiftplot';
-import { afterEach, expect, test, vi } from 'vitest';
+import { afterEach, expect, onTestFinished, test, vi } from 'vitest';
 
 import { bind } from '../src/bind.js';
 import { LineChart, PieChart, Plot, ScatterChart } from '../src/index.js';
-import { failingOnB, fake, host, hover, nextFrame, pixel, render, twoFrames, wheel } from './helpers.js';
+import {
+  act,
+  callsWith,
+  failingOnB,
+  fake,
+  host,
+  hover,
+  nextFrame,
+  other,
+  pixel,
+  render,
+  twoFrames,
+  wheel,
+} from './helpers.js';
 
 type Props = {
   data?: unknown;
@@ -55,6 +72,18 @@ const mount = (node: ReactNode, container?: HTMLElement) => {
 afterEach(() => {
   for (const unmount of mounted.splice(0)) unmount();
 });
+
+test.runIf(import.meta.env.VITE_PEER)('runs on the react and react-dom the config names', () => {
+  expect([version, domVersion]).toEqual([import.meta.env.VITE_PEER, import.meta.env.VITE_PEER]);
+});
+
+// renderToString runs in a browser here, where bind's typeof document check picks useLayoutEffect, which
+// React 18 warns about; a real server has no document and uses useEffect, and React 19 dropped the warning.
+const serverErrors = (spy: { mock: { calls: unknown[][] } }) =>
+  spy.mock.calls.filter(
+    ([message]) =>
+      !(version.startsWith('18.') && String(message).includes('useLayoutEffect does nothing on the server')),
+  );
 
 test('bind(fake) renders one div, creates the chart on it after mount and destroys it on unmount', () => {
   const { mount: chart, calls } = fake<Props>();
@@ -304,6 +333,49 @@ test('a host in a shadow root, or mounted detached and attached later to the pag
   shadow().append(containers[1]!);
   await twoFrames();
   for (const d of detached) expect(heightOf(d.el)).toEqual([300, '300px']);
+});
+
+const LAYERED = 'style[data-swiftplot-fallback-layer]';
+
+test("a chart in a portal to another window's document mounts there and falls back through that window", async () => {
+  onTestFinished(() => {
+    vi.restoreAllMocks();
+  });
+  const { view, doc, el } = await other();
+  const styles = document.querySelectorAll(LAYERED).length;
+  const [ourStyle, theirStyle] = [vi.spyOn(view, 'getComputedStyle'), vi.spyOn(window, 'getComputedStyle')];
+  const ourWatch = vi.spyOn(view.MutationObserver.prototype, 'observe');
+  const theirWatch = vi.spyOn(window.MutationObserver.prototype, 'observe');
+  const r = render(createPortal(h(LineChart<Row[]>, { data: rows(() => 0.5) }), el));
+  const chart = el.firstElementChild as HTMLElement;
+  expect([chart.ownerDocument, canvases(chart)]).toEqual([doc, 1]);
+  expect(heightOf(chart)).toEqual([100, '100px']);
+  expect(doc.head.querySelectorAll(LAYERED)).toHaveLength(1);
+  expect([callsWith(ourStyle, chart) > 0, callsWith(theirStyle, chart)]).toEqual([true, 0]);
+  expect([callsWith(ourWatch, doc.head) > 0, callsWith(theirWatch, doc.head)]).toEqual([true, 0]);
+  r.unmount();
+  expect([el.children.length, r.container.children.length]).toEqual([0, 0]);
+  expect(document.querySelectorAll(LAYERED)).toHaveLength(styles);
+});
+
+test('a detached host in this window and one in another each fall back once attached, through an observer of its own window', async () => {
+  onTestFinished(() => {
+    vi.restoreAllMocks();
+  });
+  const { view, doc } = await other();
+  const ours = vi.spyOn(view.ResizeObserver.prototype, 'observe');
+  const theirs = vi.spyOn(window.ResizeObserver.prototype, 'observe');
+  const Chart = bind(fake<Props>().mount);
+  const [here, there] = [document.createElement('div'), doc.createElement('div')];
+  const [a, b] = [mount(h(Chart), here).el, mount(h(Chart), there).el];
+  expect([callsWith(theirs, a), callsWith(ours, a), callsWith(ours, b), callsWith(theirs, b)]).toEqual([
+    1, 0, 1, 0,
+  ]);
+  document.body.append(here);
+  doc.body.append(there);
+  await twoFrames();
+  expect([a.clientHeight, b.clientHeight]).toEqual([300, 300]);
+  here.remove();
 });
 
 const TAILWIND = '@layer theme, base, components, utilities;';
@@ -696,6 +768,10 @@ test('server markup is one sized, empty div that hydrates without a warning and 
   ];
   const errors = vi.spyOn(console, 'error');
   const warnings = vi.spyOn(console, 'warn');
+  onTestFinished(() => {
+    errors.mockRestore();
+    warnings.mockRestore();
+  });
   const onRecoverableError = vi.fn();
   for (const { node, html, height } of cases) {
     expect(renderToString(node)).toBe(html);
@@ -709,9 +785,7 @@ test('server markup is one sized, empty div that hydrates without a warning and 
     expect(canvasOf(served as HTMLElement)).not.toBeNull();
     expect(served!.clientHeight).toBe(height);
   }
-  expect([errors.mock.calls, warnings.mock.calls, onRecoverableError.mock.calls]).toEqual([[], [], []]);
-  errors.mockRestore();
-  warnings.mockRestore();
+  expect([serverErrors(errors), warnings.mock.calls, onRecoverableError.mock.calls]).toEqual([[], [], []]);
 });
 
 const dot = () => [dots({ x: [5], y: [0.5], r: [4], color: '#ff0000' })];
@@ -953,8 +1027,9 @@ test('a new children function is called once for each render of the app, and a h
 test('the server renders the host alone with children, it hydrates, and StrictMode shows one overlay', () => {
   const node = h(Plot, { ...plotted, marks: dot(), children: marked });
   const html = '<div style="width:200px;height:100px"></div>';
-  expect(renderToString(node)).toBe(html);
   const errors = vi.spyOn(console, 'error');
+  onTestFinished(() => errors.mockRestore());
+  expect(renderToString(node)).toBe(html);
   const container = host();
   container.innerHTML = html;
   let root!: Root;
@@ -968,8 +1043,7 @@ test('the server renders the host alone with children, it hydrates, and StrictMo
   point(strict.el, 103, 52);
   near(spot(strict.el, 'i'), [100, 50]);
   strict.unmount();
-  expect(errors).not.toHaveBeenCalled();
-  errors.mockRestore();
+  expect(serverErrors(errors)).toEqual([]);
 });
 
 test('children given while the chart has no room or failed to mount show once it draws', async () => {
@@ -1071,4 +1145,124 @@ test('no loop: inline children, listeners that set state, data and axis conversi
   own.rerender(inline());
   near(spot(own.el, 'b'), [100, 50]);
   expect(draws - before).toBeLessThanOrEqual(2);
+});
+
+const counting = () => {
+  const n = { made: 0, paints: 0, gone: 0 };
+  const use: Feature[] = [
+    chart => {
+      n.made++;
+      chart.onPaint(draw => (n.paints++, draw()));
+      return { destroy: () => void n.gone++ };
+    },
+  ];
+  return { n, use };
+};
+function suspending() {
+  let done = false;
+  let resolve!: () => void;
+  const promise = new Promise<void>(r => (resolve = r)).then(() => void (done = true));
+  const Wait = () => {
+    if (!done) throw promise;
+    return null;
+  };
+  return { Wait, promise, resolve: () => act(async () => (resolve(), promise)) };
+}
+const logged = () => {
+  const errors = vi.spyOn(console, 'error');
+  const warnings = vi.spyOn(console, 'warn');
+  onTestFinished(() => {
+    errors.mockRestore();
+    warnings.mockRestore();
+  });
+  return () => [...errors.mock.calls, ...warnings.mock.calls];
+};
+const unsized = { width: 200, margin: ZERO, ...axes, marks: dot() };
+const waiting = h('p', null, 'waiting');
+const beside = (use: Feature[], Wait: () => null) => (wait: boolean) =>
+  h(Suspense, { fallback: waiting }, h(Plot, { ...unsized, use }), wait && h(Wait));
+const sizeOf = (el: HTMLElement) => [...heightOf(el), el.clientWidth, canvasOf(el).style.width];
+
+test('a sibling that suspends hides the chart, which React 18.3 and 19 both destroy while hidden: no paints, no fallback writes', async () => {
+  const messages = logged();
+  const { n, use } = counting();
+  const { Wait } = suspending();
+  const app = beside(use, Wait);
+  const r = mount(app(false));
+  await settle();
+  const el = r.el;
+  expect(n.paints).toBeGreaterThan(0);
+  r.rerender(app(true));
+  expect([r.el, el.style.display, r.container.querySelector('p')?.textContent]).toEqual([
+    el,
+    'none',
+    'waiting',
+  ]);
+  const writes: MutationRecord[] = [];
+  const watch = new MutationObserver(records => writes.push(...records));
+  watch.observe(el, { attributes: true });
+  watch.observe(document.head, { childList: true });
+  const paints = n.paints;
+  for (let i = 0; i < 3; i++) await settle();
+  writes.push(...watch.takeRecords());
+  watch.disconnect();
+  expect([n.made, n.gone, n.paints - paints, writes.length, messages()]).toEqual([1, 1, 0, 0, []]);
+});
+
+test('the sibling resolving shows the same host at its size, with exactly one destroy and one creation on React 18.3 and 19', async () => {
+  const messages = logged();
+  const { n, use } = counting();
+  const { Wait, resolve } = suspending();
+  const app = beside(use, Wait);
+  const r = mount(app(false));
+  await settle();
+  const el = r.el;
+  const size = sizeOf(el);
+  r.rerender(app(true));
+  await resolve();
+  await settle();
+  expect([r.el, el.style.display, r.container.querySelector('p')]).toEqual([el, '', null]);
+  expect(sizeOf(el)).toEqual(size);
+  expect(el.querySelectorAll('canvas')).toHaveLength(1);
+  expect([n.made, n.gone, messages()]).toEqual([2, 1, []]);
+});
+
+test('a boundary unmounted while suspended destroys the chart once and leaves no observer or listener', async () => {
+  const observe = vi.spyOn(ResizeObserver.prototype, 'observe');
+  const disconnect = vi.spyOn(ResizeObserver.prototype, 'disconnect');
+  const add = vi.spyOn(MediaQueryList.prototype, 'addEventListener');
+  const remove = vi.spyOn(MediaQueryList.prototype, 'removeEventListener');
+  onTestFinished(() => [observe, disconnect, add, remove].forEach(s => s.mockRestore()));
+  const messages = logged();
+  const { n, use } = counting();
+  const { Wait } = suspending();
+  const app = beside(use, Wait);
+  const r = render(app(false));
+  await settle();
+  r.rerender(app(true));
+  r.unmount();
+  expect(observe.mock.contexts.length).toBeGreaterThan(0);
+  expect(observe.mock.contexts.every(o => disconnect.mock.contexts.includes(o))).toBe(true);
+  const calls = (s: typeof add) => s.mock.calls.map(([type, f], i) => [s.mock.contexts[i], type, f]);
+  const [added, removed] = [calls(add), calls(remove)];
+  expect(added.length).toBeGreaterThan(0);
+  expect(removed).toHaveLength(added.length);
+  expect(added.every(a => removed.some(b => a.every((v, i) => v === b[i])))).toBe(true);
+  expect([n.made, n.gone, r.container.innerHTML, messages()]).toEqual([1, 1, '', []]);
+});
+
+test('a chart whose own component comes through lazy() mounts once when it resolves', async () => {
+  const messages = logged();
+  const { n, use } = counting();
+  const { promise, resolve } = suspending();
+  const Lazy = lazy(() =>
+    promise.then(() => ({ default: Plot as FunctionComponent<Record<string, unknown>> })),
+  );
+  const r = mount(h(Suspense, { fallback: waiting }, h(Lazy, { ...unsized, use })));
+  expect([r.container.textContent, n.made]).toEqual(['waiting', 0]);
+  await resolve();
+  await settle();
+  expect([r.container.querySelector('p'), r.el.querySelectorAll('canvas').length]).toEqual([null, 1]);
+  expect([n.made, n.gone, messages()]).toEqual([1, 0, []]);
+  expect(n.paints).toBeGreaterThan(0);
 });

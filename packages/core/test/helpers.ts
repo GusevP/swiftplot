@@ -1,5 +1,23 @@
+import { onTestFinished } from 'vitest';
+
 export function host() {
   return document.body.appendChild(document.createElement('div'));
+}
+
+/** A same-origin iframe with a host in it; the library stays loaded in this window. */
+export async function other() {
+  const iframe = document.createElement('iframe');
+  iframe.style.cssText = 'display:block;width:200px;height:150px;border:0';
+  iframe.srcdoc = '<!doctype html><body style="margin:0">';
+  const loaded = new Promise(r => (iframe.onload = r));
+  document.body.append(iframe);
+  onTestFinished(() => iframe.remove());
+  await loaded;
+  const view = iframe.contentWindow as Window & typeof globalThis;
+  const doc = iframe.contentDocument!;
+  const el = doc.body.appendChild(doc.createElement('div'));
+  el.style.cssText = 'width:100%;height:100px';
+  return { iframe, view, doc, el };
 }
 
 /** RGBA of the CSS pixel (x, y) of the nth canvas. A WebGL canvas must be read in the task that drew it. */
@@ -111,6 +129,9 @@ export const nextFrame = () => new Promise(requestAnimationFrame);
 export const twoFrames = async () => {
   for (let i = 0; i < 2; i++) await nextFrame();
 };
+
+export const callsWith = (spy: { mock: { calls: unknown[][] } }, x: unknown) =>
+  spy.mock.calls.filter(c => c[0] === x).length;
 
 /** A wrapper's Mount that records its calls, the host's height when created, and marks the host with one element. */
 export function fake<P>() {

@@ -7,5 +7,26 @@
   "rules": {},
   "env": {
     "builtin": true
-  }
+  },
+  "overrides": [
+    {
+      "files": ["packages/*/src/**"],
+      "rules": {
+        "no-restricted-globals": [
+          "error",
+          { "name": "document", "message": "Use the chart's doc, from the element it was made in." },
+          { "name": "window", "message": "Use the chart's win, from the element it was made in." },
+          "devicePixelRatio",
+          "matchMedia",
+          "getComputedStyle",
+          "requestAnimationFrame",
+          "cancelAnimationFrame",
+          "ResizeObserver",
+          "MutationObserver",
+          "setTimeout",
+          "clearTimeout"
+        ]
+      }
+    }
+  ]
 }

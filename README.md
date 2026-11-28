@@ -98,11 +98,11 @@ Gzip size of the minified bundle of each entry in `site/scripts/size/`, built fr
 | entry              | imports                                                 |   KB |
 | ------------------ | ------------------------------------------------------- | ---: |
 | plot-line          | `plot` and `line` from `swiftplot`                      | 14.4 |
-| plot-line-features | the same with `tooltip`, `legend`, `zoom` and `animate` | 19.0 |
-| line-chart         | `lineChart` from `swiftplot/charts`                     | 37.5 |
+| plot-line-features | the same with `tooltip`, `legend`, `zoom` and `animate` | 19.1 |
+| line-chart         | `lineChart` from `swiftplot/charts`                     | 37.6 |
 | all-charts         | every chart of `swiftplot/charts`                       | 54.7 |
-| react-line-chart   | `LineChart` from `@swiftplot/react`, React not counted  | 56.2 |
-| vue-line-chart     | `LineChart` from `@swiftplot/vue`, Vue not counted      | 57.2 |
+| react-line-chart   | `LineChart` from `@swiftplot/react`, React not counted  | 39.3 |
+| vue-line-chart     | `LineChart` from `@swiftplot/vue`, Vue not counted      | 39.8 |
 
 On chart-bench's page, which bundles `plot`, `line`, `area`, `ticks`, `dots`, `tooltip` and `animate`, swiftplot 0.5.0 adds 19.3 KB and uPlot 23.9 KB (`results/bundle.json`: the arm's page less the same page with no chart). uPlot ships more in its size: it is one module that comes whole, with its legend, cursor, selection and series types whether a page uses them or not.
 

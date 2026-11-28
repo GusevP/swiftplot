@@ -330,6 +330,13 @@ export type Painter = (draw: (reveal?: number) => void, why: 'data' | 'size' | '
  * work from that paint on.
  */
 export type Internals = {
+  /** The document of the element the chart was made in, which creates its nodes and takes its listeners. */
+  doc: Document;
+  /**
+   * That document's window, or this one when it has none: frames, timers, observers, media queries and
+   * styles are asked of it.
+   */
+  win: Window & typeof globalThis;
   root: HTMLElement;
   /** The 2D canvas holding the grid and every mark that is not on WebGL. */
   canvas: HTMLCanvasElement;

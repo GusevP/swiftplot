@@ -96,7 +96,8 @@ const hostStyle = (style: unknown) =>
 const FALLBACK = 'data-swiftplot-fallback';
 const LAYER = 'data-swiftplot-fallback-layer';
 const styles = new WeakMap<Node, HTMLStyleElement>();
-let detached: ResizeObserver | undefined;
+const detached = new WeakMap<Window, ResizeObserver>();
+const windowOf = (el: Node) => (el.ownerDocument?.defaultView ?? globalThis) as Window & typeof globalThis;
 
 /**
  * Lowest priority: with no height from the app, fill a parent that has one, else 300 px. A rule in the
@@ -105,17 +106,23 @@ let detached: ResizeObserver | undefined;
  * once it is laid out.
  */
 function fallback(el: HTMLElement) {
+  const win = windowOf(el);
+  let observer = detached.get(win);
   if (!el.isConnected) {
-    (detached ??= new ResizeObserver(entries => {
-      for (const { target } of entries) if (target.isConnected) fallback(target as HTMLElement);
-    })).observe(el);
+    if (!observer) {
+      observer = new win.ResizeObserver(entries => {
+        for (const { target } of entries) if (target.isConnected) fallback(target as HTMLElement);
+      });
+      detached.set(win, observer);
+    }
+    observer.observe(el);
     return;
   }
-  detached?.unobserve(el);
+  observer?.unobserve(el);
   const contain = el.style.contain;
   el.removeAttribute(FALLBACK);
   el.style.contain = 'size';
-  const cs = getComputedStyle(el);
+  const cs = win.getComputedStyle(el);
   for (const h of ['fill', 'fixed']) {
     if (el.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom) > 0) break;
     sheet(el);
@@ -145,7 +152,7 @@ function sheet(el: HTMLElement) {
   // A script that also keeps its node first would move it back forever, so a burst of moves ends the watch.
   let moves = 0;
   let since = 0;
-  const first = new MutationObserver(() => {
+  const first = new (windowOf(el).MutationObserver)(() => {
     if (style.parentNode !== parent) return first.disconnect();
     const head = parent.firstChild;
     if (head?.nodeName === 'STYLE' && (head as Element).hasAttribute(LAYER)) return;
@@ -178,12 +185,12 @@ const Overlay = defineComponent({
 
 export function bind<P extends Sized, T extends Declared<P> = Declared<P>>(
   chart: Mount<P>,
-  declared: T & Record<Exclude<keyof T, keyof Declared<P>>, never>,
+  declared: () => T & Record<Exclude<keyof T, keyof Declared<P>>, never>,
 ): Component {
   return defineComponent({
     inheritAttrs: false,
     props: {
-      ...(declared as ComponentObjectPropsOptions),
+      ...(declared() as ComponentObjectPropsOptions),
       onError: null,
       ...Object.fromEntries(Object.values(LISTENERS).map(e => [toHandlerKey(e), null])),
     },
@@ -297,7 +304,9 @@ export function bind<P extends Sized, T extends Declared<P> = Declared<P>>(
         if (slotted !== !!slots.default) sync();
       });
       onBeforeUnmount(() => {
-        detached?.unobserve(host.value!);
+        // A Suspense boundary unmounted while pending never set the ref.
+        if (!host.value) return;
+        detached.get(windowOf(host.value))?.unobserve(host.value);
         bound?.destroy();
         bound = undefined;
       });

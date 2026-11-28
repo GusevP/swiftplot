@@ -1,4 +1,4 @@
-import { extend, resolver } from './color.js';
+import { extend, resolver, windowOf } from './color.js';
 import { copied, keep, sameData } from './equal.js';
 import { owns, position, presses, released, strayed } from './features/pointer.js';
 import { upTo } from './marks/common.js';
@@ -93,12 +93,14 @@ const clamp = (want: Span | undefined, [p, q]: Span): Span | undefined => {
  */
 export function plot(el: HTMLElement, options: Options): Chart {
   let o = options;
-  let dpr = devicePixelRatio;
-  const root = document.createElement('div');
+  const doc = el.ownerDocument;
+  const win = windowOf(el);
+  let dpr = win.devicePixelRatio;
+  const root = doc.createElement('div');
   root.style.cssText = `position:relative;font:${FONT};pointer-events:auto`;
   let overlay: HTMLElement | undefined;
   const layer = <K extends keyof HTMLElementTagNameMap>(tag: K, css = '') => {
-    const e = document.createElement(tag);
+    const e = doc.createElement(tag);
     e.style.cssText = `position:absolute;pointer-events:none;${css}`;
     return root.insertBefore(e, overlay?.parentNode === root ? overlay : null);
   };
@@ -332,7 +334,7 @@ export function plot(el: HTMLElement, options: Options): Chart {
     if (key === noted) return;
     noted = key;
     boxes = kept.map(k => {
-      const el = document.createElement('div');
+      const el = doc.createElement('div');
       el.textContent = k.text;
       el.style.cssText = `position:absolute;white-space:nowrap;line-height:16px;left:${k.l}px;top:${k.t}px;width:${k.r - k.l}px;text-align:center`;
       if (k.color) el.style.color = k.color;
@@ -360,7 +362,7 @@ export function plot(el: HTMLElement, options: Options): Chart {
     }
     lines.replaceChildren(
       ...wanted.map(r => {
-        const e = document.createElement('div');
+        const e = doc.createElement('div');
         const w = Number(r.width) / dpr;
         const along = (at: number, lo: number, size: number) =>
           Math.min(Math.max(Math.round(at - r.width / 2) / dpr, lo / dpr), (lo + size) / dpr - w);
@@ -659,9 +661,9 @@ export function plot(el: HTMLElement, options: Options): Chart {
     if (key !== axesKey) {
       axesKey = key;
       // Axis text is DOM, not fillText: the first text drawn on a canvas cost ~20 ms at 4x CPU slowdown.
-      const labels = document.createDocumentFragment();
+      const labels = doc.createDocumentFragment();
       const text = (s: string, x: number, y: number, transform: string) => {
-        const e = document.createElement('div');
+        const e = doc.createElement('div');
         e.textContent = s;
         e.style.cssText = `position:absolute;white-space:nowrap;left:${x}px;top:${y}px;transform:${transform}`;
         labels.appendChild(e);
@@ -1012,6 +1014,8 @@ export function plot(el: HTMLElement, options: Options): Chart {
     return next;
   };
   const internals: Internals = {
+    doc,
+    win,
     root,
     canvas,
     get overlay() {
@@ -1238,8 +1242,8 @@ export function plot(el: HTMLElement, options: Options): Chart {
     if (on === tracking) return;
     tracking = on;
     for (const type of RELEASES)
-      if (on) document.addEventListener(type, release, true);
-      else document.removeEventListener(type, release, true);
+      if (on) doc.addEventListener(type, release, true);
+      else doc.removeEventListener(type, release, true);
   };
   const adopt = (e: HTMLElement) => {
     const changed = () => {
@@ -1337,7 +1341,7 @@ export function plot(el: HTMLElement, options: Options): Chart {
   // A density query matches one value only, so each change is listened for once and asked for again.
   let density: MediaQueryList | undefined;
   const redensify = () => {
-    dpr = devicePixelRatio;
+    dpr = win.devicePixelRatio;
     fit(canvas);
     if (glCanvas) fit(glCanvas);
     watch();
@@ -1346,7 +1350,7 @@ export function plot(el: HTMLElement, options: Options): Chart {
     report();
   };
   const watch = () => {
-    density = matchMedia(`(resolution: ${dpr}dppx)`);
+    density = win.matchMedia(`(resolution: ${dpr}dppx)`);
     density.addEventListener('change', redensify, { once: true });
   };
   const teardown = () => {
@@ -1378,7 +1382,7 @@ export function plot(el: HTMLElement, options: Options): Chart {
     root.addEventListener('pointerdown', point);
     root.addEventListener('pointermove', point, true);
     if (refresh(true)) sync();
-    observer = new ResizeObserver(() => {
+    observer = new win.ResizeObserver(() => {
       letGo();
       if (refresh(false, measure() ? 'size' : undefined)) sync();
       report();

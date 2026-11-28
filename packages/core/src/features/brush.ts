@@ -14,7 +14,7 @@ export type BrushOptions = {
 export function brush(b: BrushOptions = {}): Feature {
   const [bx, by] = (['x', 'y'] as const).map(k => (b.axes ?? 'x').includes(k));
   return chart => {
-    const { drag } = chart;
+    const { drag, doc } = chart;
     drag.brush = true;
     const shade = chart.layer('div', 'display:none;opacity:0.2');
     let reported = false;
@@ -41,11 +41,11 @@ export function brush(b: BrushOptions = {}): Feature {
       const { px, py, over } = locate(chart, e);
       if (!over) return;
       from = { id: e.pointerId, x: px, y: py };
-      document.addEventListener('pointermove', move, true);
-      document.addEventListener('pointerup', up, true);
-      document.addEventListener('pointercancel', cancel, true);
-      document.addEventListener('keydown', key, true);
-      document.addEventListener('selectstart', unselect, true);
+      doc.addEventListener('pointermove', move, true);
+      doc.addEventListener('pointerup', up, true);
+      doc.addEventListener('pointercancel', cancel, true);
+      doc.addEventListener('keydown', key, true);
+      doc.addEventListener('selectstart', unselect, true);
       clear();
     };
     const move = (e: PointerEvent) => {
@@ -83,11 +83,11 @@ export function brush(b: BrushOptions = {}): Feature {
     };
     const end = () => {
       from = undefined;
-      document.removeEventListener('pointermove', move, true);
-      document.removeEventListener('pointerup', up, true);
-      document.removeEventListener('pointercancel', cancel, true);
-      document.removeEventListener('keydown', key, true);
-      document.removeEventListener('selectstart', unselect, true);
+      doc.removeEventListener('pointermove', move, true);
+      doc.removeEventListener('pointerup', up, true);
+      doc.removeEventListener('pointercancel', cancel, true);
+      doc.removeEventListener('keydown', key, true);
+      doc.removeEventListener('selectstart', unselect, true);
       if (drag.active) settling = settle(chart);
     };
     const cancel = (e: PointerEvent) => {
@@ -124,7 +124,7 @@ export function brush(b: BrushOptions = {}): Feature {
         gone = true;
         from = undefined;
         end();
-        clearTimeout(settling);
+        chart.win.clearTimeout(settling);
         drag.brush = drag.active = false;
         chart.root.removeEventListener('pointerdown', down);
         shade.remove();

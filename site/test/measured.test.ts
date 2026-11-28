@@ -35,6 +35,12 @@ test("each first draw is the README's script time for swiftplot", () => {
   for (const c of firstDraw.cases) expect(table.cell(c.row, 'swiftplot'), c.row).toBe(c.ms.toFixed(1));
 });
 
+test('a wrapper with one chart imported is closer to that chart alone than to every chart', () => {
+  const bound = (sizes['line-chart'] + sizes['all-charts']) / 2;
+  expect(sizes['react-line-chart']).toBeLessThan(bound);
+  expect(sizes['vue-line-chart']).toBeLessThan(bound);
+});
+
 test('the size table is sizes.json, one row per entry', () => {
   const table = tableAfter('Gzip size of the minified bundle');
   expect(table.rows).toHaveLength(Object.keys(sizes).length);

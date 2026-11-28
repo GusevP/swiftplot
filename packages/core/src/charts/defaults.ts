@@ -1,3 +1,4 @@
+import { windowOf } from '../color.js';
 import { palette, paletteDark } from '../paint.js';
 import { dark, light, type Theme } from '../theme.js';
 import type { Col, Span } from '../types.js';
@@ -112,17 +113,18 @@ export function themeOf(
   onChange: (theme: Theme) => void,
 ): { theme: Theme; dispose(): void } {
   const none = () => {};
+  const win = windowOf(el);
   if (prop === 'light') return { theme: light, dispose: none };
   if (prop === 'dark') return { theme: dark, dispose: none };
   if (prop !== undefined && prop !== 'auto') return { theme: prop, dispose: none };
   const fixed = () => {
-    const words = getComputedStyle(el).colorScheme.split(/\s+/);
+    const words = win.getComputedStyle(el).colorScheme.split(/\s+/);
     if (!words.includes('dark')) return light;
     return words.includes('light') ? undefined : dark;
   };
   const theme = fixed();
   if (theme) return { theme, dispose: none };
-  const mq = matchMedia('(prefers-color-scheme: dark)');
+  const mq = win.matchMedia('(prefers-color-scheme: dark)');
   const resolve = () => fixed() ?? (mq.matches ? dark : light);
   const listen = () => onChange(resolve());
   mq.addEventListener('change', listen);

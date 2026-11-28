@@ -15,6 +15,7 @@ export function textWidth(s: string): number {
   let w = widths.get(s);
   if (w !== undefined) return w;
   if (pen === undefined) {
+    // oxlint-disable-next-line no-restricted-globals -- one canvas for every window: FONT is the same in all of them
     pen = typeof document === 'undefined' ? null : document.createElement('canvas').getContext('2d');
     if (pen) pen.font = FONT;
   }

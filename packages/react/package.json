@@ -35,7 +35,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.node.json",
-    "test": "vitest run",
+    "test": "vitest run && NODE_ENV=production vitest run -c vitest.production.config.ts --reporter=verbose",
     "test:import": "node test/import.mjs"
   },
   "peerDependencies": {

@@ -6,7 +6,7 @@ export const unselect = (e: Event) => e.preventDefault();
 
 /** Clears `drag.active` after the click the browser sends for this release, which a drag must not count as one. */
 export const settle = (chart: Internals) =>
-  setTimeout(() => {
+  chart.win.setTimeout(() => {
     chart.drag.active = false;
     chart.sync();
   }, 0);
@@ -40,7 +40,8 @@ export const released = ({ overlay }: Internals, e: PointerEvent) =>
 export const strayed = ({ overlay }: Internals, e: MouseEvent) => {
   const held = overlay && presses.get(overlay)?.held;
   // Some browsers send a click as a MouseEvent, which does not name its pointer, and so are double clicks.
-  return !!held && (e instanceof PointerEvent ? held.has(e.pointerId) : held.size > 0);
+  const id = (e as Partial<PointerEvent>).pointerId;
+  return !!held && (id === undefined ? held.size > 0 : held.has(id));
 };
 
 /** Whether a hover is the chart's own: on it or on the app's DOM over it, and not on a control such as a legend's. */

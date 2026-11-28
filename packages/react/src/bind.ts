@@ -76,12 +76,14 @@ const callback = (k: string) => /^on[A-Z]/.test(k);
 const changed = (was: Props, now: Props) =>
   [...new Set([...Object.keys(was), ...Object.keys(now)])].filter(k => !Object.is(was[k], now[k]));
 
+// oxlint-disable-next-line no-restricted-globals -- a check for a DOM, made once on load with no element to ask
 const useLayout = typeof document === 'undefined' ? useEffect : useLayoutEffect;
 
 const FALLBACK = 'data-swiftplot-fallback';
 const LAYER = 'data-swiftplot-fallback-layer';
 const styles = new WeakMap<Node, HTMLStyleElement>();
-let detached: ResizeObserver | undefined;
+const detached = new WeakMap<Window, ResizeObserver>();
+const windowOf = (el: Node) => (el.ownerDocument?.defaultView ?? globalThis) as Window & typeof globalThis;
 
 /**
  * Lowest priority: with no height from the app, fill a parent that has one, else 300 px. A rule in the
@@ -90,17 +92,23 @@ let detached: ResizeObserver | undefined;
  * once it is laid out.
  */
 function fallback(el: HTMLElement) {
+  const win = windowOf(el);
+  let observer = detached.get(win);
   if (!el.isConnected) {
-    (detached ??= new ResizeObserver(entries => {
-      for (const { target } of entries) if (target.isConnected) fallback(target as HTMLElement);
-    })).observe(el);
+    if (!observer) {
+      observer = new win.ResizeObserver(entries => {
+        for (const { target } of entries) if (target.isConnected) fallback(target as HTMLElement);
+      });
+      detached.set(win, observer);
+    }
+    observer.observe(el);
     return;
   }
-  detached?.unobserve(el);
+  observer?.unobserve(el);
   const contain = el.style.contain;
   el.removeAttribute(FALLBACK);
   el.style.contain = 'size';
-  const cs = getComputedStyle(el);
+  const cs = win.getComputedStyle(el);
   for (const h of ['fill', 'fixed']) {
     if (el.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom) > 0) break;
     sheet(el);
@@ -130,7 +138,7 @@ function sheet(el: HTMLElement) {
   // A script that also keeps its node first would move it back forever, so a burst of moves ends the watch.
   let moves = 0;
   let since = 0;
-  const first = new MutationObserver(() => {
+  const first = new (windowOf(el).MutationObserver)(() => {
     if (style.parentNode !== parent) return first.disconnect();
     const head = parent.firstChild;
     if (head?.nodeName === 'STYLE' && (head as Element).hasAttribute(LAYER)) return;
@@ -258,7 +266,7 @@ export function bind<P extends Sized>(chart: Mount<P>): FunctionComponent<P & Ho
     useLayout(() => {
       const el = host.current!;
       return () => {
-        detached?.unobserve(el);
+        detached.get(windowOf(el))?.unobserve(el);
         bound.current.chart?.destroy();
         bound.current = {};
         store.clear('layout');

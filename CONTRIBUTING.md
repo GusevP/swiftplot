@@ -12,7 +12,7 @@ swiftplot is before 1.0, so its API may still change between minor versions. Eve
 
 ## Develop
 
-From the repository root. `build`, `test` and `typecheck` run in every package under `packages/` and in the site (`site/`), `test:import` in the packages only. GitHub runs these checks, re-measures the bundle sizes, then packs the packages and checks the tarballs, on every push to `main` and every pull request (`.github/workflows/ci.yml`, read-only):
+From the repository root. `build` and `typecheck` run in every package under `packages/` and in the site (`site/`), `test` there and in `tests/`, whose two private packages run the wrappers' tests on the lowest React and Vue they support, `test:import` in the packages only. GitHub runs these checks, re-measures the bundle sizes, then packs the packages and checks the tarballs, on every push to `main` and every pull request (`.github/workflows/ci.yml`, read-only):
 
 ```sh
 pnpm install

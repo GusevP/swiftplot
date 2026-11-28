@@ -25,8 +25,8 @@ export type AnimateOptions = {
 export function animate({ duration = 300, enter = 'reveal' }: AnimateOptions = {}): Feature {
   if (!Number.isFinite(duration) || duration <= 0) return () => ({ destroy() {} });
   return chart => {
-    const { canvas } = chart;
-    const motion = matchMedia('(prefers-reduced-motion: reduce)');
+    const { canvas, win } = chart;
+    const motion = win.matchMedia('(prefers-reduced-motion: reduce)');
     const ctx = canvas.getContext('2d')!;
     const from = new OffscreenCanvas(0, 0);
     const to = new OffscreenCanvas(0, 0);
@@ -42,7 +42,7 @@ export function animate({ duration = 300, enter = 'reveal' }: AnimateOptions = {
       picture.getContext('2d')!.drawImage(canvas, 0, 0);
     };
     const stop = () => {
-      cancelAnimationFrame(frame);
+      win.cancelAnimationFrame(frame);
       frame = 0;
       entering = false;
       shown = undefined;
@@ -50,7 +50,7 @@ export function animate({ duration = 300, enter = 'reveal' }: AnimateOptions = {
       chart.morph(1);
     };
     const run = (step: (t: number) => void, drawn = false) => {
-      const start = performance.now();
+      const start = win.performance.now();
       const show = (e: number) => {
         step(e);
         shown = () => step(e);
@@ -58,11 +58,11 @@ export function animate({ duration = 300, enter = 'reveal' }: AnimateOptions = {
       const tick = (now: number) => {
         const t = motion.matches ? 1 : Math.min(1, Math.max(0, (now - start) / duration));
         show(1 - (1 - t) ** 3);
-        if (t < 1) frame = requestAnimationFrame(tick);
+        if (t < 1) frame = win.requestAnimationFrame(tick);
         else stop();
       };
       if (!drawn) show(0);
-      frame = requestAnimationFrame(tick);
+      frame = win.requestAnimationFrame(tick);
     };
     // 'copy' replaces the canvas with what is drawn, so the pictures need no clearing first.
     const blend = (mix: (t: number) => void) => (t: number) => {
@@ -100,7 +100,7 @@ export function animate({ duration = 300, enter = 'reveal' }: AnimateOptions = {
       }
       const now = performance.now();
       const still =
-        why !== 'data' || frame !== 0 || now - last < duration || document.hidden || motion.matches;
+        why !== 'data' || frame !== 0 || now - last < duration || chart.doc.hidden || motion.matches;
       stop();
       if (why === 'data') last = now;
       const first = !entered;

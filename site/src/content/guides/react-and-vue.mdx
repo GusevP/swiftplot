@@ -152,6 +152,12 @@ The fallback is a `<style>` kept first in the document's head, or in the shadow 
 with no height. Under a Content Security Policy that blocks inline styles, give every chart a height: `height`, `style`
 or CSS. A chart mounted in a detached element falls back once the element is attached.
 
+A chart rendered into another window, through `createPortal` in React or `<Teleport>` in Vue, works there: the
+component is mounted in that window, so nothing has to be destroyed by hand. A Teleport whose `to` or `disabled` changes
+moves the chart to another document without remounting it, and the chart keeps the first window. `to` for another
+window is an element, not a string, so key the Teleport on an id the app keeps for each window or target, such as
+`:key="disabled ? 'inline' : targetId"`.
+
 ## Errors
 
 A missing field, or an accessor or formatter that throws, goes to `onError` in React or `@error` in Vue, and the last

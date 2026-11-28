@@ -29,7 +29,7 @@ const FOCUS_PX = 30;
 
 export function tooltip(t: TooltipOptions): Feature {
   return chart => {
-    const { root } = chart;
+    const { root, doc } = chart;
     const cross = chart.layer('div', 'display:none;border-left:1px dashed');
     const tip = chart.layer(
       'div',
@@ -54,7 +54,7 @@ export function tooltip(t: TooltipOptions): Feature {
       const { width, height } = chart.size();
       tip.replaceChildren(
         ...rows.map(r => {
-          const e = document.createElement('div');
+          const e = doc.createElement('div');
           e.textContent = r.text;
           if (r.color) e.style.color = chart.color(r.color);
           return e;
@@ -200,7 +200,7 @@ export function tooltip(t: TooltipOptions): Feature {
     root.addEventListener('pointerup', release, true);
     root.addEventListener('pointerleave', lift);
     root.addEventListener('pointercancel', out);
-    document.addEventListener('pointerdown', away, true);
+    doc.addEventListener('pointerdown', away, true);
     return {
       update() {
         restyle();
@@ -214,7 +214,7 @@ export function tooltip(t: TooltipOptions): Feature {
         root.removeEventListener('pointerup', release, true);
         root.removeEventListener('pointerleave', lift);
         root.removeEventListener('pointercancel', out);
-        document.removeEventListener('pointerdown', away, true);
+        doc.removeEventListener('pointerdown', away, true);
         cross.remove();
         tip.remove();
       },

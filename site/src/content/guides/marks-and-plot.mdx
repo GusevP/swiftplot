@@ -38,6 +38,12 @@ and leaves `view`, `hidden`, `selected` and `pointer` alone unless given. `use` 
 included, and anything else, such as typed arrays, functions and `Date`s, by identity; `plain(v)` tells whether `v` is
 a plain object or array.
 
+## Another window
+
+A chart works in the window its element is in: a popup, Document Picture-in-Picture or an iframe, with the library
+loaded in the page that opened it. It reads that window once, when it is made. To move a live chart to another window,
+destroy it, move the element and make the chart again.
+
 ## Columns
 
 A mark takes columns, not rows: `x`, `y` and the like are typed arrays or plain number arrays, one set per mark.
